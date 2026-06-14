@@ -1,6 +1,6 @@
 {
   "name": "xdp-pdf-render",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP/Adobe dependency",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
