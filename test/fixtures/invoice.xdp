@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xfa generator="AdobeLiveCycleDesigner_V11.0.9" APIVersion="3.6.0.0"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/" timeStamp="2026-01-01T00:00:00Z">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb" locale="en_US">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="19.05mm" y="34.925mm" w="171.45mm" h="228.6mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+
+      <subform name="mainpage" layout="tb">
+        <!-- Front Page Details Table -->
+        <subform name="FrontPageDetailsTable" layout="table" columnWidths="94.743mm 76.82mm">
+          <subform layout="row" name="OEM_OfferResponsible">
+            <field name="OEM" w="51.067mm" minH="6.353mm" access="readOnly">
+              <ui><textEdit multiLine="1"><border presence="hidden"/></textEdit></ui>
+              <font typeface="Helvetica" size="8pt"/>
+              <caption reserve="31.25mm">
+                <font typeface="Helvetica" size="8pt" weight="bold"/>
+                <value><text>OEM</text></value>
+              </caption>
+              <para vAlign="middle"/>
+              <bind match="dataRef" ref="$.Quotation.OEM"/>
+            </field>
+            <field name="ProjectName" w="76.82mm" access="readOnly">
+              <ui><textEdit multiLine="1"/></ui>
+              <font typeface="Helvetica" size="8pt"/>
+              <caption reserve="31.25mm">
+                <value><text>Project</text></value>
+              </caption>
+              <bind match="dataRef" ref="$.Quotation.ProjectName"/>
+            </field>
+            <bind match="none"/>
+          </subform>
+        </subform>
+
+        <!-- Revision History Table -->
+        <subform name="RevisionHistoryTable" layout="table" columnWidths="10mm 26.503mm 135.214mm">
+          <subform layout="row" name="RevisionHistoryData">
+            <field name="Rev" access="readOnly" minH="4.833mm">
+              <ui><numericEdit/></ui>
+              <bind match="dataRef" ref="$.revision"/>
+            </field>
+            <field name="Date" access="readOnly" minH="4.833mm">
+              <ui><dateTimeEdit/></ui>
+              <bind match="dataRef" ref="$.date"/>
+            </field>
+            <field name="Description" access="readOnly" minH="4.833mm">
+              <ui><textEdit multiLine="1"/></ui>
+              <bind match="dataRef" ref="$.description"/>
+            </field>
+            <bind match="dataRef" ref="$.revisionHistory[*]"/>
+            <occur max="-1"/>
+          </subform>
+        </subform>
+
+        <!-- Currency field -->
+        <field name="Currency" w="50mm" minH="6mm" access="readOnly">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="8pt"/>
+          <caption reserve="25mm">
+            <value><text>Currency</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.outputCurrency"/>
+        </field>
+
+      </subform>
+    </subform>
+  </template>
+  <config xmlns="http://www.xfa.org/schema/xci/3.0/">
+    <present>
+      <pdf><version>1.7</version></pdf>
+    </present>
+    <psMap>
+      <font typeface="Helvetica" psName="Helvetica" weight="normal" posture="normal"/>
+    </psMap>
+  </config>
+  <connectionSet xmlns="http://www.xfa.org/schema/xfa-connection-set/2.8/">
+    <xsdConnection name="DataConnection" dataDescription="value">
+      <uri>.\invoice.xsd</uri>
+      <rootElement>value</rootElement>
+    </xsdConnection>
+  </connectionSet>
+</xdp:xdp>

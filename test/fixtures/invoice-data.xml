@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<value>
+  <Quotation>
+    <ProjectName>Refinery Expansion Phase 2</ProjectName>
+    <OEM>Acme Pumps Ltd</OEM>
+    <LeadID>42</LeadID>
+    <OfferDate>2026-06-03</OfferDate>
+    <Revision>1</Revision>
+  </Quotation>
+  <outputCurrency>EUR</outputCurrency>
+  <commercialTotalSales>45000.00</commercialTotalSales>
+  <revisionHistory>
+    <revision>0</revision>
+    <date>2026-05-01</date>
+    <description>Initial draft</description>
+  </revisionHistory>
+  <revisionHistory>
+    <revision>1</revision>
+    <date>2026-06-03</date>
+    <description>Updated pricing</description>
+  </revisionHistory>
+</value>

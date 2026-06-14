@@ -1,0 +1,18 @@
+{
+  "subform": "parseSubform",
+  "field": "parseField",
+  "draw": "parseDraw",
+  "pageSet": "parsePageSet",
+  "pageArea": "parsePageArea",
+  "contentArea": "parseContentArea",
+  "medium": "parseMedium",
+  "font": "parseFont",
+  "bind": "parseBind",
+  "occur": "parseOccur",
+  "caption": "parseCaption",
+  "para": "parsePara",
+  "event": "parseEvent",
+  "ui": "parseUi",
+  "value": "parseValue",
+  "margin": "parseMargin"
+}

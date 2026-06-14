@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "supported": {
+    "layouts": ["tb", "lr", "table", "row", "position"],
+    "fieldTypes": ["textEdit", "numericEdit", "dateTimeEdit", "imageEdit"],
+    "presenceValues": ["visible", "hidden", "invisible", "inactive"],
+    "xsdTypes": ["string", "int", "byte", "short", "integer", "decimal", "float", "date", "dateTime", "anyURI"],
+    "templateNamespaces": [
+      "http://www.xfa.org/schema/xfa-template/2.8/",
+      "http://www.xfa.org/schema/xfa-template/3.3/",
+      "http://www.xfa.org/schema/xfa-template/3.6/"
+    ],
+    "maxOccurLimit": 10000,
+    "maxInputSizeBytes": 10485760
+  },
+  "unsupported": {
+    "features": ["fullXfaScripting", "formCalc", "acroForms", "exclGroup", "checkButton", "choiceList"],
+    "partialSupport": ["richTextExData", "xfaCalculateScripts", "conditionalScripts"]
+  }
+}

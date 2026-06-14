@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xfa generator="AdobeLiveCycleDesigner_V11.0.9" APIVersion="3.6.0.0"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/" timeStamp="2026-01-01T00:00:00Z">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb" locale="en_US">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="19.05mm" y="19.05mm" w="171.45mm" h="257.35mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <subform name="content" layout="tb">
+        <field name="name" w="100mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="30mm">
+            <font typeface="Helvetica" size="10pt" weight="bold"/>
+            <value><text>Name</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.name"/>
+        </field>
+        <field name="description" w="100mm" minH="6mm">
+          <ui><textEdit multiLine="1"/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="30mm">
+            <value><text>Description</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.description"/>
+        </field>
+      </subform>
+    </subform>
+  </template>
+  <config xmlns="http://www.xfa.org/schema/xci/3.0/">
+    <present>
+      <pdf>
+        <version>1.7</version>
+      </pdf>
+    </present>
+  </config>
+  <connectionSet xmlns="http://www.xfa.org/schema/xfa-connection-set/2.8/">
+    <xsdConnection name="DataConnection" dataDescription="value">
+      <uri>.\minimal.xsd</uri>
+      <rootElement>value</rootElement>
+    </xsdConnection>
+  </connectionSet>
+</xdp:xdp>
