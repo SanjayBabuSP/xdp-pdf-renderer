@@ -19,12 +19,13 @@ program
   .requiredOption('--xsd <file>', 'Path to the XSD schema file')
   .requiredOption('--data <file>', 'Path to the XML data file (use - for stdin)')
   .option('-o, --output <file>', 'Output PDF file path', 'output.pdf')
+  .option('--lenient', 'Tolerate missing required schema fields instead of failing (for real-world data exports with optional/unexpanded elements)', false)
   .action(async (opts) => {
     const xdp = readFile(opts.xdp, '--xdp');
     const xsd = readFile(opts.xsd, '--xsd');
     const data = opts.data === '-' ? readStdin() : readFile(opts.data, '--data');
 
-    const result = await render({ xdp, xsd, data });
+    const result = await render({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
 
     if (!result.success) {
       process.stderr.write(`Error: ${result.error.message}\nCode: ${result.error.code}\n`);
@@ -45,13 +46,14 @@ program
   .requiredOption('--xdp <file>', 'Path to the XDP template file')
   .requiredOption('--xsd <file>', 'Path to the XSD schema file')
   .requiredOption('--data <file>', 'Path to the XML data file')
+  .option('--lenient', 'Tolerate missing required schema fields instead of failing', false)
   .action(async (opts) => {
     const xdp = readFile(opts.xdp, '--xdp');
     const xsd = readFile(opts.xsd, '--xsd');
     const data = readFile(opts.data, '--data');
 
     // Use a minimal render that stops before PDF generation
-    const result = await render({ xdp, xsd, data });
+    const result = await render({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
 
     if (!result.success) {
       process.stderr.write(`Validation failed: ${result.error.message}\nCode: ${result.error.code}\n`);

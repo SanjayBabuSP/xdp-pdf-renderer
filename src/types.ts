@@ -34,8 +34,30 @@ export interface FontSpec {
   posture?: string;
 }
 
+export interface RgbColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export interface EdgeSpec {
+  presence?: string;
+  thickness?: number; // points
+  color?: RgbColor;
+  style?: string; // solid | dashed | dotted | embossed | etched | lowered | raised
+}
+
+export interface FillSpec {
+  presence?: string;
+  color?: RgbColor;
+}
+
 export interface BorderSpec {
   presence?: string;
+  /** 1 edge = applies to all 4 sides; 4 edges = [top, right, bottom, left]. */
+  edges?: EdgeSpec[];
+  fill?: FillSpec;
+  cornerRadius?: number;
 }
 
 export interface MarginSpec {
@@ -99,6 +121,8 @@ export interface SubformNode {
   restoreState?: string;
   presence?: PresenceValue;
   margin?: MarginSpec;
+  border?: BorderSpec;
+  position?: Position;
 }
 
 export interface FieldNode {
@@ -119,15 +143,17 @@ export interface FieldNode {
   resolvedValue?: unknown;
   margin?: MarginSpec;
   colSpan?: number;
+  border?: BorderSpec;
 }
 
 export interface DrawNode {
   type: 'draw';
   name?: string;
   value?: {
-    type: 'text' | 'image' | 'richText';
+    type: 'text' | 'image' | 'richText' | 'rectangle' | 'line';
     contentType?: string;
     content?: string;
+    shapeBorder?: BorderSpec;
   };
   font?: FontSpec;
   position?: Position;
@@ -135,6 +161,7 @@ export interface DrawNode {
   resolvedValue?: unknown;
   ui?: UiSpec;
   margin?: MarginSpec;
+  border?: BorderSpec;
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode;
@@ -238,6 +265,10 @@ export interface RenderOptions {
   fonts?: Record<string, string>;
   pageHeight?: number;
   maxInputSize?: number;
+  /** Hard-fail on missing required schema fields. Default true. Set false to tolerate real-world
+   *  XFA data instances (e.g. SAP OData exports) that commonly omit optional navigation properties
+   *  even when the XSD lacks minOccurs="0". */
+  strictValidation?: boolean;
 }
 
 // ─── Positioned / Paginated Layout ───────────────────────────────────────────

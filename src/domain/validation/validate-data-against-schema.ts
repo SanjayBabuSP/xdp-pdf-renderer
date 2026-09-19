@@ -6,10 +6,26 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/;
 const URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/;
 
-/** Validate an XML data object against a schema model. Collects ALL errors. */
-export function validateDataAgainstSchema(data: DataObject, schema: SchemaModel): Result<DataObject> {
+export interface ValidateOptions {
+  /** When true, missing required fields are hard errors. Default true (backward compatible). */
+  strict?: boolean;
+}
+
+/**
+ * Validate an XML data object against a schema model. Collects ALL errors.
+ * In non-strict mode (strict: false), missing required fields are tolerated: real-world XFA data
+ * instances (e.g. SAP OData exports) routinely omit optional navigation properties even when the
+ * XSD does not declare minOccurs="0". Type mismatches always fail, since they indicate data that
+ * cannot be rendered correctly.
+ */
+export function validateDataAgainstSchema(
+  data: DataObject,
+  schema: SchemaModel,
+  options: ValidateOptions = {}
+): Result<DataObject> {
+  const strict = options.strict ?? true;
   const errors: string[] = [];
-  walkFields(data, schema.fields, '', errors);
+  walkFields(data, schema.fields, '', errors, strict);
 
   if (errors.length > 0) {
     return failure(ERROR_CODES.VALIDATION_FAILED.code, ERROR_CODES.VALIDATION_FAILED.message, errors);
@@ -17,17 +33,29 @@ export function validateDataAgainstSchema(data: DataObject, schema: SchemaModel)
   return success(data);
 }
 
-function walkFields(data: DataObject, fields: SchemaFields, path: string, errors: string[]): void {
+function walkFields(
+  data: DataObject,
+  fields: SchemaFields,
+  path: string,
+  errors: string[],
+  strict: boolean
+): void {
   for (const [name, fieldDef] of Object.entries(fields)) {
     const fieldPath = path ? `${path}.${name}` : name;
     const value = data[name];
-    validateField(value, fieldDef, fieldPath, errors);
+    validateField(value, fieldDef, fieldPath, errors, strict);
   }
 }
 
-function validateField(value: unknown, fieldDef: SchemaField, path: string, errors: string[]): void {
+function validateField(
+  value: unknown,
+  fieldDef: SchemaField,
+  path: string,
+  errors: string[],
+  strict: boolean
+): void {
   if (value == null || value === undefined) {
-    if (fieldDef.required) errors.push(`Missing required field: ${path}`);
+    if (fieldDef.required && strict) errors.push(`Missing required field: ${path}`);
     return;
   }
 
@@ -39,7 +67,7 @@ function validateField(value: unknown, fieldDef: SchemaField, path: string, erro
   if (Array.isArray(value)) {
     // Recurse into each item using a non-repeating copy to avoid false "should be array" errors
     const itemDef: SchemaField = { ...fieldDef, repeating: false };
-    value.forEach((item, i) => validateField(item, itemDef, `${path}[${i}]`, errors));
+    value.forEach((item, i) => validateField(item, itemDef, `${path}[${i}]`, errors, strict));
     return;
   }
 
@@ -48,14 +76,21 @@ function validateField(value: unknown, fieldDef: SchemaField, path: string, erro
       errors.push(`Field ${path} expected object, got ${typeof value}`);
       return;
     }
-    walkFields(value as DataObject, fieldDef.fields, path, errors);
+    walkFields(value as DataObject, fieldDef.fields, path, errors, strict);
     return;
   }
 
-  validateType(value, fieldDef.type, path, errors);
+  if (typeof value === 'object') {
+    // The XSD declares a scalar type but the data nests child elements (common for SAP
+    // coded-value objects bound as e.g. $.SealType.name). Not a real type error unless strict.
+    if (strict) errors.push(`Field ${path} expected ${fieldDef.type}, got object`);
+    return;
+  }
+
+  validateType(value, fieldDef.type, path, errors, strict);
 }
 
-function validateType(value: unknown, type: string, path: string, errors: string[]): void {
+function validateType(value: unknown, type: string, path: string, errors: string[], strict: boolean): void {
   const strVal = String(value);
 
   switch (type) {
@@ -72,11 +107,15 @@ function validateType(value: unknown, type: string, path: string, errors: string
     case 'integer':
       if (!Number.isInteger(Number(value))) errors.push(`${path}: expected integer, got "${value}"`);
       break;
-    case 'byte':
-      if (!Number.isInteger(Number(value)) || Number(value) < -128 || Number(value) > 127) {
-        errors.push(`${path}: expected byte (-128..127), got "${value}"`);
+    case 'byte': {
+      // SAP/OData XSD exports map Edm.Byte (unsigned 0..255) to xs:byte (standard signed -128..127).
+      // In lenient mode, accept the union of both ranges to avoid false positives on real-world data.
+      const byteMax = strict ? 127 : 255;
+      if (!Number.isInteger(Number(value)) || Number(value) < -128 || Number(value) > byteMax) {
+        errors.push(`${path}: expected byte (-128..${byteMax}), got "${value}"`);
       }
       break;
+    }
     case 'short':
       if (!Number.isInteger(Number(value)) || Number(value) < -32768 || Number(value) > 32767) {
         errors.push(`${path}: expected short (-32768..32767), got "${value}"`);

@@ -9,8 +9,16 @@ interface PositionContext {
 
 /** Resolve all layout positions to absolute coordinates in points. */
 export function calculatePositions(layout: LayoutModel): Result<LayoutModel> {
+  const firstPage = layout.pages[0];
+  const rootCtx: PositionContext = firstPage
+    ? { x: firstPage.contentArea.x, y: firstPage.contentArea.y, availableWidth: firstPage.contentArea.w }
+    : { x: 0, y: 0, availableWidth: 0 };
+  // Positioned once against the first page's content area; applyPagination re-flows these onto later pages.
+  const positionedChildren = positionNodes(layout.children, rootCtx).nodes;
+
   const positioned = {
     ...layout,
+    children: positionedChildren,
     pages: layout.pages.map((page) => {
       const ctx: PositionContext = {
         x: page.contentArea.x,
@@ -58,7 +66,44 @@ function positionSubform(
 ): { positionedNode: SubformNode; height: number } {
   if (node.layout === 'table') return positionTable(node, ctx);
   if (node.layout === 'lr') return positionLrSubform(node, ctx);
+  if (node.layout === 'position') return positionAbsoluteSubform(node, ctx);
   return positionTbSubform(node, ctx);
+}
+
+/**
+ * XFA's default layout ("position") places each child at its own explicit x/y, relative to this
+ * subform's origin (ctx.x/ctx.y, already resolved by the caller), rather than flowing them one
+ * after another. The subform's own height comes from its declared h/minH, not from summing
+ * children (they may overlap or be sparse).
+ */
+function positionAbsoluteSubform(
+  node: SubformNode,
+  ctx: PositionContext
+): { positionedNode: SubformNode; height: number } {
+  const width = node.position?.w ?? ctx.availableWidth;
+
+  const children = node.children.map((child) => {
+    const childCtx: PositionContext = {
+      x: ctx.x + getChildX(child),
+      y: ctx.y + getChildY(child),
+      availableWidth: getNodeWidth(child) ?? width,
+    };
+    return positionNode(child, childCtx).positionedNode;
+  });
+
+  const height = node.position?.h ?? node.position?.minH ?? 0;
+  return {
+    positionedNode: { ...node, children, position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height } } as SubformNode,
+    height,
+  };
+}
+
+function getChildX(node: LayoutNode): number {
+  return node.type === 'subform' || node.type === 'field' || node.type === 'draw' ? node.position?.x ?? 0 : 0;
+}
+
+function getChildY(node: LayoutNode): number {
+  return node.type === 'subform' || node.type === 'field' || node.type === 'draw' ? node.position?.y ?? 0 : 0;
 }
 
 function positionTbSubform(

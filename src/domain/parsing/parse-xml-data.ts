@@ -60,6 +60,10 @@ function normalizeItem(item: unknown, schemaField?: SchemaField): DataValue {
     return coerceType(item, schemaField);
   }
   if (typeof item === 'object') {
+    // The XSD may declare a leaf as a scalar type while the actual data nests child elements
+    // (e.g. SAP coded-value objects like <SealType><name/><descr/><code/></SealType>, used by
+    // bind refs such as $.SealType.name). Preserve the nested structure so bindings can resolve
+    // into it; the schema's scalar declaration is treated as informational only in that case.
     const complexField = schemaField?.type === 'complex' ? schemaField : undefined;
     return normalizeObject(item as Record<string, unknown>, complexField?.fields ?? {});
   }
@@ -69,6 +73,9 @@ function normalizeItem(item: unknown, schemaField?: SchemaField): DataValue {
 function coerceType(value: string | number | boolean, schemaField?: SchemaField): DataValue {
   if (!schemaField || schemaField.type === 'complex') return String(value);
   const strVal = String(value);
+
+  const isNumericType = ['int', 'integer', 'byte', 'short', 'float', 'decimal'].includes(schemaField.type);
+  if (isNumericType && strVal.trim() === '') return null;
 
   switch (schemaField.type) {
     case 'int':

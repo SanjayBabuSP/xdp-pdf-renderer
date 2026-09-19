@@ -39,10 +39,14 @@ export async function renderFormToPdf(
   const structureValid = validateXdpStructure(layoutResult.data);
   if (!structureValid.success) return structureValid;
 
-  const schemaValid = validateDataAgainstSchema(dataResult.data, schemaResult.data);
+  const schemaValid = validateDataAgainstSchema(dataResult.data, schemaResult.data, {
+    strict: options.strictValidation !== false,
+  });
   if (!schemaValid.success) return schemaValid;
 
-  const bindingsValid = validateBindings(layoutResult.data, schemaResult.data);
+  const bindingsValid = validateBindings(layoutResult.data, schemaResult.data, {
+    strict: options.strictValidation !== false,
+  });
   if (!bindingsValid.success) return bindingsValid;
 
   // ── Phase 3: Map data to layout ─────────────────────────────────────────

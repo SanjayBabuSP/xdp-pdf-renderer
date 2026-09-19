@@ -19,6 +19,9 @@ import {
   ContentArea,
   ConfigSpec,
   MarginSpec,
+  BorderSpec,
+  EdgeSpec,
+  RgbColor,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-utils';
@@ -144,7 +147,8 @@ function parseSubform(subform: unknown): SubformNode {
   return {
     type: 'subform',
     name: attr(subform, 'name'),
-    layout: (attr(subform, 'layout') as SubformNode['layout']) ?? 'tb',
+    // XFA default is absolute "position" layout when unspecified — only tb/lr/table/row opt into flow.
+    layout: (attr(subform, 'layout') as SubformNode['layout']) ?? 'position',
     bindMatch: bind?.match,
     bindRef: bind?.ref,
     occur,
@@ -153,12 +157,16 @@ function parseSubform(subform: unknown): SubformNode {
     locale: attr(subform, 'locale'),
     presence: (attr(subform, 'presence') as PresenceValue) ?? 'visible',
     margin: parseMargin(getChild(subform, 'margin')),
+    border: parseBorder(getChild(subform, 'border')),
+    position: parsePosition(subform),
   };
 }
 
 function parseField(field: unknown): FieldNode {
   const bind = parseBind(getChild(field, 'bind'));
   const bindNode = getChild(field, 'bind');
+  const ui = getChild(field, 'ui');
+  const uiElement = ui ? findUiElement(ui) : undefined;
 
   return {
     type: 'field',
@@ -166,7 +174,7 @@ function parseField(field: unknown): FieldNode {
     bindMatch: bind?.match,
     bindRef: bind?.ref,
     formatPicture: bind?.picture,
-    ui: parseUi(getChild(field, 'ui')),
+    ui: parseUi(ui),
     font: parseFont(getChild(field, 'font')),
     caption: parseCaption(getChild(field, 'caption')),
     para: parsePara(getChild(field, 'para')),
@@ -177,9 +185,21 @@ function parseField(field: unknown): FieldNode {
     presence: (attr(field, 'presence') as PresenceValue) ?? 'visible',
     margin: parseMargin(getChild(field, 'margin')),
     colSpan: attr(field, 'colSpan') ? parseInt(attr(field, 'colSpan')!) : undefined,
+    // A field's border is conventionally nested under its ui element (e.g. ui/textEdit/border).
+    border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
   };
 
   void bindNode; // used via parseBind above
+}
+
+function findUiElement(ui: unknown): unknown {
+  return (
+    getChild(ui, 'textEdit') ??
+    getChild(ui, 'numericEdit') ??
+    getChild(ui, 'dateTimeEdit') ??
+    getChild(ui, 'imageEdit') ??
+    undefined
+  );
 }
 
 function parseDraw(draw: unknown): DrawNode {
@@ -192,6 +212,7 @@ function parseDraw(draw: unknown): DrawNode {
     presence: (attr(draw, 'presence') as PresenceValue) ?? 'visible',
     ui: parseUi(getChild(draw, 'ui')),
     margin: parseMargin(getChild(draw, 'margin')),
+    border: parseBorder(getChild(draw, 'border')),
   };
 }
 
@@ -213,11 +234,51 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
       content: textContent(exData) ?? '',
     };
   }
+  const rectangle = getChild(value, 'rectangle');
+  if (rectangle) {
+    return { type: 'rectangle', shapeBorder: parseBorder(rectangle) };
+  }
+  const line = getChild(value, 'line');
+  if (line) {
+    return { type: 'line', shapeBorder: parseBorder(line) };
+  }
   const text = getChild(value, 'text');
   if (text != null) {
     return { type: 'text', content: textContent(text) ?? String(text) };
   }
   return undefined;
+}
+
+function parseColor(colorEl: unknown): RgbColor | undefined {
+  const raw = attr(colorEl, 'value');
+  if (!raw) return undefined;
+  const parts = raw.split(',').map((p) => parseInt(p.trim(), 10));
+  if (parts.length < 3 || parts.some(isNaN)) return undefined;
+  return { r: parts[0], g: parts[1], b: parts[2] };
+}
+
+/**
+ * Parse a border/rectangle/line shape element (all share the same edge/fill/corner structure in XFA).
+ * A single <edge> applies uniformly to all 4 sides; up to 4 <edge> elements apply as [top, right, bottom, left].
+ */
+function parseBorder(el: unknown): BorderSpec | undefined {
+  if (!el) return undefined;
+  const edgeEls = toArray<unknown>(getChild(el, 'edge'));
+  const edges: EdgeSpec[] = edgeEls.map((edge) => ({
+    presence: attr(edge, 'presence'),
+    thickness: attr(edge, 'thickness') ? toPointsOrZero(attr(edge, 'thickness')) : undefined,
+    color: parseColor(getChild(edge, 'color')),
+    style: attr(edge, 'stroke'),
+  }));
+  const fillEl = getChild(el, 'fill');
+  const fill = fillEl
+    ? { presence: attr(fillEl, 'presence'), color: parseColor(getChild(fillEl, 'color')) }
+    : undefined;
+  const cornerEl = getChild(el, 'corner');
+  const cornerRadius = cornerEl && attr(cornerEl, 'radius') ? toPointsOrZero(attr(cornerEl, 'radius')) : undefined;
+
+  if (edges.length === 0 && !fill && cornerRadius == null) return undefined;
+  return { presence: attr(el, 'presence'), edges: edges.length > 0 ? edges : undefined, fill, cornerRadius };
 }
 
 function parseBind(bind: unknown): BindSpec | undefined {

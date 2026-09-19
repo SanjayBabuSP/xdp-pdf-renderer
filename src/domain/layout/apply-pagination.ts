@@ -42,27 +42,56 @@ function splitIntoPages(nodes: LayoutNode[], maxHeight: number, pageDef: PageDef
   let currentPage: LayoutNode[] = [];
   let currentHeight = 0;
 
-  for (const node of nodes) {
-    const nodeHeight = estimateNodeHeight(node);
-    if (currentHeight + nodeHeight > maxHeight && currentPage.length > 0) {
+  const flushPage = () => {
+    if (currentPage.length > 0) {
       pages.push(currentPage);
       currentPage = [];
       currentHeight = 0;
+    }
+  };
+
+  for (const node of nodes) {
+    if (isTableRowContainer(node)) {
+      const rowNodes = node.type === 'subform' && node.layout === 'table' ? node.children : [node];
+      for (const rowNode of rowNodes) {
+        const rowHeight = estimateNodeHeight(rowNode);
+        if (rowHeight > maxHeight && currentPage.length > 0) {
+          flushPage();
+        }
+        if (currentPage.length > 0 && currentHeight + rowHeight > maxHeight) {
+          flushPage();
+        }
+        currentPage.push(rowNode);
+        currentHeight += rowHeight;
+      }
+      continue;
+    }
+
+    const nodeHeight = estimateNodeHeight(node);
+    if (currentHeight + nodeHeight > maxHeight && currentPage.length > 0) {
+      flushPage();
     }
     currentPage.push(node);
     currentHeight += nodeHeight;
   }
 
-  if (currentPage.length > 0) pages.push(currentPage);
+  flushPage();
 
   void pageDef;
   return pages.length > 0 ? pages : [nodes];
+}
+
+function isTableRowContainer(node: LayoutNode): boolean {
+  return node.type === 'subform' && node.layout === 'table' && node.children.some((child) => child.type === 'subform' && child.layout === 'row');
 }
 
 function estimateNodeHeight(node: LayoutNode): number {
   if (node.type === 'field') return node.position?.h ?? node.position?.minH ?? 18;
   if (node.type === 'draw') return node.position?.h ?? 18;
   if (node.type === 'subform') {
+    if (node.layout === 'row') {
+      return node.children.reduce((max, child) => Math.max(max, estimateNodeHeight(child)), 0);
+    }
     return node.children.reduce((sum, child) => sum + estimateNodeHeight(child), 0);
   }
   return 18;

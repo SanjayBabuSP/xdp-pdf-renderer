@@ -1,23 +1,18 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { PDFDocument, StandardFonts, PDFFont } from 'pdf-lib';
+import { PDFDocument, PDFFont } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { RenderOptions } from '../types';
-import { ERROR_CODES } from '../errors/error-codes';
 
 import defaultFontsJson from '../config/default-fonts.json';
 
 const DEFAULT_FONTS: Record<string, string> = defaultFontsJson;
 
-const STANDARD_FONT_MAP: Record<string, string> = {
-  helvetica: StandardFonts.Helvetica,
-  arial: StandardFonts.Helvetica,
-  'arial narrow': StandardFonts.Helvetica,
-  times: StandardFonts.TimesRoman,
-  'times new roman': StandardFonts.TimesRoman,
-  courier: StandardFonts.Courier,
-  'courier new': StandardFonts.Courier,
-};
+// Bundled Unicode-capable fallback (DejaVu Sans, Bitstream Vera license — see assets/fonts/LICENSE-DejaVu.txt).
+// Used instead of pdf-lib's built-in WinAnsi-only standard fonts so that non-Latin-1 characters
+// (e.g. "Δ", "µ", accented names) common in real-world form data don't crash PDF generation.
+const UNICODE_FALLBACK_REGULAR = path.join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
+const UNICODE_FALLBACK_BOLD = path.join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
 
 /** Manages font loading and embedding in a pdf-lib PDFDocument. */
 export class FontManager {
@@ -40,7 +35,7 @@ export class FontManager {
     return font;
   }
 
-  private async loadFont(family: string, _weight?: string): Promise<PDFFont> {
+  private async loadFont(family: string, weight?: string): Promise<PDFFont> {
     // 1. Check custom fonts from options
     if (this.customFonts[family]) {
       return this.loadCustomFont(this.customFonts[family]);
@@ -52,10 +47,11 @@ export class FontManager {
       return this.loadCustomFont(defaultPath);
     }
 
-    // 3. Fall back to standard PDF fonts (no embedding needed)
-    const normalized = family.toLowerCase();
-    const standardFont = STANDARD_FONT_MAP[normalized] ?? StandardFonts.Helvetica;
-    return this.doc.embedFont(standardFont);
+    // 3. Fall back to the bundled Unicode-capable font (embedded via fontkit) rather than
+    // pdf-lib's built-in standard fonts, which only encode WinAnsi (Latin-1) and throw on
+    // characters like "Δ", "µ", or accented names that are common in real-world form data.
+    const isBold = (weight ?? '').toLowerCase() === 'bold';
+    return this.loadCustomFont(isBold ? UNICODE_FALLBACK_BOLD : UNICODE_FALLBACK_REGULAR);
   }
 
   private async loadCustomFont(fontPath: string): Promise<PDFFont> {
