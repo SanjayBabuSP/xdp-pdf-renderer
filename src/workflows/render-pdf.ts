@@ -12,8 +12,18 @@ import { evaluateConditions } from '../domain/mapping/evaluate-conditions';
 import { applyTableLayouts } from '../domain/layout/calculate-table-layout';
 import { calculatePositions } from '../domain/layout/calculate-positions';
 import { applyPagination } from '../domain/layout/apply-pagination';
-import { renderPdf } from '../rendering/pdf-renderer';
+import { renderPdfWithDoc } from '../rendering/pdf-renderer';
+import { dispatchScripts } from '../domain/scripting';
 import { ERROR_CODES } from '../errors/error-codes';
+import {
+  applyPdfSecurity,
+  addBookmarks,
+  addAnnotations,
+  createLayers,
+  flattenFormFields,
+  setGlobalTabOrder,
+} from '../adobe';
+import type { PDFDocument } from 'pdf-lib';
 
 /**
  * Main orchestration pipeline: parse → validate → map → layout → render.
@@ -56,7 +66,21 @@ export async function renderFormToPdf(
   const expandedResult = expandRepeats(resolvedResult.data, dataResult.data);
   if (!expandedResult.success) return expandedResult;
 
-  const filteredResult = evaluateConditions(expandedResult.data);
+  // ── Phase 3a: Execute XFA scripts (initialize, calculate, validate) ──
+  // Scripts run AFTER data binding but BEFORE layout calculation,
+  // matching Adobe LiveCycle Designer's Preview PDF behavior.
+  const scriptResult = dispatchScripts(
+    expandedResult.data,
+    dataResult.data as Record<string, unknown>,
+    {
+      skipScripts: options.skipScripts === true,
+      skipEvents: options.skipScriptEvents,
+      strictMode: options.strictValidation !== false,
+    }
+  );
+  if (!scriptResult.success) return scriptResult;
+
+  const filteredResult = evaluateConditions(scriptResult.data.layout);
   if (!filteredResult.success) return filteredResult;
 
   // ── Phase 4: Layout ─────────────────────────────────────────────────────
@@ -75,12 +99,62 @@ export async function renderFormToPdf(
   // ── Phase 5: Render PDF (I/O) ───────────────────────────────────────────
   try {
     const fontEquateRules = layoutResult.data.config?.fontEquateRules;
-    const pdfBuffer = await renderPdf(paginatedResult.data, options, fontEquateRules);
+    const { buffer: pdfBuffer, doc } = await renderPdfWithDoc(
+      paginatedResult.data,
+      options,
+      fontEquateRules
+    );
+
+    // ── Phase 5a: Apply Adobe-specific post-processing ─────────────────
+    if (options.adobe) {
+      applyAdobeFeatures(doc, options.adobe);
+      // Re-save with adobe features applied
+      const finalBytes = await doc.save();
+      return success(Buffer.from(finalBytes));
+    }
+
     return success(pdfBuffer);
   } catch (e) {
     return failure(
       ERROR_CODES.PDF_GENERATION_FAILED.code,
       `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${e}`
     );
+  }
+}
+
+/**
+ * Apply Adobe-specific PDF features after rendering.
+ */
+function applyAdobeFeatures(doc: PDFDocument, adobe: NonNullable<RenderOptions['adobe']>): void {
+  // Security / encryption
+  if (adobe.security) {
+    applyPdfSecurity(doc, adobe.security);
+  }
+
+  // Bookmarks / outlines
+  if (adobe.bookmarks && adobe.bookmarks.length > 0) {
+    addBookmarks(doc, adobe.bookmarks);
+  }
+
+  // Annotations
+  if (adobe.annotations && adobe.annotations.length > 0) {
+    addAnnotations(doc, adobe.annotations);
+  }
+
+  // Layers (OCG)
+  if (adobe.layers && adobe.layers.length > 0) {
+    createLayers(doc, adobe.layers);
+  }
+
+  // Form flattening
+  if (adobe.flatten === true) {
+    flattenFormFields(doc);
+  } else if (adobe.flatten && typeof adobe.flatten === 'object') {
+    flattenFormFields(doc, adobe.flatten);
+  }
+
+  // Tab ordering
+  if (adobe.tabOrder) {
+    setGlobalTabOrder(doc, adobe.tabOrder);
   }
 }

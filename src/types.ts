@@ -94,6 +94,10 @@ export interface EventSpec {
   activity?: string;
   ref?: string;
   script?: string;
+  /** Script content type: 'application/x-formcalc' or 'application/x-javascript' */
+  contentType?: string;
+  /** When the script should run: 'deprecated' | 'docOpen' | 'docReady' | 'pageOpen' | 'pageClose' */
+  runAt?: string;
 }
 
 export interface ChoiceListItem {
@@ -136,6 +140,7 @@ export interface SubformNode {
   margin?: MarginSpec;
   border?: BorderSpec;
   position?: Position;
+  events?: EventSpec[];
 }
 
 export interface ExclGroupNode {
@@ -163,7 +168,7 @@ export interface FieldNode {
   access?: string;
   position?: Position;
   events?: EventSpec[];
-  calculate?: { override?: string };
+  calculate?: { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
   formatPicture?: string;
   presence?: PresenceValue;
   resolvedValue?: unknown;
@@ -192,6 +197,7 @@ export interface DrawNode {
   ui?: UiSpec;
   margin?: MarginSpec;
   border?: BorderSpec;
+  events?: EventSpec[];
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;
@@ -309,6 +315,60 @@ export interface RenderOptions {
   /** Preview/draft mode: force-show watermark subforms (invisible presence) that would
    *  normally be hidden. Matches Adobe LiveCycle's preview rendering. */
   previewMode?: boolean;
+  /** Skip all script execution during rendering. Default false. */
+  skipScripts?: boolean;
+  /** Specific script events to skip (e.g., ['validate'] to skip validation scripts). */
+  skipScriptEvents?: string[];
+  /** Adobe-specific PDF features (security, bookmarks, annotations, layers, etc.) */
+  adobe?: AdobeOptions;
+}
+
+/** Adobe-specific PDF rendering options */
+export interface AdobeOptions {
+  /** Password protection and permissions */
+  security?: {
+    userPassword?: string;
+    ownerPassword?: string;
+    permissions?: {
+      print?: boolean;
+      modify?: boolean;
+      copy?: boolean;
+      annotate?: boolean;
+      fillForms?: boolean;
+      extract?: boolean;
+      assemble?: boolean;
+      printHighQuality?: boolean;
+    };
+    encryptionMethod?: 'rc4_40' | 'rc4_128' | 'aes_128';
+  };
+  /** PDF bookmarks / outlines */
+  bookmarks?: Array<{
+    title: string;
+    pageIndex: number;
+    zoom?: number;
+    y?: number;
+    children?: Array<{ title: string; pageIndex: number }>;
+  }>;
+  /** Annotations to add */
+  annotations?: Array<{
+    type: 'text' | 'stamp' | 'highlight' | 'link' | 'freeText';
+    rect: [number, number, number, number];
+    pageIndex: number;
+    contents?: string;
+    author?: string;
+    stampName?: string;
+  }>;
+  /** Optional Content Groups (layers) */
+  layers?: Array<{
+    name: string;
+    visible?: boolean;
+    printable?: boolean;
+    exportable?: boolean;
+  }>;
+  /** Form flattening */
+  flatten?: boolean | { fieldNames?: string[] };
+  /** Tab order for form fields */
+  tabOrder?: 'documents' | 'fields' | 'structure' | 'appearance';
 }
 
 // ─── Positioned / Paginated Layout ───────────────────────────────────────────

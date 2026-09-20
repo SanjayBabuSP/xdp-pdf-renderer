@@ -28,6 +28,14 @@ export const ERROR_CODES = {
   FONT_NOT_FOUND: { code: 'REN_5001', message: 'Requested font not available' },
   IMAGE_LOAD_FAILED: { code: 'REN_5002', message: 'Failed to load embedded image' },
   PDF_GENERATION_FAILED: { code: 'REN_5003', message: 'PDF generation failed' },
+
+  // Scripting errors (6xxx)
+  SCRIPT_EXECUTION_FAILED: { code: 'SCR_6001', message: 'Script execution failed' },
+  SCRIPT_PARSE_ERROR: { code: 'SCR_6002', message: 'Script parse error' },
+  SCRIPT_TIMEOUT: { code: 'SCR_6003', message: 'Script execution timed out' },
+  SCRIPT_STACK_OVERFLOW: { code: 'SCR_6004', message: 'Script stack overflow' },
+  FORMCALC_ERROR: { code: 'SCR_6005', message: 'FormCalc execution error' },
+  JAVASCRIPT_ENGINE_ERROR: { code: 'SCR_6006', message: 'JavaScript engine error' },
 } as const;
 
 export type ErrorCodeKey = keyof typeof ERROR_CODES;

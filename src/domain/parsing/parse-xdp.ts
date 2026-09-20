@@ -31,6 +31,24 @@ import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-ut
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { ERROR_CODES } from '../../errors/error-codes';
 
+/**
+ * Default font equate rules from Adobe LiveCycle Designer 11.0's Designer.xci.
+ * These are applied as fallbacks when the XDP's <config> section does not
+ * specify its own font substitution rules. Matches the reference behavior
+ * where Designer.xci is always loaded as the base configuration.
+ */
+const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
+  { from: 'Helvetica Black_*_*', to: 'Arial Black_*_*', force: false },
+  { from: 'HelveticaBlack_*_*', to: 'Arial Black_*_*', force: false },
+  { from: 'Helvetica-Black_*_*', to: 'Arial Black_*_*', force: false },
+  { from: 'Helvetica_*_*', to: 'Arial_*_*', force: false },
+  { from: 'Helv_*_*', to: 'Arial_*_*', force: false },
+  { from: 'Cour_*_*', to: 'Courier New_*_*', force: false },
+  { from: 'Courier_*_*', to: 'Courier New_*_*', force: false },
+  { from: 'Times_*_*', to: 'Times New Roman_*_*', force: false },
+  { from: 'TimesNewRoman_*_*', to: 'Times New Roman_*_*', force: false },
+];
+
 const TEMPLATE_NAMESPACES = [
   'http://www.xfa.org/schema/xfa-template/2.8/',
   'http://www.xfa.org/schema/xfa-template/3.3/',
@@ -164,6 +182,7 @@ function parseSubform(subform: unknown): SubformNode {
     margin: parseMargin(getChild(subform, 'margin')),
     border: parseBorder(getChild(subform, 'border')),
     position: parsePosition(subform),
+    events: parseEvents(getChild(subform, 'event')),
   };
 }
 
@@ -239,6 +258,7 @@ function parseDraw(draw: unknown): DrawNode {
     ui: parseUi(getChild(draw, 'ui')),
     margin: parseMargin(getChild(draw, 'margin')),
     border: parseBorder(getChild(draw, 'border')),
+    events: parseEvents(getChild(draw, 'event')),
   };
 }
 
@@ -388,17 +408,100 @@ function parsePara(para: unknown): ParaSpec | undefined {
 function parseEvents(eventEl: unknown): EventSpec[] | undefined {
   const events = toArray<unknown>(eventEl);
   if (events.length === 0) return undefined;
-  return events.map((e) => ({
-    name: attr(e, 'name'),
-    activity: attr(e, 'activity'),
-    ref: attr(e, 'ref'),
-    script: textContent(getChild(e, 'script')),
-  }));
+  return events.map((e) => {
+    // Each <event> can have one or more <script> children with different contentTypes
+    const scriptEls = toArray<unknown>(getChild(e, 'script'));
+    const firstScript = scriptEls[0];
+    const scriptContent = textContent(firstScript) ?? textContent(getChild(e, 'script'));
+
+    // Extract contentType and runAt from the <script> element
+    const contentType = attr(firstScript, 'contentType');
+    const runAt = attr(firstScript, 'runAt');
+
+    // Normalize event name from 'activity' attribute
+    // Reference: xfascripthandler.dll maps <event activity="..."> to canonical events
+    const rawActivity = attr(e, 'activity');
+    const rawName = attr(e, 'name');
+    const normalizedActivity = normalizeEventActivity(rawActivity, rawName);
+
+    return {
+      name: normalizedActivity ?? rawName,
+      activity: rawActivity ?? undefined,
+      ref: attr(e, 'ref'),
+      script: scriptContent,
+      contentType: contentType ?? undefined,
+      runAt: runAt ?? undefined,
+    };
+  });
 }
 
-function parseCalculate(calculate: unknown): { override?: string } | undefined {
+/**
+ * Normalize event activity values to canonical XFA event names.
+ * Reference: xfascripthandler.dll event name mapping table.
+ *
+ * Adobe LiveCycle maps <event activity="..."> values like this:
+ *   activity="initialize" → "initialize"
+ *   activity="click" → "click"
+ *   activity="docReady" → "docReady"
+ * Also handles SAP convention: name="event__calculate" → "calculate"
+ */
+function normalizeEventActivity(activity?: string, name?: string): string | undefined {
+  if (activity) {
+    const lower = activity.toLowerCase();
+    const activityMap: Record<string, string> = {
+      'initialize': 'initialize',
+      'calculate': 'calculate',
+      'validate': 'validate',
+      'click': 'click',
+      'change': 'change',
+      'enter': 'enter',
+      'exit': 'exit',
+      'mouseenter': 'mouseEnter',
+      'mouseexit': 'mouseExit',
+      'ready': 'ready',
+      'docready': 'docReady',
+      'docclose': 'docClose',
+      'presave': 'preSave',
+      'postsave': 'postSave',
+      'preprint': 'prePrint',
+      'postprint': 'postPrint',
+      'presubmit': 'preSubmit',
+      'postsubmit': 'postSubmit',
+      'preexecute': 'preExecute',
+      'postexecute': 'postExecute',
+      'presign': 'preSign',
+      'postsign': 'postSign',
+      'full': 'full',
+      'indexchange': 'indexChange',
+      'form:ready': 'ready',
+      'layout:ready': 'layout:ready',
+    };
+    return activityMap[lower] ?? lower;
+  }
+
+  // Infer from name attribute when activity is missing
+  if (name) {
+    // Handle SAP naming convention: "event__calculate" → "calculate"
+    const sapMatch = name.match(/^event__(.+)$/);
+    if (sapMatch) return sapMatch[1].toLowerCase();
+    return name;
+  }
+
+  return undefined;
+}
+
+function parseCalculate(calculate: unknown): { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } } | undefined {
   if (!calculate) return undefined;
-  return { override: attr(calculate, 'override') };
+  const override = attr(calculate, 'override');
+  // <calculate> can contain a <script> child with the actual calculation expression
+  const scriptEl = getChild(calculate, 'script');
+  const scriptContent = textContent(scriptEl);
+  const contentType = attr(scriptEl, 'contentType');
+  const runAt = attr(scriptEl, 'runAt');
+  const script = scriptContent
+    ? { content: scriptContent, contentType: (contentType?.toLowerCase().includes('javascript') ? 'javascript' : 'formcalc') as 'formcalc' | 'javascript', runAt: runAt ?? undefined }
+    : undefined;
+  return { override: override ?? undefined, script };
 }
 
 function parseUi(ui: unknown): UiSpec | undefined {
@@ -453,7 +556,14 @@ function parseMargin(margin: unknown): MarginSpec | undefined {
 }
 
 function parseConfig(config: unknown): ConfigSpec | undefined {
-  if (!config) return undefined;
+  // If no <config> section exists, still provide default Designer.xci font equate rules.
+  // This matches Adobe LiveCycle Designer behavior where Designer.xci is always loaded
+  // as the base configuration, even when the XDP doesn't embed its own <config>.
+  if (!config) {
+    return {
+      fontEquateRules: [...DEFAULT_FONT_EQUATE_RULES],
+    };
+  }
   const present = getChild(config, 'present');
   const pdf = getChild(present, 'pdf');
   const psMap = getChild(config, 'psMap');
@@ -461,6 +571,11 @@ function parseConfig(config: unknown): ConfigSpec | undefined {
 
   // Parse font equate rules from <present><pdf><fontInfo><map><equate> (from XCI reference)
   const fontEquateRules = parseFontEquateRules(pdf);
+
+  // Merge with defaults: XDP-specific rules take precedence, defaults fill in gaps
+  const mergedRules = fontEquateRules.length > 0
+    ? mergeFontEquateRules(fontEquateRules, DEFAULT_FONT_EQUATE_RULES)
+    : [...DEFAULT_FONT_EQUATE_RULES];
 
   return {
     pdfVersion: textContent(getChild(pdf, 'version')),
@@ -470,7 +585,7 @@ function parseConfig(config: unknown): ConfigSpec | undefined {
       psName: attr(f, 'psName') ?? '',
       weight: attr(f, 'weight'),
     })),
-    fontEquateRules: fontEquateRules.length > 0 ? fontEquateRules : undefined,
+    fontEquateRules: mergedRules,
   };
 }
 
@@ -493,6 +608,22 @@ function parseFontEquateRules(pdf: unknown): FontEquateRule[] {
       };
     })
     .filter(Boolean) as FontEquateRule[];
+}
+
+/**
+ * Merge XDP-specific font equate rules with defaults.
+ * Rules from the XDP take precedence; defaults fill in for
+ * 'from' patterns not covered by the XDP rules.
+ */
+function mergeFontEquateRules(xdpRules: FontEquateRule[], defaultRules: FontEquateRule[]): FontEquateRule[] {
+  const merged = [...xdpRules];
+  const xdpFromPatterns = new Set(xdpRules.map((r) => r.from.toLowerCase()));
+  for (const defaultRule of defaultRules) {
+    if (!xdpFromPatterns.has(defaultRule.from.toLowerCase())) {
+      merged.push(defaultRule);
+    }
+  }
+  return merged;
 }
 
 function parseConnectionSet(connSet: unknown): { xsdUri?: string; xsdRootElement?: string } {

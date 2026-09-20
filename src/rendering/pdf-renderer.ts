@@ -23,6 +23,19 @@ export async function renderPdf(
   options: RenderOptions = {},
   fontEquateRules?: FontEquateRule[]
 ): Promise<Buffer> {
+  const result = await renderPdfWithDoc(layout, options, fontEquateRules);
+  return result.buffer;
+}
+
+/**
+ * Render the paginated layout to a PDF buffer AND return the PDFDocument.
+ * Used when post-processing (security, bookmarks, etc.) is needed.
+ */
+export async function renderPdfWithDoc(
+  layout: PaginatedLayout,
+  options: RenderOptions = {},
+  fontEquateRules?: FontEquateRule[]
+): Promise<{ buffer: Buffer; doc: PDFDocument }> {
   let doc: PDFDocument;
   try {
     doc = await PDFDocument.create();
@@ -38,7 +51,7 @@ export async function renderPdf(
   }
 
   const pdfBytes = await doc.save();
-  return Buffer.from(pdfBytes);
+  return { buffer: Buffer.from(pdfBytes), doc };
 }
 
 async function renderPage(
