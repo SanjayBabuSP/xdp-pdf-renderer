@@ -57,6 +57,7 @@ function normalizeValue(value: unknown, schemaField?: SchemaField): DataValue | 
 function normalizeItem(item: unknown, schemaField?: SchemaField): DataValue {
   if (item == null) return null;
   if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+    if (schemaField?.type === 'complex' && String(item).trim() === '') return null;
     return coerceType(item, schemaField);
   }
   if (typeof item === 'object') {

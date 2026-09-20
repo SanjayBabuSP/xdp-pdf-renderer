@@ -117,7 +117,10 @@ function validateType(value: unknown, type: string, path: string, errors: string
       break;
     }
     case 'short':
-      if (!Number.isInteger(Number(value)) || Number(value) < -32768 || Number(value) > 32767) {
+      if (
+        !Number.isInteger(Number(value)) ||
+        (strict && (Number(value) < -32768 || Number(value) > 32767))
+      ) {
         errors.push(`${path}: expected short (-32768..32767), got "${value}"`);
       }
       break;
