@@ -2,6 +2,7 @@
   "subform": "parseSubform",
   "field": "parseField",
   "draw": "parseDraw",
+  "exclGroup": "parseExclGroup",
   "pageSet": "parsePageSet",
   "pageArea": "parsePageArea",
   "contentArea": "parseContentArea",
@@ -14,5 +15,15 @@
   "event": "parseEvent",
   "ui": "parseUi",
   "value": "parseValue",
-  "margin": "parseMargin"
+  "margin": "parseMargin",
+  "border": "parseBorder",
+  "fill": "parseFill",
+  "edge": "parseEdge",
+  "corner": "parseCorner",
+  "color": "parseColor",
+  "arc": "parseArc",
+  "circle": "parseCircle",
+  "checkButton": "parseCheckButton",
+  "choiceList": "parseChoiceList",
+  "items": "parseItems"
 }

@@ -88,6 +88,9 @@ function isTableRowContainer(node: LayoutNode): boolean {
 function estimateNodeHeight(node: LayoutNode): number {
   if (node.type === 'field') return node.position?.h ?? node.position?.minH ?? 18;
   if (node.type === 'draw') return node.position?.h ?? 18;
+  if (node.type === 'exclGroup') {
+    return node.children.reduce((sum, child) => sum + estimateNodeHeight(child), 0);
+  }
   if (node.type === 'subform') {
     if (node.layout === 'row') {
       return node.children.reduce((max, child) => Math.max(max, estimateNodeHeight(child)), 0);

@@ -74,7 +74,8 @@ export async function renderFormToPdf(
 
   // ── Phase 5: Render PDF (I/O) ───────────────────────────────────────────
   try {
-    const pdfBuffer = await renderPdf(paginatedResult.data, options);
+    const fontEquateRules = layoutResult.data.config?.fontEquateRules;
+    const pdfBuffer = await renderPdf(paginatedResult.data, options, fontEquateRules);
     return success(pdfBuffer);
   } catch (e) {
     return failure(

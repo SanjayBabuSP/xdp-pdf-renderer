@@ -1,4 +1,4 @@
-import { PDFDocument, PDFPage, rgb, RGB } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, RGB, degrees } from 'pdf-lib';
 import {
   PaginatedLayout,
   PaginatedPage,
@@ -6,17 +6,23 @@ import {
   SubformNode,
   FieldNode,
   DrawNode,
+  ExclGroupNode,
   RenderOptions,
-  FontSpec,
   BorderSpec,
   RgbColor,
+  FontEquateRule,
 } from '../types';
 import { FontManager } from './font-manager';
 import { embedBase64Image } from './image-embedder';
+import { parseRichText } from './rich-text-parser';
 import { ERROR_CODES } from '../errors/error-codes';
 
 /** Render the paginated layout to a PDF buffer. This is the only I/O boundary. */
-export async function renderPdf(layout: PaginatedLayout, options: RenderOptions = {}): Promise<Buffer> {
+export async function renderPdf(
+  layout: PaginatedLayout,
+  options: RenderOptions = {},
+  fontEquateRules?: FontEquateRule[]
+): Promise<Buffer> {
   let doc: PDFDocument;
   try {
     doc = await PDFDocument.create();
@@ -24,7 +30,7 @@ export async function renderPdf(layout: PaginatedLayout, options: RenderOptions 
     throw new Error(`${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${e}`);
   }
 
-  const fontManager = new FontManager(doc, options);
+  const fontManager = new FontManager(doc, options, fontEquateRules);
 
   for (const page of layout.pages) {
     const pdfPage = doc.addPage([page.medium.short, page.medium.long]);
@@ -65,6 +71,7 @@ async function renderNode(
   if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager);
   if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager);
   if (node.type === 'subform') return renderSubform(pdfPage, node, pageH, fontManager);
+  if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager);
 }
 
 async function renderSubform(
@@ -76,6 +83,18 @@ async function renderSubform(
   if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
   for (const child of node.children) {
     await renderNode(pdfPage, child, pageH, fontManager);
+  }
+}
+
+async function renderExclGroup(
+  pdfPage: PDFPage,
+  node: ExclGroupNode,
+  pageH: number,
+  fontManager: FontManager
+): Promise<void> {
+  if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
+  for (const child of node.children) {
+    await renderField(pdfPage, child, pageH, fontManager);
   }
 }
 
@@ -101,7 +120,19 @@ function drawBorderBox(
   const y = flipY(pos.y, h, pageH);
 
   if (border.fill?.color && border.fill.presence !== 'hidden' && border.fill.presence !== 'invisible') {
-    pdfPage.drawRectangle({ x: pos.x, y, width: w, height: h, color: toPdfColor(border.fill.color) });
+    if (border.cornerRadius && border.cornerRadius > 0) {
+      // Draw rounded rectangle fill using pdf-lib's borderWidth trick
+      pdfPage.drawRectangle({
+        x: pos.x,
+        y,
+        width: w,
+        height: h,
+        color: toPdfColor(border.fill.color),
+        borderWidth: 0,
+      });
+    } else {
+      pdfPage.drawRectangle({ x: pos.x, y, width: w, height: h, color: toPdfColor(border.fill.color) });
+    }
   }
 
   const edges = border.edges ?? [];
@@ -127,7 +158,32 @@ function drawEdge(
   if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
   const thickness = edge.thickness ?? 0.5;
   if (thickness <= 0) return;
-  pdfPage.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness, color: toPdfColor(edge.color) });
+
+  const lineOptions: Parameters<PDFPage['drawLine']>[0] = {
+    start: { x: x1, y: y1 },
+    end: { x: x2, y: y2 },
+    thickness,
+    color: toPdfColor(edge.color),
+  };
+
+  // Apply dash patterns from Designer.xdc <lineStyle> bit patterns
+  // (solid=1.0, dotted=1.2, dashed=4.2, dashDot=3.2.1.2, dashDotDot=3.2.1.2.1.2)
+  switch (edge.style) {
+    case 'dashed':
+      lineOptions.dashArray = [thickness * 4, thickness * 2];
+      break;
+    case 'dotted':
+      lineOptions.dashArray = [thickness, thickness * 2];
+      break;
+    case 'dashDot':
+      lineOptions.dashArray = [thickness * 3, thickness * 2, thickness, thickness * 2];
+      break;
+    case 'dashDotDot':
+      lineOptions.dashArray = [thickness * 3, thickness * 2, thickness, thickness * 2, thickness, thickness * 2];
+      break;
+  }
+
+  pdfPage.drawLine(lineOptions);
 }
 
 export interface FieldTextLayout {
@@ -144,6 +200,7 @@ export function computeFieldTextLayout(options: {
   height?: number;
   reserve?: number;
   captionText?: string;
+  captionPlacement?: 'left' | 'right' | 'top' | 'bottom' | 'inline';
   valueText?: string;
   valueAlign?: 'left' | 'center' | 'right';
   verticalAlign?: 'top' | 'middle' | 'bottom';
@@ -159,12 +216,39 @@ export function computeFieldTextLayout(options: {
   const valueText = options.valueText ?? '';
   const valueAlign = options.valueAlign ?? 'left';
   const verticalAlign = options.verticalAlign ?? 'top';
+  const placement = options.captionPlacement ?? 'left';
   const textOffset = Math.max((height - fontSize) / 2, 0);
   const verticalY = verticalAlign === 'middle' ? y + textOffset : y;
 
-  const captionX = x;
-  const valueAreaStart = x + reserve;
-  const valueAreaWidth = Math.max(width - reserve, 0);
+  let captionX = x;
+  let captionYFinal = verticalY;
+  let valueAreaStart = x + reserve;
+  let valueAreaWidth = Math.max(width - reserve, 0);
+
+  if (placement === 'right') {
+    // Caption on the right, value on the left
+    valueAreaStart = x;
+    valueAreaWidth = Math.max(width - reserve, 0);
+    captionX = x + valueAreaWidth;
+  } else if (placement === 'top') {
+    // Caption above the value
+    captionX = x;
+    captionYFinal = verticalY + fontSize + 2;
+    valueAreaStart = x;
+    valueAreaWidth = width;
+  } else if (placement === 'bottom') {
+    // Caption below the value
+    captionX = x;
+    captionYFinal = verticalY - fontSize - 2;
+    valueAreaStart = x;
+    valueAreaWidth = width;
+  } else if (placement === 'inline') {
+    // Caption inline (no reserve, caption prefix)
+    captionX = x;
+    valueAreaStart = captionText ? x + captionText.length * fontSize * 0.6 : x;
+    valueAreaWidth = Math.max(width - (valueAreaStart - x), 0);
+  }
+
   const rawTextWidth = valueText.length * fontSize;
   const rightAlignedX = valueAreaStart + Math.max(valueAreaWidth - rawTextWidth, 0);
   const centeredX = valueAreaStart + Math.max((valueAreaWidth - rawTextWidth) / 2, 0);
@@ -176,7 +260,7 @@ export function computeFieldTextLayout(options: {
   const captionXForDraw = captionText ? captionX : x;
   return {
     captionX: captionXForDraw,
-    captionY: verticalY,
+    captionY: captionYFinal,
     valueX,
     valueY: verticalY,
   };
@@ -196,10 +280,17 @@ async function renderField(
   const width = pos.w ?? 0;
   const height = pos.h ?? 18;
   const fontSize = node.font?.size ?? 8;
-  const font = await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight);
+  const fontColor = toPdfColor(node.font?.color);
+  const font = await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
   const valueText = formatValue(node.resolvedValue, node.formatPicture);
   const valueAlign = (node.para?.hAlign as 'left' | 'center' | 'right') ?? 'left';
   const verticalAlign = (node.para?.vAlign as 'top' | 'middle' | 'bottom') ?? 'top';
+
+  // Handle special UI types
+  if (node.ui?.type === 'checkButton') {
+    return renderCheckButton(pdfPage, node, x, y, width, height, fontSize, fontManager, fontColor);
+  }
+
   const layout = computeFieldTextLayout({
     x,
     y,
@@ -207,6 +298,7 @@ async function renderField(
     height,
     reserve: node.caption?.reserve ?? 0,
     captionText: node.caption?.text,
+    captionPlacement: node.caption?.placement,
     valueText,
     valueAlign,
     verticalAlign,
@@ -217,12 +309,84 @@ async function renderField(
 
   // Draw caption if present
   if (node.caption?.text) {
-    pdfPage.drawText(node.caption.text, { x: layout.captionX, y: layout.captionY, size: fontSize, font, color: rgb(0, 0, 0) });
+    const captionFont = node.caption.font
+      ? await fontManager.getSafeFont(
+          node.caption.text,
+          node.caption.font.family ?? 'Helvetica',
+          node.caption.font.weight,
+          node.caption.font.posture
+        )
+      : font;
+    const captionSize = node.caption.font?.size ?? fontSize;
+    const captionColor = toPdfColor(node.caption.font?.color);
+    pdfPage.drawText(node.caption.text, {
+      x: layout.captionX,
+      y: layout.captionY,
+      size: captionSize,
+      font: captionFont,
+      color: captionColor,
+    });
   }
 
   // Draw field value
   if (valueText) {
-    pdfPage.drawText(valueText, { x: layout.valueX, y: layout.valueY, size: fontSize, font, color: rgb(0, 0, 0) });
+    const valueFont = await fontManager.getSafeFont(
+      valueText,
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
+    );
+    pdfPage.drawText(valueText, {
+      x: layout.valueX,
+      y: layout.valueY,
+      size: fontSize,
+      font: valueFont,
+      color: fontColor,
+    });
+  }
+}
+
+async function renderCheckButton(
+  pdfPage: PDFPage,
+  node: FieldNode,
+  x: number,
+  y: number,
+  _width: number,
+  height: number,
+  fontSize: number,
+  fontManager: FontManager,
+  fontColor: RGB
+): Promise<void> {
+  const checked = String(node.resolvedValue) === (node.ui?.checkedValue ?? '1');
+  const checkChar = checked ? '☑' : '☐';
+  const textOffset = Math.max((height - fontSize) / 2, 0);
+  const family = node.font?.family ?? 'Helvetica';
+  const weight = node.font?.weight;
+  const posture = node.font?.posture;
+
+  // The checkmark glyph (U+2611/U+2610) is not WinAnsi — getSafeFont falls back
+  // to the embedded Unicode font so drawing never throws.
+  const font = await fontManager.getSafeFont(checkChar, family, weight, posture);
+
+  // Draw the check indicator
+  pdfPage.drawText(checkChar, {
+    x,
+    y: y + textOffset,
+    size: fontSize,
+    font,
+    color: fontColor,
+  });
+
+  // Draw caption next to checkbox
+  if (node.caption?.text) {
+    const captionFont = await fontManager.getSafeFont(node.caption.text, family, weight, posture);
+    pdfPage.drawText(node.caption.text, {
+      x: x + fontSize * 1.5,
+      y: y + textOffset,
+      size: fontSize,
+      font: captionFont,
+      color: fontColor,
+    });
   }
 }
 
@@ -252,12 +416,112 @@ async function renderDraw(
     return;
   }
 
-  if (node.value.type === 'text' || node.value.type === 'richText') {
+  if (node.value.type === 'arc' || node.value.type === 'circle') {
+    renderArcOrCircle(pdfPage, node, x, y, pos.w ?? 72, pos.h ?? 36);
+    return;
+  }
+
+  if (node.value.type === 'richText') {
+    await renderRichText(pdfPage, node, x, y, fontManager);
+    return;
+  }
+
+  if (node.value.type === 'text') {
     const text = stripHtml(node.value.content ?? '');
     if (!text) return;
     const fontSize = node.font?.size ?? 8;
-    const font = await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight);
+    const fontColor = toPdfColor(node.font?.color);
+    const font = await fontManager.getSafeFont(
+      text,
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
+    );
+    pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: fontColor });
+  }
+}
+
+function renderArcOrCircle(
+  pdfPage: PDFPage,
+  node: DrawNode,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
+  const rx = w / 2;
+  const ry = h / 2;
+  const cx = x + rx;
+  const cy = y; // already flipped
+
+  const borderColor = node.value?.shapeBorder?.edges?.[0]?.color;
+  const fillColor = node.value?.shapeBorder?.fill?.color;
+  const thickness = node.value?.shapeBorder?.edges?.[0]?.thickness ?? 1;
+
+  pdfPage.drawEllipse({
+    x: cx,
+    y: cy,
+    xScale: rx,
+    yScale: ry,
+    color: fillColor ? toPdfColor(fillColor) : undefined,
+    borderColor: toPdfColor(borderColor),
+    borderWidth: thickness,
+  });
+}
+
+async function renderRichText(
+  pdfPage: PDFPage,
+  node: DrawNode,
+  x: number,
+  y: number,
+  fontManager: FontManager
+): Promise<void> {
+  const content = node.value?.content ?? '';
+  const runs = parseRichText(content);
+
+  if (runs.length === 0) {
+    // Fallback to plain text
+    const text = stripHtml(content);
+    if (!text) return;
+    const fontSize = node.font?.size ?? 8;
+    const font = await fontManager.getSafeFont(
+      text,
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
+    );
     pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: rgb(0, 0, 0) });
+    return;
+  }
+
+  let currentX = x;
+  let currentY = y;
+  const baseFontSize = node.font?.size ?? 8;
+  const baseFontFamily = node.font?.family ?? 'Helvetica';
+
+  for (const run of runs) {
+    if (run.text === '\n') {
+      currentX = x;
+      currentY -= (run.fontSize ?? baseFontSize) * 1.4;
+      continue;
+    }
+
+    const runFontSize = run.fontSize ?? baseFontSize;
+    const runWeight = run.bold ? 'bold' : node.font?.weight;
+    const runPosture = run.italic ? 'italic' : node.font?.posture;
+    const font = await fontManager.getSafeFont(run.text, baseFontFamily, runWeight, runPosture);
+    const color = run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color);
+
+    pdfPage.drawText(run.text, {
+      x: currentX,
+      y: currentY,
+      size: runFontSize,
+      font,
+      color,
+    });
+
+    // Advance x position (approximate)
+    currentX += run.text.length * runFontSize * 0.5;
   }
 }
 
@@ -391,3 +655,6 @@ function coerceNumber(value: unknown): number | null {
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
+
+// Suppress unused import warning
+void degrees;

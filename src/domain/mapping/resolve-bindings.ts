@@ -1,4 +1,4 @@
-import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, DataObject } from '../../types';
+import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, DataObject } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { resolveXPath } from '../../lib/xpath-resolver';
 import { ERROR_CODES } from '../../errors/error-codes';
@@ -26,6 +26,7 @@ function resolveNode(node: LayoutNode, data: DataObject): LayoutNode {
   if (node.type === 'subform') return resolveSubform(node, data);
   if (node.type === 'field') return resolveField(node, data);
   if (node.type === 'draw') return resolveDraw(node, data);
+  if (node.type === 'exclGroup') return resolveExclGroup(node, data);
   return node;
 }
 
@@ -45,6 +46,15 @@ function resolveField(node: FieldNode, data: DataObject): FieldNode {
 function resolveDraw(node: DrawNode, data: DataObject): DrawNode {
   // Draws are typically static; only resolve if they have a bind ref (rare)
   return node;
+}
+
+function resolveExclGroup(node: ExclGroupNode, data: DataObject): ExclGroupNode {
+  const resolvedChildren = node.children.map((child) => resolveField(child, data));
+  if (node.bindMatch === 'dataRef' && node.bindRef) {
+    const resolved = resolveXPath(node.bindRef, data);
+    return { ...node, children: resolvedChildren, resolvedValue: resolved };
+  }
+  return { ...node, children: resolvedChildren };
 }
 
 function deepCloneLayout(layout: LayoutModel): LayoutModel {

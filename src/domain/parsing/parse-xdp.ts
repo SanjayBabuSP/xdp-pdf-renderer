@@ -5,6 +5,7 @@ import {
   SubformNode,
   FieldNode,
   DrawNode,
+  ExclGroupNode,
   PageDefinition,
   FontSpec,
   Position,
@@ -18,10 +19,12 @@ import {
   PageMedium,
   ContentArea,
   ConfigSpec,
+  FontEquateRule,
   MarginSpec,
   BorderSpec,
   EdgeSpec,
   RgbColor,
+  ChoiceListItem,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-utils';
@@ -131,10 +134,12 @@ function parseChildren(parent: unknown): LayoutNode[] {
   const subforms = toArray<unknown>(getChild(parent, 'subform'));
   const fields = toArray<unknown>(getChild(parent, 'field'));
   const draws = toArray<unknown>(getChild(parent, 'draw'));
+  const exclGroups = toArray<unknown>(getChild(parent, 'exclGroup'));
 
   subforms.forEach((s) => nodes.push(parseSubform(s)));
   fields.forEach((f) => nodes.push(parseField(f)));
   draws.forEach((d) => nodes.push(parseDraw(d)));
+  exclGroups.forEach((eg) => nodes.push(parseExclGroup(eg)));
 
   return nodes;
 }
@@ -198,8 +203,29 @@ function findUiElement(ui: unknown): unknown {
     getChild(ui, 'numericEdit') ??
     getChild(ui, 'dateTimeEdit') ??
     getChild(ui, 'imageEdit') ??
+    getChild(ui, 'checkButton') ??
+    getChild(ui, 'choiceList') ??
+    getChild(ui, 'barcode') ??
+    getChild(ui, 'button') ??
+    getChild(ui, 'signature') ??
     undefined
   );
+}
+
+function parseExclGroup(eg: unknown): ExclGroupNode {
+  const bind = parseBind(getChild(eg, 'bind'));
+  const fields = toArray<unknown>(getChild(eg, 'field')).map(parseField);
+  return {
+    type: 'exclGroup',
+    name: attr(eg, 'name'),
+    bindMatch: bind?.match,
+    bindRef: bind?.ref,
+    children: fields,
+    position: parsePosition(eg),
+    presence: (attr(eg, 'presence') as PresenceValue) ?? 'visible',
+    border: parseBorder(getChild(eg, 'border')),
+    margin: parseMargin(getChild(eg, 'margin')),
+  };
 }
 
 function parseDraw(draw: unknown): DrawNode {
@@ -241,6 +267,19 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
   const line = getChild(value, 'line');
   if (line) {
     return { type: 'line', shapeBorder: parseBorder(line) };
+  }
+  const arc = getChild(value, 'arc');
+  if (arc) {
+    return {
+      type: 'arc',
+      shapeBorder: parseBorder(arc),
+      sweepAngle: attr(arc, 'sweepAngle') ? parseFloat(attr(arc, 'sweepAngle')!) : 360,
+      startAngle: attr(arc, 'startAngle') ? parseFloat(attr(arc, 'startAngle')!) : 0,
+    };
+  }
+  const circle = getChild(value, 'circle');
+  if (circle) {
+    return { type: 'circle', shapeBorder: parseBorder(circle) };
   }
   const text = getChild(value, 'text');
   if (text != null) {
@@ -308,11 +347,14 @@ function parseColumnWidths(raw: string | undefined): number[] | undefined {
 
 function parseFont(font: unknown): FontSpec | undefined {
   if (!font) return undefined;
+  const fillEl = getChild(font, 'fill');
+  const fontColor = fillEl ? parseColor(getChild(fillEl, 'color')) : undefined;
   return {
     family: attr(font, 'typeface'),
     size: attr(font, 'size') ? parseFloat(attr(font, 'size')!) : undefined,
     weight: attr(font, 'weight'),
     posture: attr(font, 'posture'),
+    color: fontColor,
   };
 }
 
@@ -330,10 +372,11 @@ function parsePosition(el: unknown): Position {
 function parseCaption(caption: unknown): CaptionSpec | undefined {
   if (!caption) return undefined;
   const reserve = attr(caption, 'reserve') ? toPointsOrZero(attr(caption, 'reserve')) : undefined;
+  const placement = attr(caption, 'placement') as CaptionSpec['placement'] | undefined;
   const valueEl = getChild(caption, 'value');
   const text = textContent(getChild(valueEl, 'text'));
   const font = parseFont(getChild(caption, 'font'));
-  return { reserve, text, font };
+  return { reserve, placement, text, font };
 }
 
 function parsePara(para: unknown): ParaSpec | undefined {
@@ -366,7 +409,36 @@ function parseUi(ui: unknown): UiSpec | undefined {
   if (getChild(ui, 'numericEdit')) return { type: 'numericEdit' };
   if (getChild(ui, 'dateTimeEdit')) return { type: 'dateTimeEdit' };
   if (getChild(ui, 'imageEdit')) return { type: 'imageEdit' };
+  if (getChild(ui, 'checkButton')) {
+    const cb = getChild(ui, 'checkButton');
+    return {
+      type: 'checkButton',
+      checkedValue: textContent(getChild(cb, 'checkedValue')) ?? '1',
+      uncheckedValue: textContent(getChild(cb, 'uncheckedValue')) ?? '0',
+    };
+  }
+  if (getChild(ui, 'choiceList')) {
+    const cl = getChild(ui, 'choiceList');
+    const items = parseChoiceListItems(cl);
+    return { type: 'choiceList', items };
+  }
+  if (getChild(ui, 'barcode')) return { type: 'barcode' };
+  if (getChild(ui, 'button')) return { type: 'button' };
+  if (getChild(ui, 'signature')) return { type: 'signature' };
   return { type: 'unknown' };
+}
+
+function parseChoiceListItems(cl: unknown): ChoiceListItem[] {
+  const itemsEls = toArray<unknown>(getChild(cl, 'items'));
+  const result: ChoiceListItem[] = [];
+  for (const itemsEl of itemsEls) {
+    const texts = toArray<unknown>(getChild(itemsEl, 'text'));
+    for (const t of texts) {
+      const text = textContent(t);
+      if (text) result.push({ text });
+    }
+  }
+  return result;
 }
 
 function parseMargin(margin: unknown): MarginSpec | undefined {
@@ -386,6 +458,9 @@ function parseConfig(config: unknown): ConfigSpec | undefined {
   const psMap = getChild(config, 'psMap');
   const fontEntries = toArray<unknown>(getChild(psMap, 'font'));
 
+  // Parse font equate rules from <present><pdf><fontInfo><map><equate> (from XCI reference)
+  const fontEquateRules = parseFontEquateRules(pdf);
+
   return {
     pdfVersion: textContent(getChild(pdf, 'version')),
     adobeExtensionLevel: parseInt(textContent(getChild(pdf, 'adobeExtensionLevel')) ?? '0', 10),
@@ -394,7 +469,29 @@ function parseConfig(config: unknown): ConfigSpec | undefined {
       psName: attr(f, 'psName') ?? '',
       weight: attr(f, 'weight'),
     })),
+    fontEquateRules: fontEquateRules.length > 0 ? fontEquateRules : undefined,
   };
+}
+
+function parseFontEquateRules(pdf: unknown): FontEquateRule[] {
+  if (!pdf) return [];
+  const fontInfo = getChild(pdf, 'fontInfo');
+  if (!fontInfo) return [];
+  const map = getChild(fontInfo, 'map');
+  if (!map) return [];
+  const equates = toArray<unknown>(getChild(map, 'equate'));
+  return equates
+    .map((eq) => {
+      const from = attr(eq, 'from');
+      const to = attr(eq, 'to');
+      if (!from || !to) return null;
+      return {
+        from,
+        to,
+        force: attr(eq, 'force') === '1',
+      };
+    })
+    .filter(Boolean) as FontEquateRule[];
 }
 
 function parseConnectionSet(connSet: unknown): { xsdUri?: string; xsdRootElement?: string } {

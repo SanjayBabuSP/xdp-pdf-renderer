@@ -1,4 +1,4 @@
-import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, AbsolutePosition } from '../../types';
+import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, AbsolutePosition } from '../../types';
 import { success } from '../../lib/result-type';
 
 interface PositionContext {
@@ -57,6 +57,7 @@ function positionNode(
   if (node.type === 'subform') return positionSubform(node, ctx);
   if (node.type === 'field') return positionField(node, ctx);
   if (node.type === 'draw') return positionDraw(node, ctx);
+  if (node.type === 'exclGroup') return positionExclGroup(node, ctx);
   return { positionedNode: node, height: 0 };
 }
 
@@ -208,6 +209,24 @@ function positionDraw(
   return {
     positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w, h } } as DrawNode,
     height: h,
+  };
+}
+
+function positionExclGroup(
+  node: ExclGroupNode,
+  ctx: PositionContext
+): { positionedNode: ExclGroupNode; height: number } {
+  // ExclGroup's children are fields laid out vertically
+  const result: FieldNode[] = [];
+  let yOffset = 0;
+  for (const child of node.children) {
+    const { positionedNode, height } = positionField(child, { ...ctx, y: ctx.y + yOffset });
+    result.push(positionedNode);
+    yOffset += height;
+  }
+  return {
+    positionedNode: { ...node, children: result, position: { ...node.position, x: ctx.x, y: ctx.y } },
+    height: yOffset,
   };
 }
 

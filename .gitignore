@@ -5,3 +5,4 @@ dist-test/
 *.d.ts.map
 coverage/
 *.pdf
+reference/

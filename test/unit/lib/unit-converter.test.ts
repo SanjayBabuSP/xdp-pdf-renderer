@@ -1,4 +1,4 @@
-import { toPoints, toPointsOrZero, stockSizePoints } from '../../../src/lib/unit-converter';
+import { toPoints, toPointsOrZero, stockSizePoints, stockMediumNames } from '../../../src/lib/unit-converter';
 
 describe('unit-converter', () => {
   describe('toPoints', () => {
@@ -69,6 +69,45 @@ describe('unit-converter', () => {
     it('is case-insensitive', () => {
       const size = stockSizePoints('A4');
       expect(size).toBeDefined();
+    });
+
+    it('returns Letter dimensions', () => {
+      const size = stockSizePoints('letter');
+      expect(size).toEqual({ short: 612, long: 792 });
+    });
+
+    it('returns Legal dimensions', () => {
+      const size = stockSizePoints('legal');
+      expect(size).toEqual({ short: 612, long: 1008 });
+    });
+
+    it('returns A2 dimensions (from Designer.xdc catalog)', () => {
+      const size = stockSizePoints('a2');
+      expect(size!.short).toBeCloseTo(623.62, 1);
+      expect(size!.long).toBeCloseTo(1683.78, 1);
+    });
+
+    it('returns envelope10 dimensions', () => {
+      const size = stockSizePoints('envelope10');
+      expect(size).toEqual({ short: 297, long: 684 });
+    });
+
+    it('returns tabloid dimensions', () => {
+      const size = stockSizePoints('tabloid');
+      expect(size).toEqual({ short: 792, long: 1224 });
+    });
+
+    it('returns b5JIS dimensions', () => {
+      const size = stockSizePoints('b5JIS');
+      expect(size!.short).toBeCloseTo(515.91, 1);
+      expect(size!.long).toBeCloseTo(728.5, 1);
+    });
+
+    it('returns list of known stock names', () => {
+      const names = stockMediumNames();
+      expect(names.length).toBeGreaterThan(50);
+      expect(names).toContain('a4');
+      expect(names).toContain('ledger');
     });
 
     it('returns undefined for unknown stock', () => {

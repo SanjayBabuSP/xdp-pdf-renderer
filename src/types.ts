@@ -32,6 +32,7 @@ export interface FontSpec {
   size?: number;
   weight?: string;
   posture?: string;
+  color?: RgbColor;
 }
 
 export interface RgbColor {
@@ -77,6 +78,7 @@ export interface BindSpec {
 
 export interface CaptionSpec {
   reserve?: number;
+  placement?: 'left' | 'right' | 'top' | 'bottom' | 'inline';
   text?: string;
   font?: FontSpec;
 }
@@ -93,10 +95,20 @@ export interface EventSpec {
   script?: string;
 }
 
+export interface ChoiceListItem {
+  text: string;
+  value?: string;
+}
+
 export interface UiSpec {
-  type: 'textEdit' | 'numericEdit' | 'dateTimeEdit' | 'imageEdit' | 'unknown';
+  type: 'textEdit' | 'numericEdit' | 'dateTimeEdit' | 'imageEdit' | 'checkButton' | 'choiceList' | 'barcode' | 'button' | 'signature' | 'unknown';
   multiLine?: boolean;
   borderPresence?: string;
+  /** For choiceList: the selectable items */
+  items?: ChoiceListItem[];
+  /** For checkButton: values for on/off states */
+  checkedValue?: string;
+  uncheckedValue?: string;
 }
 
 export interface OccurSpec {
@@ -125,6 +137,19 @@ export interface SubformNode {
   position?: Position;
 }
 
+export interface ExclGroupNode {
+  type: 'exclGroup';
+  name?: string;
+  bindMatch?: 'dataRef' | 'none';
+  bindRef?: string;
+  children: FieldNode[];
+  position?: Position;
+  presence?: PresenceValue;
+  border?: BorderSpec;
+  margin?: MarginSpec;
+  resolvedValue?: unknown;
+}
+
 export interface FieldNode {
   type: 'field';
   name?: string;
@@ -150,10 +175,14 @@ export interface DrawNode {
   type: 'draw';
   name?: string;
   value?: {
-    type: 'text' | 'image' | 'richText' | 'rectangle' | 'line';
+    type: 'text' | 'image' | 'richText' | 'rectangle' | 'line' | 'arc' | 'circle';
     contentType?: string;
     content?: string;
     shapeBorder?: BorderSpec;
+    /** For arc: sweep angle in degrees */
+    sweepAngle?: number;
+    /** For arc: start angle in degrees */
+    startAngle?: number;
   };
   font?: FontSpec;
   position?: Position;
@@ -164,7 +193,7 @@ export interface DrawNode {
   border?: BorderSpec;
 }
 
-export type LayoutNode = SubformNode | FieldNode | DrawNode;
+export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
@@ -191,10 +220,17 @@ export interface PageDefinition {
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+export interface FontEquateRule {
+  from: string;
+  to: string;
+  force: boolean;
+}
+
 export interface ConfigSpec {
   pdfVersion?: string;
   adobeExtensionLevel?: number;
   fonts?: Array<{ typeface: string; psName: string; weight?: string }>;
+  fontEquateRules?: FontEquateRule[];
 }
 
 // ─── Layout Model ────────────────────────────────────────────────────────────

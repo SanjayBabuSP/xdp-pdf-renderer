@@ -28,6 +28,12 @@ function resolveNodePresence(node: LayoutNode): LayoutNode {
   if (resolved.type === 'subform') {
     return { ...resolved, children: filterNodes(resolved.children) };
   }
+  if (resolved.type === 'exclGroup') {
+    return {
+      ...resolved,
+      children: resolved.children.filter((child) => !isRemoved(child.presence)),
+    };
+  }
   return resolved;
 }
 

@@ -52,6 +52,12 @@ function collectBindRefs(nodes: LayoutNode[], arrayContext?: string): Array<{ re
     if ((node.type === 'field' || node.type === 'subform') && node.bindMatch === 'dataRef' && node.bindRef) {
       refs.push({ ref: node.bindRef, arrayContext });
     }
+    if (node.type === 'exclGroup') {
+      if (node.bindMatch === 'dataRef' && node.bindRef) {
+        refs.push({ ref: node.bindRef, arrayContext });
+      }
+      refs.push(...collectBindRefs(node.children, arrayContext));
+    }
     if (node.type === 'subform') {
       const nextArrayContext = isRepeatingArrayRef(node.bindRef, node.bindMatch)
         ? node.bindRef
