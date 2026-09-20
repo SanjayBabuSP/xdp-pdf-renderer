@@ -1,0 +1,305 @@
+	<import>
+	<title res="1100">Adobe Acrobat file</title>
+	<type res="1101">Adobe Acrobat</type>
+	<fileSpec>*.pdf</fileSpec>
+	<exe>ConvertPDF.exe</exe>
+	<options>
+		<fixed> adjustfonts=-1 detectlogo=enable</fixed>
+		<option>
+			<name>model</name>
+			<caption res="1220">Conversion type:</caption>
+			<style>list</style>
+			<value>edit</value>
+			<list>
+				<item>
+					<display res="1223">Create an Interactive Form with a Flowable Layout</display>
+					<emit>edit</emit>
+				</item>
+				<item>
+					<display res="1222">Create an Interactive Form with Fixed Pages</display>
+					<emit>bg</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<caption res="1230">   Choose the "Create an Interactive Form with Fixed Pages" option if you wish to
+ import the content of the original document as artwork. This preserves its appearance
+ and retains existing interactive form fields. You can place new form fields over this 
+ artwork but cannot edit the artwork in LiveCycle Designer.</caption>
+			<style>static</style>
+			<value></value>
+		</option>
+		<option>
+			<name>content</name>
+			<caption res="1240">  Place content in:</caption>
+			<style>list</style>
+			<value>auto</value>
+			<list>
+				<item>
+					<display res="1243">Auto Select</display>
+					<emit>auto</emit>
+				</item>
+				<item>
+					<display res="1241">Body Pages</display>
+					<emit>body</emit>
+				</item>
+				<item>
+					<display res="1242">Master Pages</display>
+					<emit>master</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<caption res="1110">Text processing settings</caption>
+			<style>static</style>
+			<value></value>
+		</option>
+		<option>
+			<name>text</name>
+			<caption res="1120">   Join text as:</caption>
+			<style>list</style>
+			<value>-1</value>
+			<list>
+				<item>
+					<display res="1121">Auto Select</display>
+					<emit>-1</emit>
+				</item>
+				<item>
+					<display res="1122">Single Characters</display>
+					<emit>raw</emit>
+				</item>
+				<item>
+					<display res="1123">Single Words</display>
+					<emit>label</emit>
+				</item>
+				<item>
+					<display res="1124">Single Text Lines</display>
+					<emit>line</emit>
+				</item>
+				<item>
+					<display res="1125">Text blocks</display>
+					<emit>block</emit>
+				</item>
+				<item>
+					<display res="1126">Paragraphs</display>
+					<emit>para</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<name>join</name>
+			<caption res="1130">   Tolerance for joining text:</caption>
+			<style>list</style>
+			<value>-1</value>
+			<list>
+				<item>
+					<display res="1136">Auto Select</display>
+					<emit>-1</emit>
+				</item>
+				<item>
+					<display res="1131">None</display>
+					<emit>0</emit>
+				</item>
+				<item>
+					<display res="1132">Low</display>
+					<emit>50</emit>
+				</item>
+				<item>
+					<display res="1133">Medium</display>
+					<emit>100</emit>
+				</item>
+				<item>
+					<display res="1134">High</display>
+					<emit>150</emit>
+				</item>
+				<item>
+					<display res="1135">Very High</display>
+					<emit>500</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<name>lines</name>
+			<caption res="1140">   Tolerance for joining text lines:</caption>
+			<style>list</style>
+			<value>-1</value>
+			<list>
+				<item>
+					<display res="1146">Auto Select</display>
+					<emit>-1</emit>
+				</item>
+				<item>
+					<display res="1141">None</display>
+					<emit>0</emit>
+				</item>
+				<item>
+					<display res="1142">Low</display>
+					<emit>100</emit>
+				</item>
+				<item>
+					<display res="1143">Medium</display>
+					<emit>150</emit>
+				</item>
+				<item>
+					<display res="1144">High</display>
+					<emit>300</emit>
+				</item>
+				<item>
+					<display res="1145">Very High</display>
+					<emit>500</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<name>para</name>
+			<caption res="1180">   Tolerance for joining paragraphs:</caption>
+			<style>list</style>
+			<value>-1</value>
+			<list>
+				<item>
+					<display res="1186">Auto Select</display>
+					<emit>-1</emit>
+				</item>
+				<item>
+					<display res="1181">None</display>
+					<emit>20000</emit>
+				</item>
+				<item>
+					<display res="1182">Low</display>
+					<emit>3000</emit>
+				</item>
+				<item>
+					<display res="1183">Medium</display>
+					<emit>1500</emit>
+				</item>
+				<item>
+					<display res="1184">High</display>
+					<emit>1000</emit>
+				</item>
+				<item>
+					<display res="1185">Very High</display>
+					<emit>0</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<caption res="0"> </caption>
+			<style>static</style>
+			<value></value>
+		</option>
+		<option>
+			<name>page</name>
+			<caption res="1170">Page range: (leave blank for all)</caption>
+			<style>text</style>
+			<value></value>
+		</option>
+		<option>
+			<caption res="1171">   Enter page numbers and/or page ranges separated by commas.  
+   For example,  1,3,5-12
+</caption>
+			<style>static</style>
+			<value></value>
+		</option>
+		<option>
+			<name>script</name>
+			<caption res="1190">JavaScript scripts in PDF file</caption>
+			<style>list</style>
+			<value>include_commented</value>
+			<list>
+				<item>
+					<display res="1191">Exclude</display>
+					<emit>exclude</emit>
+				</item>
+				<item>
+					<display res="1192">Include exactly as in PDF</display>
+					<emit>include_intact</emit>
+				</item>
+				<item>
+					<display res="1193">Include after commenting out</display>
+					<emit>include_commented</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<name>images</name>
+			<caption res="1200">Embed Images in XDP as</caption>
+			<style>list</style>
+			<value>bmp</value>
+			<list>
+				<item>
+					<display res="1201">None</display>
+					<emit>none</emit>
+				</item>
+				<item>
+					<display res="1202">BMP</display>
+					<emit>bmp</emit>
+				</item>
+				<item>
+					<display res="1203">PNG</display>
+					<emit>png</emit>
+				</item>
+				<item>
+					<display res="1204">JPEG (Low Quality)</display>
+					<emit>jpeg_low</emit>
+				</item>
+				<item>
+					<display res="1205">JPEG (Medium Quality)</display>
+					<emit>jpeg_medium</emit>
+				</item>
+				<item>
+					<display res="1206">JPEG (High Quality)</display>
+					<emit>jpeg_high</emit>
+				</item>
+			</list>
+		</option>
+		<option>
+			<name>usePDFtags</name>
+			<caption res="1207">Preserve Accessibility information of Tagged PDF</caption>
+			<style>check</style>
+			<value>on</value>
+			<on>on</on>
+			<off>off</off>
+		</option>
+		<option>
+			<name>taborder</name>
+			<caption res="1208">Preserve Tab Order of form fields</caption>
+			<style>check</style>
+			<value>none</value>
+			<on>all</on>
+			<off>none</off>
+		</option>
+		<option>
+			<name>report</name>
+			<caption res="1209">Display a Summary report when conversion issues are found</caption>
+			<style>check</style>
+			<value>1</value>
+			<on>1</on>
+			<off>0</off>
+		</option>
+		<option>
+			<caption res="0"> </caption>
+			<style>static</style>
+			<value></value>
+		</option>
+		<option>
+			<name>log</name>
+			<caption res="1210">Generate a log file:</caption>
+			<style>list</style>
+			<value>-1</value>
+			<list>
+				<item>
+					<display res="1211">Do not log</display>
+					<emit>-1</emit>
+				</item>				
+				<item>
+					<display res="1212">Log to \TEMP\ConvertPDF.log</display>	
+					<emit>$temp\ConvertPDF</emit>
+				</item>				
+				<item>
+					<display res="1213">Log to \TEMP\inputfile.log</display>
+					<emit>$temp\$form</emit>
+				</item>				
+			</list>
+		</option>
+	</options>
+</import>
