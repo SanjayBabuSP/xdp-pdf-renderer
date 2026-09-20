@@ -506,6 +506,19 @@ function collectScriptsFromNode(node: ScriptableNode, path: string): ScriptEntry
     });
   }
 
+  // Collect validate scripts from <validate> element
+  const fieldNode = node as unknown as { validate?: { script?: { content: string; contentType: string; runAt?: string } } };
+  if (fieldNode.validate?.script?.content) {
+    entries.push({
+      elementPath: path,
+      element: node,
+      eventName: 'validate',
+      scriptContent: fieldNode.validate.script.content,
+      language: detectScriptLanguage(fieldNode.validate.script.contentType),
+      runAt: fieldNode.validate.script.runAt,
+    });
+  }
+
   return entries;
 }
 

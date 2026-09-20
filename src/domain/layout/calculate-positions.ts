@@ -104,6 +104,10 @@ function positionAbsoluteSubform(
     }
     height = maxY;
   }
+  // Enforce minH even when h is specified
+  if (node.position?.minH != null && height < node.position.minH) {
+    height = node.position.minH;
+  }
 
   return {
     positionedNode: { ...node, children, position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height } } as SubformNode,
@@ -204,12 +208,13 @@ function positionField(
 ): { positionedNode: FieldNode; height: number } {
   const h = node.position?.h ?? node.position?.minH ?? 18;
   const w = node.position?.w ?? ctx.availableWidth;
-  const absPos: AbsolutePosition = { x: ctx.x, y: ctx.y, w, h };
+  // Enforce minH/minW
+  const finalH = node.position?.minH != null ? Math.max(h, node.position.minH) : h;
+  const finalW = node.position?.minW != null ? Math.max(w, node.position.minW) : w;
   return {
-    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w, h } } as FieldNode,
-    height: h,
+    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w: finalW, h: finalH } } as FieldNode,
+    height: finalH,
   };
-  void absPos;
 }
 
 function positionDraw(
@@ -218,9 +223,12 @@ function positionDraw(
 ): { positionedNode: DrawNode; height: number } {
   const h = node.position?.h ?? 18;
   const w = node.position?.w ?? ctx.availableWidth;
+  // Enforce minH/minW
+  const finalH = node.position?.minH != null ? Math.max(h, node.position.minH) : h;
+  const finalW = node.position?.minW != null ? Math.max(w, node.position.minW) : w;
   return {
-    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w, h } } as DrawNode,
-    height: h,
+    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w: finalW, h: finalH } } as DrawNode,
+    height: finalH,
   };
 }
 

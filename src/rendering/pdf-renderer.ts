@@ -1,4 +1,4 @@
-import { PDFDocument, PDFPage, rgb, RGB, degrees } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, RGB, degrees, PDFFont } from 'pdf-lib';
 import {
   PaginatedLayout,
   PaginatedPage,
@@ -11,6 +11,7 @@ import {
   BorderSpec,
   RgbColor,
   FontEquateRule,
+  MarginSpec,
 } from '../types';
 import { FontManager } from './font-manager';
 import { embedBase64Image } from './image-embedder';
@@ -99,7 +100,14 @@ async function renderSubform(
   fontManager: FontManager,
   options: RenderOptions
 ): Promise<void> {
-  if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
+  // Draw fill BEFORE children so it appears as a background
+  if (node.border?.fill?.color && node.border.fill.presence !== 'hidden' && node.border.fill.presence !== 'invisible') {
+    drawBorderBox(pdfPage, node.border, node.position, pageH);
+  }
+  // Draw border edges (but skip fill since we already drew it above)
+  if (node.border) {
+    drawBorderEdges(pdfPage, node.border, node.position, pageH);
+  }
   for (const child of node.children) {
     await renderNode(pdfPage, child, pageH, fontManager, options);
   }
@@ -112,7 +120,13 @@ async function renderExclGroup(
   fontManager: FontManager,
   _options: RenderOptions
 ): Promise<void> {
-  if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
+  // Draw fill BEFORE children so it appears as a background
+  if (node.border?.fill?.color && node.border.fill.presence !== 'hidden' && node.border.fill.presence !== 'invisible') {
+    drawBorderBox(pdfPage, node.border, node.position, pageH);
+  }
+  if (node.border) {
+    drawBorderEdges(pdfPage, node.border, node.position, pageH);
+  }
   for (const child of node.children) {
     await renderField(pdfPage, child, pageH, fontManager);
   }
@@ -141,7 +155,6 @@ function drawBorderBox(
 
   if (border.fill?.color && border.fill.presence !== 'hidden' && border.fill.presence !== 'invisible') {
     if (border.cornerRadius && border.cornerRadius > 0) {
-      // Draw rounded rectangle fill using pdf-lib's borderWidth trick
       pdfPage.drawRectangle({
         x: pos.x,
         y,
@@ -155,9 +168,26 @@ function drawBorderBox(
     }
   }
 
+  drawBorderEdges(pdfPage, border, pos, pageH);
+}
+
+/** Draw only the border edges (not fill). Used when fill is drawn separately before children. */
+function drawBorderEdges(
+  pdfPage: PDFPage,
+  border: BorderSpec,
+  pos: { x?: number; y?: number; w?: number; h?: number } | undefined,
+  pageH: number
+): void {
+  if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return;
+  if (pos?.x === undefined || pos?.y === undefined) return;
+
+  const w = pos.w ?? 0;
+  const h = pos.h ?? 0;
+  if (w <= 0 || h <= 0) return;
+  const y = flipY(pos.y, h, pageH);
+
   const edges = border.edges ?? [];
   if (edges.length === 0) return;
-  // A single <edge> applies to all 4 sides; up to 4 apply as [top, right, bottom, left].
   const [top, right, bottom, left] =
     edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
 
@@ -295,40 +325,29 @@ async function renderField(
   const pos = node.position;
   if (pos?.x === undefined || pos?.y === undefined) return;
 
-  const x = pos.x;
-  const y = flipY(pos.y, pos.h ?? 18, pageH);
-  const width = pos.w ?? 0;
+  const margins = getMargins(node.margin);
+  const x = pos.x + margins.left;
+  const width = Math.max((pos.w ?? 0) - margins.left - margins.right, 0);
   const height = pos.h ?? 18;
+  const y = flipY(pos.y, height, pageH) + margins.bottom;
+  const innerHeight = Math.max(height - margins.top - margins.bottom, 0);
   const fontSize = node.font?.size ?? 8;
   const fontColor = toPdfColor(node.font?.color);
-  const font = await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
   const valueText = formatValue(node.resolvedValue, node.formatPicture);
   const valueAlign = (node.para?.hAlign as 'left' | 'center' | 'right') ?? 'left';
   const verticalAlign = (node.para?.vAlign as 'top' | 'middle' | 'bottom') ?? 'top';
 
   // Handle special UI types
   if (node.ui?.type === 'checkButton') {
-    return renderCheckButton(pdfPage, node, x, y, width, height, fontSize, fontManager, fontColor);
+    return renderCheckButton(pdfPage, node, pos.x, flipY(pos.y, height, pageH), pos.w ?? 0, height, fontSize, fontManager, fontColor);
   }
-
-  const layout = computeFieldTextLayout({
-    x,
-    y,
-    width,
-    height,
-    reserve: node.caption?.reserve ?? 0,
-    captionText: node.caption?.text,
-    captionPlacement: node.caption?.placement,
-    valueText,
-    valueAlign,
-    verticalAlign,
-    fontSize,
-  });
 
   if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
 
   const rotateVal = node.position?.rotate ?? 0;
   const rotation = rotateVal !== 0 ? degrees(rotateVal) : undefined;
+
+  const reserve = node.caption?.reserve ?? 0;
 
   // Draw caption if present
   if (node.caption?.text) {
@@ -339,12 +358,32 @@ async function renderField(
           node.caption.font.weight,
           node.caption.font.posture
         )
-      : font;
+      : await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
     const captionSize = node.caption.font?.size ?? fontSize;
     const captionColor = toPdfColor(node.caption.font?.color);
+    const placement = node.caption?.placement ?? 'left';
+    let captionX = x;
+    let captionY = y;
+
+    if (placement === 'left' || placement === 'right') {
+      // Vertical centering for left/right captions
+      const textOffset = Math.max((innerHeight - captionSize) / 2, 0);
+      captionY = y + (verticalAlign === 'bottom' ? textOffset : verticalAlign === 'middle' ? textOffset : innerHeight - captionSize - textOffset);
+    } else if (placement === 'top') {
+      captionY = y + innerHeight - captionSize;
+    } else if (placement === 'bottom') {
+      captionY = y;
+    } else if (placement === 'inline') {
+      captionY = y + innerHeight - captionSize;
+    }
+
+    if (placement === 'right') {
+      captionX = x + width - reserve;
+    }
+
     pdfPage.drawText(node.caption.text, {
-      x: layout.captionX,
-      y: layout.captionY,
+      x: captionX,
+      y: captionY,
       size: captionSize,
       font: captionFont,
       color: captionColor,
@@ -352,7 +391,7 @@ async function renderField(
     });
   }
 
-  // Draw field value
+  // Draw field value with multi-line wrapping
   if (valueText) {
     const valueFont = await fontManager.getSafeFont(
       valueText,
@@ -360,14 +399,47 @@ async function renderField(
       node.font?.weight,
       node.font?.posture
     );
-    pdfPage.drawText(valueText, {
-      x: layout.valueX,
-      y: layout.valueY,
-      size: fontSize,
-      font: valueFont,
-      color: fontColor,
-      rotate: rotation,
-    });
+    const valueAreaWidth = Math.max(width - reserve, 0);
+    const lineHeight = fontSize * 1.4;
+
+    // Wrap text to fit within the value area
+    const lines = wrapText(valueText, fontSize, valueAreaWidth, valueFont);
+
+    // Calculate vertical position based on alignment
+    const totalTextHeight = lines.length * lineHeight;
+    let startY: number;
+    if (verticalAlign === 'middle') {
+      startY = y + (innerHeight - totalTextHeight) / 2;
+    } else if (verticalAlign === 'bottom') {
+      startY = y;
+    } else {
+      startY = y + innerHeight - totalTextHeight;
+    }
+
+    // Draw each line
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineY = startY + i * lineHeight;
+      const lineWidth = measureTextWidth(line, fontSize, valueFont);
+
+      let valueX: number;
+      if (valueAlign === 'right') {
+        valueX = x + reserve + valueAreaWidth - lineWidth;
+      } else if (valueAlign === 'center') {
+        valueX = x + reserve + (valueAreaWidth - lineWidth) / 2;
+      } else {
+        valueX = x + reserve;
+      }
+
+      pdfPage.drawText(line, {
+        x: valueX,
+        y: lineY,
+        size: fontSize,
+        font: valueFont,
+        color: fontColor,
+        rotate: rotation,
+      });
+    }
   }
 }
 
@@ -424,15 +496,18 @@ async function renderDraw(
   const pos = node.position;
   if (pos?.x === undefined || pos?.y === undefined) return;
 
-  const x = pos.x;
-  const y = flipY(pos.y, pos.h ?? 18, pageH);
+  const margins = getMargins(node.margin);
+  const x = pos.x + margins.left;
+  const y = flipY(pos.y, pos.h ?? 18, pageH) + margins.bottom;
+  const width = Math.max((pos.w ?? 0) - margins.left - margins.right, 0);
+  const height = Math.max((pos.h ?? 18) - margins.top - margins.bottom, 0);
 
   if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
 
   if (!node.value) return;
 
   if (node.value.type === 'image' && node.value.content) {
-    await renderImage(pdfPage, node, x, y, pos.w ?? 72, pos.h ?? 36);
+    await renderImage(pdfPage, node, x, y - height, width, height);
     return;
   }
 
@@ -442,12 +517,12 @@ async function renderDraw(
   }
 
   if (node.value.type === 'arc' || node.value.type === 'circle') {
-    renderArcOrCircle(pdfPage, node, x, y, pos.w ?? 72, pos.h ?? 36);
+    renderArcOrCircle(pdfPage, node, x, y, width, height);
     return;
   }
 
   if (node.value.type === 'richText') {
-    await renderRichText(pdfPage, node, x, y, fontManager);
+    await renderRichText(pdfPage, node, x, y, fontManager, width, height);
     return;
   }
 
@@ -464,7 +539,17 @@ async function renderDraw(
     );
     const rotateVal = node.position?.rotate ?? 0;
     const rotation = rotateVal !== 0 ? degrees(rotateVal) : undefined;
-    pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: fontColor, rotate: rotation });
+
+    // Multi-line text wrapping
+    const lineHeight = fontSize * 1.4;
+    const lines = wrapText(text, fontSize, width, font);
+    const totalTextHeight = lines.length * lineHeight;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineY = y + height - totalTextHeight + i * lineHeight;
+      pdfPage.drawText(line, { x, y: lineY, size: fontSize, font, color: fontColor, rotate: rotation });
+    }
   }
 }
 
@@ -501,7 +586,9 @@ async function renderRichText(
   node: DrawNode,
   x: number,
   y: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  width?: number,
+  height?: number
 ): Promise<void> {
   const content = node.value?.content ?? '';
   const runs = parseRichText(content);
@@ -517,14 +604,24 @@ async function renderRichText(
       node.font?.weight,
       node.font?.posture
     );
-    pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: rgb(0, 0, 0) });
+    const lineHeight = fontSize * 1.4;
+    const wrapWidth = width ?? 500;
+    const lines = wrapText(text, fontSize, wrapWidth, font);
+    const totalTextHeight = lines.length * lineHeight;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineY = y + (height ?? 0) - totalTextHeight + i * lineHeight;
+      pdfPage.drawText(line, { x, y: lineY, size: fontSize, font, color: rgb(0, 0, 0) });
+    }
     return;
   }
 
   let currentX = x;
-  let currentY = y;
+  let currentY = y + (height ?? 0) - (runs[0]?.fontSize ?? node.font?.size ?? 8);
   const baseFontSize = node.font?.size ?? 8;
   const baseFontFamily = node.font?.family ?? 'Helvetica';
+  const wrapWidth = width ?? 500;
 
   for (const run of runs) {
     if (run.text === '\n') {
@@ -539,6 +636,16 @@ async function renderRichText(
     const font = await fontManager.getSafeFont(run.text, baseFontFamily, runWeight, runPosture);
     const color = run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color);
 
+    // Simple line breaking for rich text
+    const availableWidth = wrapWidth - (currentX - x);
+    const runWidth = measureTextWidth(run.text, runFontSize, font);
+
+    if (runWidth > availableWidth && availableWidth < wrapWidth * 0.5) {
+      // Move to next line if we can't fit even a small portion
+      currentX = x;
+      currentY -= runFontSize * 1.4;
+    }
+
     pdfPage.drawText(run.text, {
       x: currentX,
       y: currentY,
@@ -547,8 +654,12 @@ async function renderRichText(
       color,
     });
 
-    // Advance x position (approximate)
-    currentX += run.text.length * runFontSize * 0.5;
+    // Advance x position
+    currentX += runWidth;
+    if (currentX > x + wrapWidth) {
+      currentX = x;
+      currentY -= runFontSize * 1.4;
+    }
   }
 }
 
@@ -564,7 +675,8 @@ async function renderImage(
   const doc = pdfPage.doc;
   try {
     const image = await embedBase64Image(doc, node.value.content, node.value.contentType ?? 'image/png');
-    pdfPage.drawImage(image, { x, y: y - h, width: w, height: h });
+    // y is already the bottom-left PDF coordinate (caller computed flipY - height)
+    pdfPage.drawImage(image, { x, y, width: w, height: h });
   } catch {
     // Image failed — skip silently
   }
@@ -681,4 +793,52 @@ function coerceNumber(value: unknown): number | null {
 /** Strip HTML tags for basic rich text rendering. */
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Get effective margins from margin spec (handles MarginSpec or individual values). */
+function getMargins(margin?: MarginSpec): { top: number; right: number; bottom: number; left: number } {
+  if (!margin) return { top: 0, right: 0, bottom: 0, left: 0 };
+  return {
+    top: margin.topInset ?? 0,
+    right: margin.rightInset ?? 0,
+    bottom: margin.bottomInset ?? 0,
+    left: margin.leftInset ?? 0,
+  };
+}
+
+/** Measure approximate text width using font metrics (0.5 * fontSize is rough avg). */
+function measureTextWidth(text: string, fontSize: number, font?: PDFFont): number {
+  // Use pdf-lib font widthOfTextAtSize for accurate measurement when possible
+  if (font && typeof font.widthOfTextAtSize === 'function') {
+    try {
+      return font.widthOfTextAtSize(text, fontSize);
+    } catch {
+      // Fall back to approximation
+    }
+  }
+  // Approximate: average character width ~0.5 * fontSize for most fonts
+  return text.length * fontSize * 0.5;
+}
+
+/** Wrap text into lines that fit within the given width. */
+function wrapText(text: string, fontSize: number, maxWidth: number, font?: PDFFont): string[] {
+  if (maxWidth <= 0 || !text) return [text];
+  const words = text.split(/(\s+)/);
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine + word;
+    const testWidth = measureTextWidth(testLine, fontSize, font);
+    if (testWidth > maxWidth && currentLine.trim()) {
+      lines.push(currentLine.trimEnd());
+      currentLine = word.trimStart();
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine.trim()) {
+    lines.push(currentLine.trimEnd());
+  }
+  return lines.length > 0 ? lines : [text];
 }

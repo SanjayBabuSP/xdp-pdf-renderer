@@ -1,4 +1,4 @@
-import { Result, LayoutModel, LayoutNode, PaginatedLayout, PaginatedPage, PageDefinition } from '../../types';
+import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, PaginatedLayout, PaginatedPage, PageDefinition, Position } from '../../types';
 import { success } from '../../lib/result-type';
 
 /** Split content across multiple pages based on available page height. */
@@ -48,7 +48,74 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
     });
   }
 
+  // Reposition nodes for each page: after calculatePositions, all nodes are positioned
+  // against page 1's content area. For pages 2+, we need to shift node positions so they
+  // are relative to that page's content area origin.
+  const page1ContentArea = firstPageDef.contentArea;
+  for (const page of pages) {
+    if (page.pageIndex > 0) {
+      const yOffset = page1ContentArea.y - page.contentArea.y;
+      page.children = repositionNodesForPage(page.children, yOffset);
+    }
+  }
+
   return success({ pages });
+}
+
+/**
+ * Reposition all nodes on a page by shifting their y-coordinates.
+ * This makes nodes that were positioned against page 1's content area
+ * correctly positioned against this page's content area.
+ */
+function repositionNodesForPage(nodes: LayoutNode[], yOffset: number): LayoutNode[] {
+  if (yOffset === 0) return nodes;
+  return nodes.map((node) => repositionNodeForPage(node, yOffset));
+}
+
+function repositionNodeForPage(node: LayoutNode, yOffset: number): LayoutNode {
+  if (node.type === 'subform') {
+    const subform = node as SubformNode;
+    const newPos = shiftPosition(subform.position, yOffset);
+    return {
+      ...subform,
+      position: newPos,
+      children: repositionNodesForPage(subform.children, yOffset),
+    } as SubformNode;
+  }
+  if (node.type === 'field') {
+    const field = node as FieldNode;
+    return {
+      ...field,
+      position: shiftPosition(field.position, yOffset),
+    } as FieldNode;
+  }
+  if (node.type === 'draw') {
+    const draw = node as DrawNode;
+    return {
+      ...draw,
+      position: shiftPosition(draw.position, yOffset),
+    } as DrawNode;
+  }
+  if (node.type === 'exclGroup') {
+    const exclGroup = node as ExclGroupNode;
+    return {
+      ...exclGroup,
+      position: shiftPosition(exclGroup.position, yOffset),
+      children: exclGroup.children.map((child) => ({
+        ...child,
+        position: shiftPosition(child.position, yOffset),
+      })) as FieldNode[],
+    } as ExclGroupNode;
+  }
+  return node;
+}
+
+function shiftPosition(pos: Position | undefined, yOffset: number): Position {
+  if (!pos) return pos ?? {};
+  return {
+    ...pos,
+    y: pos.y != null ? pos.y + yOffset : pos.y,
+  };
 }
 
 function splitIntoPages(nodes: LayoutNode[], maxHeight: number, pageDef: PageDefinition): LayoutNode[][] {

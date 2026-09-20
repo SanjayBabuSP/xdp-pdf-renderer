@@ -253,6 +253,14 @@ export class JavaScriptEngine {
       ? createXfaFormProxy(this.nodeMap, '', this.modifiedFields)
       : this.createFallbackFormProxy(formData);
 
+    // Create template proxy from nodeMap (access to layout structure)
+    const templateProxy = this.nodeMap.size > 0
+      ? this.createTemplateProxy()
+      : createNullProxy();
+
+    // Create datasets proxy from formData
+    const datasetsProxy = this.createDatasetsProxy(formData);
+
     return {
       form: formProxy,
       resolveNode: (somExpr: string) => this.resolveSomExpression(somExpr, null),
@@ -272,11 +280,69 @@ export class JavaScriptEngine {
         }
         return results;
       },
-      template: createNullProxy(),
-      datasets: createNullProxy(),
+      template: templateProxy,
+      datasets: datasetsProxy,
       host: this.createHostObject(),
       event: createNullProxy(), // xfa.event is also accessible via xfa.event
     };
+  }
+
+  private createTemplateProxy(): Record<string, unknown> {
+    // Create a proxy that allows navigation of the template structure
+    const self = this;
+    const templateNodes: Record<string, unknown> = {};
+
+    // Build a proxy representation of all template nodes
+    for (const [path, node] of this.nodeMap) {
+      templateNodes[path] = {
+        name: node.name,
+        type: node.type,
+        presence: node.presence,
+        access: node.access,
+        children: (node.children ?? []).map((c, i) => ({
+          name: c.name ?? `<child_${i}>`,
+          type: c.type,
+        })),
+      };
+    }
+
+    return new Proxy(templateNodes, {
+      get(target, prop) {
+        if (typeof prop === 'string') {
+          // Allow direct path lookup
+          if (target[prop]) return target[prop];
+          // Allow name-based lookup
+          for (const [path, node] of Object.entries(target)) {
+            if (path.endsWith(`.${prop}`) || path === prop) return node;
+          }
+          // Return a resolveNode function for SOM expressions
+          if (prop === 'resolveNode') {
+            return (somExpr: string) => self.resolveSomExpression(somExpr, null);
+          }
+        }
+        return undefined;
+      },
+    });
+  }
+
+  private createDatasetsProxy(formData: unknown): Record<string, unknown> {
+    // Create a proxy for xfa.datasets.data that wraps the actual data
+    const data = formData as Record<string, unknown>;
+    return new Proxy(data ?? {}, {
+      get(target, prop) {
+        if (typeof prop === 'string') {
+          return target[prop];
+        }
+        return undefined;
+      },
+      set(target, prop, val) {
+        if (typeof prop === 'string') {
+          target[prop] = val;
+          return true;
+        }
+        return false;
+      },
+    });
   }
 
   private createFallbackFormProxy(formData: unknown): Record<string, unknown> {
@@ -325,6 +391,7 @@ export class JavaScriptEngine {
     let _calculationsEnabled = true;
     let _validationsEnabled = true;
     let _currentPage = 1;
+    const engine = this;
     return {
       // Identity
       name: 'Adobe LiveCycle Designer',
@@ -356,8 +423,15 @@ export class JavaScriptEngine {
         // In static PDF generation, messageBox returns the default button (1 = OK)
         return 1;
       },
-      formatValue: (value: unknown) => String(value ?? ''),
-      unformatValue: (value: string) => value,
+      formatValue: (value: unknown, picture?: string) => {
+        if (value == null) return '';
+        if (!picture) return String(value);
+        return engine.formatWithPictureClause(value, picture);
+      },
+      unformatValue: (value: string, picture?: string) => {
+        if (!picture) return value;
+        return engine.unformatWithPictureClause(value, picture);
+      },
       resetData: () => {},
       pageUp: () => {},
       pageDown: () => {},
@@ -432,6 +506,81 @@ export class JavaScriptEngine {
       MemoryStream: class {},
       Report: class {},
     };
+  }
+
+  private formatWithPictureClause(value: unknown, picture: string): string {
+    if (value == null) return '';
+    const trimmed = picture.trim();
+
+    // Date picture patterns
+    if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
+      const date = value instanceof Date ? value : new Date(String(value));
+      if (isNaN(date.getTime())) return String(value);
+      const replacements: Record<string, string> = {
+        'YYYY': String(date.getFullYear()),
+        'YY': String(date.getFullYear()).slice(-2),
+        'MM': String(date.getMonth() + 1).padStart(2, '0'),
+        'M': String(date.getMonth() + 1),
+        'DD': String(date.getDate()).padStart(2, '0'),
+        'D': String(date.getDate()),
+        'HH': String(date.getHours()).padStart(2, '0'),
+        'H': String(date.getHours()),
+        'mm': String(date.getMinutes()).padStart(2, '0'),
+        'm': String(date.getMinutes()),
+        'ss': String(date.getSeconds()).padStart(2, '0'),
+        's': String(date.getSeconds()),
+        'AMPM': date.getHours() >= 12 ? 'PM' : 'AM',
+        'am': date.getHours() >= 12 ? 'pm' : 'am',
+      };
+      let formatted = trimmed;
+      for (const [token, replacement] of Object.entries(replacements)) {
+        formatted = formatted.replace(new RegExp(token, 'g'), replacement);
+      }
+      return formatted;
+    }
+
+    // Number picture patterns
+    if (/[0#.,]/.test(trimmed) && typeof value === 'number') {
+      const mask = trimmed.replace(/\s+/g, '');
+      const prefix = mask.match(/^[^0-9#.,]+/)?.[0] ?? '';
+      const suffix = mask.match(/[^0-9#.,]+$/)?.[0] ?? '';
+      const digitsMask = mask.slice(prefix.length, mask.length - suffix.length);
+      const hasDecimal = digitsMask.includes('.');
+      const decimalPlaces = hasDecimal ? digitsMask.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0 : 0;
+      const hasGrouping = digitsMask.includes(',');
+      const absValue = Math.abs(value);
+      const rounded = absValue.toFixed(decimalPlaces);
+      const [wholeRaw, fractionRaw = ''] = rounded.split('.');
+      let whole = wholeRaw;
+      if (hasGrouping) {
+        whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+      const sign = value < 0 ? '-' : '';
+      const numeric = hasDecimal ? `${whole}.${fractionRaw}` : whole;
+      return `${prefix}${sign}${numeric}${suffix}`;
+    }
+
+    return String(value);
+  }
+
+  private unformatWithPictureClause(value: string, picture: string): unknown {
+    if (!value) return value;
+    const trimmed = picture.trim();
+
+    // For date patterns, try to parse
+    if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    // For number patterns, extract numeric value
+    if (/[0#.,]/.test(trimmed)) {
+      const cleaned = value.replace(/[^0-9.\-]/g, '');
+      const num = parseFloat(cleaned);
+      if (!isNaN(num)) return num;
+    }
+
+    return value;
   }
 
   private resolveSomExpression(somExpr: string, contextNode: XfaNode | null): Record<string, unknown> | null {

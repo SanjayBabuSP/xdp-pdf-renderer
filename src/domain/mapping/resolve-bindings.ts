@@ -38,9 +38,23 @@ function resolveSubform(node: SubformNode, data: DataObject): SubformNode {
 }
 
 function resolveField(node: FieldNode, data: DataObject): FieldNode {
-  if (node.bindMatch !== 'dataRef' || !node.bindRef) return node;
-  const resolved = resolveXPath(node.bindRef, data);
-  return { ...node, resolvedValue: resolved };
+  // If data-bound, resolve from data
+  if (node.bindMatch === 'dataRef' && node.bindRef) {
+    const resolved = resolveXPath(node.bindRef, data);
+    if (resolved !== undefined) {
+      return { ...node, resolvedValue: resolved };
+    }
+    // If binding failed but there's a defaultValue, use it
+    if (node.defaultValue !== undefined) {
+      return { ...node, resolvedValue: node.defaultValue };
+    }
+    return { ...node, resolvedValue: resolved };
+  }
+  // If no binding, use defaultValue if available
+  if (node.defaultValue !== undefined && node.resolvedValue === undefined) {
+    return { ...node, resolvedValue: node.defaultValue };
+  }
+  return node;
 }
 
 function resolveDraw(node: DrawNode, data: DataObject): DrawNode {

@@ -166,6 +166,7 @@ function parseSubform(subform: unknown): SubformNode {
   const bind = parseBind(getChild(subform, 'bind'));
   const occur = parseOccur(getChild(subform, 'occur'));
   const colWidths = parseColumnWidths(attr(subform, 'columnWidths'));
+  const relevant = attr(subform, 'relevant');
 
   return {
     type: 'subform',
@@ -183,14 +184,21 @@ function parseSubform(subform: unknown): SubformNode {
     border: parseBorder(getChild(subform, 'border')),
     position: parsePosition(subform),
     events: parseEvents(getChild(subform, 'event')),
+    relevant: relevant ?? undefined,
   };
 }
 
 function parseField(field: unknown): FieldNode {
   const bind = parseBind(getChild(field, 'bind'));
-  const bindNode = getChild(field, 'bind');
   const ui = getChild(field, 'ui');
   const uiElement = ui ? findUiElement(ui) : undefined;
+
+  // Parse <value> element for default/initial value
+  const valueEl = getChild(field, 'value');
+  const defaultValue = parseDefaultValue(valueEl);
+
+  // Parse <relevant> attribute for conditional visibility
+  const relevant = attr(field, 'relevant');
 
   return {
     type: 'field',
@@ -206,14 +214,14 @@ function parseField(field: unknown): FieldNode {
     position: parsePosition(field),
     events: parseEvents(getChild(field, 'event')),
     calculate: parseCalculate(getChild(field, 'calculate')),
+    validate: parseValidate(getChild(field, 'validate')),
     presence: (attr(field, 'presence') as PresenceValue) ?? 'visible',
     margin: parseMargin(getChild(field, 'margin')),
     colSpan: attr(field, 'colSpan') ? parseInt(attr(field, 'colSpan')!) : undefined,
-    // A field's border is conventionally nested under its ui element (e.g. ui/textEdit/border).
     border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
+    relevant: relevant ?? undefined,
+    defaultValue,
   };
-
-  void bindNode; // used via parseBind above
 }
 
 function findUiElement(ui: unknown): unknown {
@@ -504,14 +512,68 @@ function parseCalculate(calculate: unknown): { override?: string; script?: { con
   return { override: override ?? undefined, script };
 }
 
+function parseValidate(validate: unknown): { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } } | undefined {
+  if (!validate) return undefined;
+  const scriptEl = getChild(validate, 'script');
+  const scriptContent = textContent(scriptEl);
+  const contentType = attr(scriptEl, 'contentType');
+  const runAt = attr(scriptEl, 'runAt');
+  const script = scriptContent
+    ? { content: scriptContent, contentType: (contentType?.toLowerCase().includes('javascript') ? 'javascript' : 'formcalc') as 'formcalc' | 'javascript', runAt: runAt ?? undefined }
+    : undefined;
+  return { script };
+}
+
+function parseDefaultValue(valueEl: unknown): unknown {
+  if (!valueEl) return undefined;
+  // <value> can contain <text>, <image>, or <boolean>, <integer>, <float>, <date>, <time>, <dateTime>, <decimal>
+  const textEl = getChild(valueEl, 'text');
+  if (textEl) return textContent(textEl);
+  const booleanEl = getChild(valueEl, 'boolean');
+  if (booleanEl) return attr(booleanEl, 'value') === '1' || attr(booleanEl, 'value') === 'true';
+  const integerEl = getChild(valueEl, 'integer');
+  if (integerEl) return parseInt(attr(integerEl, 'value') ?? '0', 10);
+  const floatEl = getChild(valueEl, 'float');
+  if (floatEl) return parseFloat(attr(floatEl, 'value') ?? '0');
+  const dateEl = getChild(valueEl, 'date');
+  if (dateEl) return attr(dateEl, 'value');
+  const timeEl = getChild(valueEl, 'time');
+  if (timeEl) return attr(timeEl, 'value');
+  const dateTimeEl = getChild(valueEl, 'dateTime');
+  if (dateTimeEl) return attr(dateTimeEl, 'value');
+  const decimalEl = getChild(valueEl, 'decimal');
+  if (decimalEl) return parseFloat(attr(decimalEl, 'value') ?? '0');
+  return undefined;
+}
+
 function parseUi(ui: unknown): UiSpec | undefined {
   if (!ui) return undefined;
   if (getChild(ui, 'textEdit')) {
     const te = getChild(ui, 'textEdit');
-    return { type: 'textEdit', multiLine: attr(te, 'multiLine') === '1' };
+    return {
+      type: 'textEdit',
+      multiLine: attr(te, 'multiLine') === '1',
+      allowRichText: attr(te, 'allowRichText') === '1',
+      hAlign: attr(te, 'hAlign'),
+      vAlign: attr(te, 'vAlign'),
+    };
   }
-  if (getChild(ui, 'numericEdit')) return { type: 'numericEdit' };
-  if (getChild(ui, 'dateTimeEdit')) return { type: 'dateTimeEdit' };
+  if (getChild(ui, 'numericEdit')) {
+    const ne = getChild(ui, 'numericEdit');
+    return {
+      type: 'numericEdit',
+      hAlign: attr(ne, 'hAlign'),
+      vAlign: attr(ne, 'vAlign'),
+    };
+  }
+  if (getChild(ui, 'dateTimeEdit')) {
+    const dte = getChild(ui, 'dateTimeEdit');
+    return {
+      type: 'dateTimeEdit',
+      hAlign: attr(dte, 'hAlign'),
+      vAlign: attr(dte, 'vAlign'),
+    };
+  }
   if (getChild(ui, 'imageEdit')) return { type: 'imageEdit' };
   if (getChild(ui, 'checkButton')) {
     const cb = getChild(ui, 'checkButton');
@@ -519,14 +581,27 @@ function parseUi(ui: unknown): UiSpec | undefined {
       type: 'checkButton',
       checkedValue: textContent(getChild(cb, 'checkedValue')) ?? '1',
       uncheckedValue: textContent(getChild(cb, 'uncheckedValue')) ?? '0',
+      mark: attr(cb, 'mark'),
     };
   }
   if (getChild(ui, 'choiceList')) {
     const cl = getChild(ui, 'choiceList');
     const items = parseChoiceListItems(cl);
-    return { type: 'choiceList', items };
+    return {
+      type: 'choiceList',
+      items,
+      open: attr(cl, 'open'),
+      textEnclosure: attr(cl, 'textEnclosure'),
+    };
   }
-  if (getChild(ui, 'barcode')) return { type: 'barcode' };
+  if (getChild(ui, 'barcode')) {
+    const bc = getChild(ui, 'barcode');
+    return {
+      type: 'barcode',
+      encodeHint: attr(bc, 'encodeHint'),
+      charEncoding: attr(bc, 'charEncoding'),
+    };
+  }
   if (getChild(ui, 'button')) return { type: 'button' };
   if (getChild(ui, 'signature')) return { type: 'signature' };
   return { type: 'unknown' };

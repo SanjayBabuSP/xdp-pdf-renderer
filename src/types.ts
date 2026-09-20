@@ -108,12 +108,27 @@ export interface ChoiceListItem {
 export interface UiSpec {
   type: 'textEdit' | 'numericEdit' | 'dateTimeEdit' | 'imageEdit' | 'checkButton' | 'choiceList' | 'barcode' | 'button' | 'signature' | 'unknown';
   multiLine?: boolean;
+  allowRichText?: boolean;
   borderPresence?: string;
+  /** For textEdit/numericEdit/dateTimeEdit: horizontal alignment */
+  hAlign?: string;
+  /** For textEdit/numericEdit/dateTimeEdit: vertical alignment */
+  vAlign?: string;
   /** For choiceList: the selectable items */
   items?: ChoiceListItem[];
+  /** For choiceList: open state */
+  open?: string;
+  /** For choiceList: text enclosure style */
+  textEnclosure?: string;
   /** For checkButton: values for on/off states */
   checkedValue?: string;
   uncheckedValue?: string;
+  /** For checkButton: mark style */
+  mark?: string;
+  /** For barcode: encoding hint */
+  encodeHint?: string;
+  /** For barcode: character encoding */
+  charEncoding?: string;
 }
 
 export interface OccurSpec {
@@ -141,6 +156,8 @@ export interface SubformNode {
   border?: BorderSpec;
   position?: Position;
   events?: EventSpec[];
+  /** XFA relevant attribute for conditional visibility (e.g. "$ + |rest.textContent != ''") */
+  relevant?: string;
 }
 
 export interface ExclGroupNode {
@@ -169,12 +186,17 @@ export interface FieldNode {
   position?: Position;
   events?: EventSpec[];
   calculate?: { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
+  validate?: { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
   formatPicture?: string;
   presence?: PresenceValue;
   resolvedValue?: unknown;
   margin?: MarginSpec;
   colSpan?: number;
   border?: BorderSpec;
+  /** XFA relevant attribute for conditional visibility */
+  relevant?: string;
+  /** Default value from <value> element */
+  defaultValue?: unknown;
 }
 
 export interface DrawNode {
