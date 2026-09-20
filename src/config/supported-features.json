@@ -24,6 +24,7 @@
   },
   "unsupported": {
     "features": ["fullXfaScripting", "formCalc", "acroForms", "barcodeRendering", "gradientFills", "iccColorManagement"],
-    "partialSupport": ["richTextFormatting", "xfaCalculateScripts", "conditionalScripts", "cornerRadius"]
+    "partialSupport": ["richTextFormatting", "xfaCalculateScripts", "conditionalScripts", "cornerRadius"],
+    "imageFormats": ["image/bmp", "image/gif", "image/tiff"]
   }
 }

@@ -23,6 +23,7 @@ export interface Position {
   h?: number;
   minH?: number;
   minW?: number;
+  rotate?: number;
 }
 
 // ─── Font & Style ─────────────────────────────────────────────────────────────
@@ -305,6 +306,9 @@ export interface RenderOptions {
    *  XFA data instances (e.g. SAP OData exports) that commonly omit optional navigation properties
    *  even when the XSD lacks minOccurs="0". */
   strictValidation?: boolean;
+  /** Preview/draft mode: force-show watermark subforms (invisible presence) that would
+   *  normally be hidden. Matches Adobe LiveCycle's preview rendering. */
+  previewMode?: boolean;
 }
 
 // ─── Positioned / Paginated Layout ───────────────────────────────────────────

@@ -92,7 +92,19 @@ function positionAbsoluteSubform(
     return positionNode(child, childCtx).positionedNode;
   });
 
-  const height = node.position?.h ?? node.position?.minH ?? 0;
+  // When h/minH is absent, derive height from the furthest extent of positioned children
+  let height = node.position?.h ?? node.position?.minH;
+  if (height == null || height === 0) {
+    let maxY = 0;
+    for (const child of children) {
+      const childY = getChildY(child);
+      const childH = getNodeHeight(child) ?? 0;
+      const extent = childY + childH;
+      if (extent > maxY) maxY = extent;
+    }
+    height = maxY;
+  }
+
   return {
     positionedNode: { ...node, children, position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height } } as SubformNode,
     height,
@@ -233,5 +245,12 @@ function positionExclGroup(
 function getNodeWidth(node: LayoutNode): number | undefined {
   if (node.type === 'field') return node.position?.w;
   if (node.type === 'draw') return node.position?.w;
+  return undefined;
+}
+
+function getNodeHeight(node: LayoutNode): number | undefined {
+  if (node.type === 'field') return node.position?.h ?? node.position?.minH;
+  if (node.type === 'draw') return node.position?.h;
+  if (node.type === 'subform') return node.position?.h ?? node.position?.minH;
   return undefined;
 }

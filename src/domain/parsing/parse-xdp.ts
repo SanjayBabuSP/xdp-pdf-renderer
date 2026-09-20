@@ -366,6 +366,7 @@ function parsePosition(el: unknown): Position {
     h: attr(el, 'h') ? toPointsOrZero(attr(el, 'h')) : undefined,
     minH: attr(el, 'minH') ? toPointsOrZero(attr(el, 'minH')) : undefined,
     minW: attr(el, 'minW') ? toPointsOrZero(attr(el, 'minW')) : undefined,
+    rotate: attr(el, 'rotate') ? parseFloat(attr(el, 'rotate')!) : undefined,
   };
 }
 

@@ -57,17 +57,53 @@ function expandRepeatingSubform(node: SubformNode, data: DataObject): LayoutNode
   const limit = Math.min(arrayData.length, MAX_OCCURRENCES);
   const instances: LayoutNode[] = [];
 
+  // Determine the per-instance offset based on the subform's layout direction.
+  // For "tb" layout, offset vertically by the row height; for "lr", horizontally by column width.
+  // For "position" layout (XFA default), treat as implicit top-to-bottom flow.
+  const rowHeight = estimateSubformHeight(node);
+  const colWidth = node.position?.w ?? 0;
+
   for (let i = 0; i < limit; i++) {
     const itemData = arrayData[i] as DataObject;
+    const offsetX = (node.layout === 'lr') ? i * colWidth : 0;
+    const offsetY = (node.layout === 'tb' || node.layout === 'position' || !node.layout) ? i * rowHeight : 0;
+
     const instance: SubformNode = {
       ...node,
       occur: undefined, // Resolved — no longer repeating
       bindRef: `${arrayRef}[${i}]`,
       children: resolveChildrenWithData(node.children, itemData),
+      position: node.position
+        ? {
+            ...node.position,
+            x: (node.position.x ?? 0) + offsetX,
+            y: (node.position.y ?? 0) + offsetY,
+          }
+        : undefined,
     };
     instances.push(instance);
   }
   return instances;
+}
+
+/** Estimate the height of a subform node for repeat offset calculation. */
+function estimateSubformHeight(node: SubformNode): number {
+  if (node.position?.h) return node.position.h;
+  if (node.position?.minH) return node.position.minH;
+  // Sum children heights as fallback
+  let total = 0;
+  for (const child of node.children) {
+    if (child.type === 'field') {
+      total += child.position?.h ?? child.position?.minH ?? 18;
+    } else if (child.type === 'draw') {
+      total += child.position?.h ?? 18;
+    } else if (child.type === 'subform') {
+      total += estimateSubformHeight(child);
+    } else {
+      total += 18;
+    }
+  }
+  return total || 18;
 }
 
 function resolveChildrenWithData(children: LayoutNode[], itemData: DataObject): LayoutNode[] {

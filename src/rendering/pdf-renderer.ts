@@ -34,7 +34,7 @@ export async function renderPdf(
 
   for (const page of layout.pages) {
     const pdfPage = doc.addPage([page.medium.short, page.medium.long]);
-    await renderPage(pdfPage, page, fontManager);
+    await renderPage(pdfPage, page, fontManager, options);
   }
 
   const pdfBytes = await doc.save();
@@ -44,18 +44,19 @@ export async function renderPdf(
 async function renderPage(
   pdfPage: PDFPage,
   page: PaginatedPage,
-  fontManager: FontManager
+  fontManager: FontManager,
+  options: RenderOptions
 ): Promise<void> {
   const pageH = page.medium.long;
 
   // Render master page elements (headers, footers, logos) first
   for (const node of page.masterPageChildren) {
-    await renderNode(pdfPage, node, pageH, fontManager);
+    await renderNode(pdfPage, node, pageH, fontManager, options);
   }
 
   // Render content
   for (const node of page.children) {
-    await renderNode(pdfPage, node, pageH, fontManager);
+    await renderNode(pdfPage, node, pageH, fontManager, options);
   }
 }
 
@@ -63,26 +64,31 @@ async function renderNode(
   pdfPage: PDFPage,
   node: LayoutNode,
   pageH: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  options: RenderOptions
 ): Promise<void> {
   // "invisible"/"hidden" nodes still occupy layout space but must not be drawn. "inactive"/"hidden"
   // nodes are normally already filtered out earlier (evaluateConditions); this is a defensive check.
-  if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive') return;
+  // In previewMode, force invisible watermark subforms to be visible.
+  if (!options.previewMode) {
+    if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive') return;
+  }
   if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager);
   if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager);
-  if (node.type === 'subform') return renderSubform(pdfPage, node, pageH, fontManager);
-  if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager);
+  if (node.type === 'subform') return renderSubform(pdfPage, node, pageH, fontManager, options);
+  if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager, options);
 }
 
 async function renderSubform(
   pdfPage: PDFPage,
   node: SubformNode,
   pageH: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  options: RenderOptions
 ): Promise<void> {
   if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
   for (const child of node.children) {
-    await renderNode(pdfPage, child, pageH, fontManager);
+    await renderNode(pdfPage, child, pageH, fontManager, options);
   }
 }
 
@@ -90,7 +96,8 @@ async function renderExclGroup(
   pdfPage: PDFPage,
   node: ExclGroupNode,
   pageH: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  _options: RenderOptions
 ): Promise<void> {
   if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
   for (const child of node.children) {
@@ -307,6 +314,9 @@ async function renderField(
 
   if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
 
+  const rotateVal = node.position?.rotate ?? 0;
+  const rotation = rotateVal !== 0 ? degrees(rotateVal) : undefined;
+
   // Draw caption if present
   if (node.caption?.text) {
     const captionFont = node.caption.font
@@ -325,6 +335,7 @@ async function renderField(
       size: captionSize,
       font: captionFont,
       color: captionColor,
+      rotate: rotation,
     });
   }
 
@@ -342,6 +353,7 @@ async function renderField(
       size: fontSize,
       font: valueFont,
       color: fontColor,
+      rotate: rotation,
     });
   }
 }
@@ -437,7 +449,9 @@ async function renderDraw(
       node.font?.weight,
       node.font?.posture
     );
-    pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: fontColor });
+    const rotateVal = node.position?.rotate ?? 0;
+    const rotation = rotateVal !== 0 ? degrees(rotateVal) : undefined;
+    pdfPage.drawText(text.slice(0, 500), { x, y, size: fontSize, font, color: fontColor, rotate: rotation });
   }
 }
 
@@ -655,6 +669,3 @@ function coerceNumber(value: unknown): number | null {
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
-
-// Suppress unused import warning
-void degrees;

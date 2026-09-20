@@ -5,32 +5,46 @@ import { success } from '../../lib/result-type';
 export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Result<PaginatedLayout> {
   const pages: PaginatedPage[] = [];
 
-  for (let pageIndex = 0; pageIndex < layout.pages.length; pageIndex++) {
-    const pageDef = layout.pages[pageIndex];
-    const contentH = pageHeightPts ?? pageDef.contentArea.h;
-    const contentNodes = pageIndex === 0 ? layout.children : [];
-
-    const chunks = splitIntoPages(contentNodes, contentH, pageDef);
-    chunks.forEach((chunk, chunkIndex) => {
-      pages.push({
-        pageIndex: pages.length,
-        medium: pageDef.medium,
-        contentArea: pageDef.contentArea,
-        masterPageChildren: pageDef.masterPageChildren,
-        children: chunk,
-      });
-      void chunkIndex;
-    });
-  }
-
-  if (pages.length === 0) {
-    const pageDef = layout.pages[0] ?? defaultPageDef();
+  if (layout.pages.length === 0) {
+    const pageDef = defaultPageDef();
     pages.push({
       pageIndex: 0,
       medium: pageDef.medium,
       contentArea: pageDef.contentArea,
       masterPageChildren: pageDef.masterPageChildren,
       children: layout.children,
+    });
+    return success({ pages });
+  }
+
+  // Flow all content through the first page template's height, then split into chunks.
+  // Page templates cycle: page templates define size/contentArea/masterPage, not content gating.
+  const firstPageDef = layout.pages[0];
+  const contentH = pageHeightPts ?? firstPageDef.contentArea.h;
+  const allChunks = splitIntoPages(layout.children, contentH, firstPageDef);
+
+  // Assign chunks to pages, cycling through page templates as needed
+  for (let i = 0; i < allChunks.length; i++) {
+    const templateIndex = i % layout.pages.length;
+    const pageDef = layout.pages[templateIndex];
+    pages.push({
+      pageIndex: i,
+      medium: pageDef.medium,
+      contentArea: pageDef.contentArea,
+      masterPageChildren: pageDef.masterPageChildren,
+      children: allChunks[i],
+    });
+  }
+
+  // If no chunks were produced (empty content), create a single page with empty children
+  if (pages.length === 0) {
+    const pageDef = layout.pages[0];
+    pages.push({
+      pageIndex: 0,
+      medium: pageDef.medium,
+      contentArea: pageDef.contentArea,
+      masterPageChildren: pageDef.masterPageChildren,
+      children: [],
     });
   }
 

@@ -17,7 +17,14 @@ export async function embedBase64Image(
     return doc.embedJpg(bytes);
   }
 
-  // Attempt PNG as default
+  // BMP, GIF, TIFF and other non-embeddable formats — pdf-lib has no native support
+  if (contentType === 'image/bmp' || contentType.includes('bmp') ||
+      contentType === 'image/gif' || contentType.includes('gif') ||
+      contentType === 'image/tiff' || contentType.includes('tiff')) {
+    throw new Error(`${ERROR_CODES.IMAGE_LOAD_FAILED.message}: ${contentType} is not supported by pdf-lib`);
+  }
+
+  // Attempt PNG as fallback for unknown types
   try {
     return doc.embedPng(bytes);
   } catch {
