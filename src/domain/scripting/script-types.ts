@@ -200,5 +200,6 @@ export interface ScriptableNode {
     override?: string;
     script?: ScriptSpec;
   };
+  validate?: { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
   children?: ScriptableNode[];
 }

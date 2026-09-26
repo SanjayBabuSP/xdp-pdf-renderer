@@ -1,4 +1,4 @@
-import { Result, RenderOptions } from '../types';
+import { Result, RenderOptions, LayoutModel, PaginatedLayout } from '../types';
 import { success, failure } from '../lib/result-type';
 import { parseXdp } from '../domain/parsing/parse-xdp';
 import { parseXsd } from '../domain/parsing/parse-xsd';
@@ -13,7 +13,7 @@ import { applyTableLayouts } from '../domain/layout/calculate-table-layout';
 import { calculatePositions } from '../domain/layout/calculate-positions';
 import { applyPagination } from '../domain/layout/apply-pagination';
 import { renderPdfWithDoc } from '../rendering/pdf-renderer';
-import { dispatchScripts } from '../domain/scripting';
+import { dispatchScripts, dispatchPostLayoutScripts } from '../domain/scripting';
 import { ERROR_CODES } from '../errors/error-codes';
 import {
   applyPdfSecurity,
@@ -66,9 +66,13 @@ export async function renderFormToPdf(
   const expandedResult = expandRepeats(resolvedResult.data, dataResult.data);
   if (!expandedResult.success) return expandedResult;
 
-  // ── Phase 3a: Execute XFA scripts (initialize, calculate, validate) ──
-  // Scripts run AFTER data binding but BEFORE layout calculation,
-  // matching Adobe LiveCycle Designer's Preview PDF behavior.
+  // ── Phase 3a: Execute XFA scripts (pre-layout lifecycle) ──────────────
+  // Adobe order: ready($form) → initialize(+indexChange) → calculate →
+  // validate → overlay → ready($layout). All of these run inside/around
+  // XFAFormLayout::ready BEFORE positions are committed, so we run them
+  // before layout; the first layout pass then sees the script results
+  // (Adobe's equivalent is the post-ready relayout at
+  // xfalayout_disasm.c:56820).
   const scriptResult = dispatchScripts(
     expandedResult.data,
     dataResult.data as Record<string, unknown>,
@@ -80,27 +84,33 @@ export async function renderFormToPdf(
   );
   if (!scriptResult.success) return scriptResult;
 
-  const filteredResult = evaluateConditions(scriptResult.data.layout);
-  if (!filteredResult.success) return filteredResult;
+  // ── Phase 3b: Layout ────────────────────────────────────────────────────
+  const computedResult = computeLayout(scriptResult.data.layout, options.pageHeight);
+  if (!computedResult.success) return computedResult;
 
-  // ── Phase 4: Layout ─────────────────────────────────────────────────────
-  const tableLayoutResult = applyTableLayouts(
-    filteredResult.data,
-    filteredResult.data.pages[0]?.contentArea.w ?? 487
+  // ── Phase 3c: docReady — AFTER layout, BEFORE rendering ─────────────────
+  // evidence: XFAPresentationAgent::startRecord fires getString(0x4b000c)
+  // ="docReady" (xfapresentationagent_disasm.c:20726) between layoutRecord
+  // and renderRecord (xfapresentationagent_disasm.c:13257-13261). Runs
+  // against the paginated tree (the nodes the renderer walks).
+  const postLayoutResult = dispatchPostLayoutScripts(
+    computedResult.data,
+    dataResult.data as Record<string, unknown>,
+    {
+      skipScripts: options.skipScripts === true,
+      skipEvents: options.skipScriptEvents,
+      strictMode: options.strictValidation !== false,
+    }
   );
-  if (!tableLayoutResult.success) return tableLayoutResult;
+  if (!postLayoutResult.success) return postLayoutResult;
 
-  const positionedResult = calculatePositions(tableLayoutResult.data);
-  if (!positionedResult.success) return positionedResult;
-
-  const paginatedResult = applyPagination(positionedResult.data, options.pageHeight);
-  if (!paginatedResult.success) return paginatedResult;
+  const finalLayout = postLayoutResult.data.layout;
 
   // ── Phase 5: Render PDF (I/O) ───────────────────────────────────────────
   try {
     const fontEquateRules = layoutResult.data.config?.fontEquateRules;
     const { buffer: pdfBuffer, doc } = await renderPdfWithDoc(
-      paginatedResult.data,
+      finalLayout,
       options,
       fontEquateRules
     );
@@ -120,6 +130,26 @@ export async function renderFormToPdf(
       `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${e}`
     );
   }
+}
+
+/**
+ * Compute layout from a (possibly script-mutated) layout tree:
+ * conditions → table layout → positions → pagination.
+ */
+function computeLayout(layout: LayoutModel, pageHeight?: number): Result<PaginatedLayout> {
+  const filteredResult = evaluateConditions(layout);
+  if (!filteredResult.success) return filteredResult;
+
+  const tableLayoutResult = applyTableLayouts(
+    filteredResult.data,
+    filteredResult.data.pages[0]?.contentArea.w ?? 487
+  );
+  if (!tableLayoutResult.success) return tableLayoutResult;
+
+  const positionedResult = calculatePositions(tableLayoutResult.data);
+  if (!positionedResult.success) return positionedResult;
+
+  return applyPagination(positionedResult.data, pageHeight);
 }
 
 /**

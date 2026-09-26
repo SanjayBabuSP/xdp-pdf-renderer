@@ -96,6 +96,8 @@ Adobe intentionally does NOT bundle a complete Reader into Designer because:
     reference/
     │
     ├── README.md                  ← This file
+    ├── ANALYSIS.md                ← DLL export/import analysis + dependency graph
+    ├── analysis_exports.json      ← Raw export tables for 67 DLLs
     │
     ├── config_files/              ← XML configs that DRIVE the preview
     │   ├── Designer.xci           ★ Sets destination=pdf (the key config)
@@ -103,11 +105,16 @@ Adobe intentionally does NOT bundle a complete Reader into Designer because:
     │   ├── adobepdf.xdc           ← Adobe PDF device config (production)
     │   ├── acrobat6.xdc           ← Acrobat 6 compatibility config
     │   ├── acrobat7.xdc           ← Acrobat 7 compatibility config
-    │   ├── xfaf8.xdc              ← XFA for Acrobat 8 config
-    │   ├── xfaf9.xdc              ← XFA for Acrobat 9 config
-    │   ├── xfaf10.xdc             ← XFA for Acrobat 10 config
+    │   ├── xfaf8/9/10.xdc         ← XFA for Acrobat 8/9/10 configs
     │   ├── FormDesigner.ini       ← App initialization settings
     │   └── Application.ini        ← Web URL mappings
+    │
+    ├── printer_configs/           ← Remaining *.xdc printer/device configs
+    │                                (PCL, ZPL, PostScript, DPL, IPL, TPCL…)
+    │
+    ├── designer_app/              ← Top-level executables
+    │   ├── FormDesigner.exe       ★ THE APPLICATION (preview host, UI, F5 pipeline)
+    │   └── arh.exe                ← Adobe HTTP request helper
     │
     ├── xfa_engine/                ← XFA processing core
     │   ├── xfa.dll                ★ Master XFA orchestrator
@@ -149,14 +156,11 @@ Adobe intentionally does NOT bundle a complete Reader into Designer because:
     │   ├── ACE.dll                ★ Adobe Color Engine (color management)
     │   ├── CoolType.dll           ★ Font rasterization engine (text rendering)
     │   ├── AdobeSVGAGM.dll        ← SVG rendering via AGM
-    │   ├── SVG.dll                ← SVG support
-    │   ├── SVGRE.dll              ← SVG rendering engine
-    │   ├── BIB.dll                ← Adobe Babel Image Bridge
-    │   ├── BIBUtils.dll           ← BIB utilities
+    │   ├── SVG.dll / SVGRE.dll    ← SVG support / rendering engine
+    │   ├── BIB.dll / BIBUtils.dll ← Adobe Babel Image Bridge
     │   ├── MPS.dll                ← Multi-Platform Support layer
     │   ├── ARE.DLL                ← Adobe Raster Engine
-    │   ├── font.dll               ← Font management
-    │   ├── softfont.dll           ← Software font rendering
+    │   ├── font.dll / softfont.dll ← Font management / software rendering
     │   ├── xdc.dll                ← XDC device config processor
     │   ├── AdobeLinguistic.dll    ← Linguistic/text analysis
     │   ├── JP2KLib.dll            ← JPEG 2000 image codec
@@ -165,18 +169,60 @@ Adobe intentionally does NOT bundle a complete Reader into Designer because:
     ├── script_engine/             ← JavaScript / FormCalc execution
     │   ├── ExtendScript.dll       ★ Adobe ExtendScript (JavaScript engine)
     │   ├── jfformcalc.dll         ★ FormCalc language interpreter
-    │   ├── ScCore.DLL             ← ExtendScript core runtime
+    │   ├── ScCore.DLL             ★ ExtendScript core runtime
     │   ├── axsle.dll              ← XML/XSLT engine
     │   ├── axtelang.dll           ← AXTELanguage support
     │   ├── FileImport.dll         ← File import handling
-    │   ├── jfsoap.dll             ← SOAP web service support
-    │   ├── jfwsdl.dll             ← WSDL web service description
-    │   └── wspolicy.dll           ← WS-Policy support
+    │   ├── jfsoap/jfwsdl/wspolicy ← SOAP / WSDL / WS-Policy support
     │
-    └── pdf_plugins/               ← THE ACROBAT READER BRIDGE
-        ├── AcroForm.ppi           ★ Renders interactive form fields in-app
-        ├── EScript.ppi            ★ Acrobat JavaScript engine plug-in
-        └── PDFLibPI.ppi           ★ PDF Library plug-in bridge
+    ├── script_templates/          ★ FormCalc & JS function metadata
+    │   ├── FormCalc_fn.ini        ★ Every built-in FormCalc function (syntax)
+    │   ├── JavaScript_fn.ini      ★ Every built-in JS form function
+    │   ├── ScriptEditor.ini / SourceEditor.ini
+    │   ├── actionResult*.template ★ Script snippets for common actions
+    │   ├── validation*.template   ← Validation script snippets
+    │   └── extract/mergestrings.xslt ← String table transforms
+    │
+    ├── converters/                ← Import/convert executables (CLI conversion)
+    │   ├── ConvertPDF.exe / ConvertWord.exe / ConvertIP.exe
+    │   ├── ConvertIFDShell.exe / convertifd.exe
+    │   ├── ConvertXF.dll / ConvertXFEN.dll (XFA→XDP)
+    │   └── jfbb32/jfbmp32/jftiff32/jfxdpexport.dll ← image & XDP export
+    │
+    ├── converter_configs/         ← Converter XML configs + BarcodeData.xml
+    │
+    ├── print_drivers/             ← Output device drivers (PDF is one of them)
+    │
+    ├── barcode_data/              ← Barcode symbology engines (*.pmp, scd/*.bpi)
+    │
+    ├── xml_parsing/               ← Expat XML parsers + AdobeXMP
+    │
+    ├── i18n_unicode/              ← ICU unicode libs (icuuc40, icucnv40, icudt40)
+    │
+    ├── xfa_toolkit/               ← Java-side XFA toolkit (JARs)
+    │   ├── Libs/adobe-xfa-3.1.0.jar  ★ XFA schema/toolkit classes
+    │   ├── Libs/fmltoxsdgenerator.jar ★ FML → XSD generator (data mapping!)
+    │   ├── ConvertXF.jar / DesignerJavaUtils.jar
+    │   └── dtd/xhtml*.dtd|.ent    ← XHTML output DTDs
+    │
+    ├── linguistics/               ← Spell-check/hyphenation dictionaries (193MB)
+    │   └── Providers/.../AdobeHunspellPlugin.dll
+    │
+    ├── fonts/                     ← 362 bundled Adobe fonts (.otf/.ttf/.pfm/.pfb)
+    │
+    ├── pdf_plugins/               ← THE ACROBAT READER BRIDGE
+    │   ├── AcroForm.ppi           ★ Renders interactive form fields in-app
+    │   ├── EScript.ppi            ★ Acrobat JavaScript engine plug-in
+    │   └── PDFLibPI.ppi           ★ PDF Library plug-in bridge
+    │
+    ├── decompiled/                ★ DECOMPILED C-LIKE PSEUDOCODE (*_disasm.c)
+    │                                One file per binary, every function
+    │
+    ├── decompile_tools/           ← Ghidra scripts + batch runner (how to redo)
+    │
+    ├── app_meta/                  ← Splash images, manifests, XSLT, pmd.cer
+    ├── conversation/              ← Prior analysis transcripts
+    └── image_formats/             ← (reserved)
 
 ---
 
@@ -199,6 +245,35 @@ Adobe intentionally does NOT bundle a complete Reader into Designer because:
           ▼
     pdf_plugins/AcroForm.ppi    ← Display interactive PDF in the Preview tab
     pdf_plugins/EScript.ppi     ← Run JavaScript as you interact with fields
+
+---
+
+## DECOMPILED CODE (`decompiled/`)
+
+Every binary above has been decompiled with **Ghidra 11.1.2** (headless) into
+`decompiled/<name>_disasm.c` — one file per binary, containing C-like
+pseudocode for **every function**, with mangled/demangled symbol names,
+RTTI prototypes and call-site addresses. This is the fastest way for a human
+or an AI model to study how FormCalc is evaluated, how layout/borders/fonts
+are computed, and when scripts run in the Preview-PDF pipeline.
+
+    decompiled/
+    ├── xfa_disasm.c               ← XFA orchestrator (largest)
+    ├── jfformcalc_disasm.c        ★ FormCalc interpreter (grammar + eval)
+    ├── ExtendScript_disasm.c      ← JavaScript engine
+    ├── xfascripthandler_disasm.c  ★ when scripts run (init/calculate/layout)
+    ├── xfalayout_disasm.c         ★ position/border computation
+    ├── pdfdocument_disasm.c       ← PDF object model
+    ├── AdobePDFL_disasm.c         ← core PDF writer
+    ├── FormDesigner.exe_disasm.c  ★ the app itself (F5 preview pipeline)
+    └── … (one per binary)
+
+**Regenerating / extending:** see `decompile_tools/README.md`
+(Ghidra + JDK setup, `export_all.py`, `batch_decompile_v3.sh`).
+
+**Not decompiled (by design):** `icudt40.dll` (pure ICU data tables),
+locale copies `DE/ ES/ FR/ … Convert*.dll` (localized duplicates),
+`Fonts/` (font binaries).
 
 ---
 

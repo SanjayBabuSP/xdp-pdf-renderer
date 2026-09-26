@@ -142,6 +142,20 @@ export class FormCalcParser {
 
   private parseExprStmt(): ExprStmt {
     const expr = this.parseExpression();
+    // FormCalc uses '=' for both assignment and comparison. In statement
+    // context a top-level '=' whose left side is a name or field ref is an
+    // assignment (evaluated by evalAssign); comparisons only appear nested
+    // inside conditions/expressions, which are parsed via parseExpression.
+    if (
+      expr.type === 'CompareExpr' &&
+      expr.operator === '=' &&
+      (expr.left.type === 'Identifier' || expr.left.type === 'FieldRef')
+    ) {
+      return {
+        type: 'ExprStmt',
+        expr: { type: 'AssignExpr', operator: '=', target: expr.left, value: expr.right },
+      };
+    }
     return { type: 'ExprStmt', expr };
   }
 

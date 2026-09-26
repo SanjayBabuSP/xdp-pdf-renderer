@@ -269,6 +269,13 @@ export interface LayoutModel {
   locale?: string;
   pages: PageDefinition[];
   children: LayoutNode[];
+  /**
+   * Events declared directly on the ROOT subform (e.g. activity="ready"
+   * ref="$form", ref="$layout", docReady). The root subform itself is not
+   * represented as a LayoutNode (only its name is kept in rootSubformName),
+   * so its scripts are carried here for the script dispatcher.
+   */
+  rootEvents?: EventSpec[];
   config?: ConfigSpec;
   xsdUri?: string;
   xsdRootElement?: string;
@@ -416,4 +423,8 @@ export interface PaginatedPage {
 
 export interface PaginatedLayout {
   pages: PaginatedPage[];
+  /** Root subform name — carried so post-layout scripts can resolve paths */
+  rootSubformName?: string;
+  /** Root-subform events — carried for post-layout (docReady) dispatch */
+  rootEvents?: EventSpec[];
 }

@@ -1,25 +1,44 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Script Event Dispatcher — 1:1 Adobe LiveCycle Designer script lifecycle
+// Script Event Dispatcher — Adobe LiveCycle Designer script lifecycle
 //
-// Reference: xfascripthandler.dll + xfa.dll (script orchestration)
+// Adobe LiveCycle Designer's execution order for a static render:
 //
-// Adobe LiveCycle Designer's script execution order during PDF generation:
-//   Phase 1: form:ready → fires once on the form root
-//   Phase 2: initialize → fires on each element, LEAF-FIRST depth-first
-//   Phase 3: calculate → fires on each field with <calculate>, with
-//            CASCADING (re-runs dependents when values change, max 25 iterations)
-//   Phase 4: validate → fires on each field with validate event
-//   Phase 5: docReady → fires once after everything is initialized
-//   Phase 6: layout:ready → fires after layout computation
+//   1. ready ref=$form — XFAModelImpl::ready fires 'ready' on the model alias
+//      node ($form) once when template+data finish loading, before layout.
+//      evidence: xfa_disasm.c:49230-49275; default event node created as
+//      ("OnFormReady", "ready", "$form") — xfatemplate_disasm.c:32238-32244.
+//   2. layoutRecord → XFAFormLayout::ready() (during layout, first pass only):
+//      a. setReady($layout)                                  xfalayout_disasm.c:56775
+//      b. initializeNewContentNodes — per new node:
+//           'initialize' (executeReason 4)                  xfaform_disasm.c:26396
+//           then 'indexChange' (executeReason 0x10)         xfaform_disasm.c:26402
+//      c. recalculate — calculate queue → validate queue → 'overlay' event on
+//         the form model; reentrancy-guarded; NO iteration cap.
+//         evidence: xfaform_disasm.c:30280-30447 (guard at :30300, queues at
+//         :30360-30420, overlay at :30429)
+//      d. dispatch 'ready' with ref=$layout                 xfalayout_disasm.c:56795
+//      e. if initialize/recalculate/ready changed anything → relayout
+//                                                           xfalayout_disasm.c:56820
+//   3. startRecord → 'docReady' (AFTER layout, BEFORE rendering)
+//      evidence: xfapresentationagent_disasm.c:20726 (getString(0x4b000c));
+//      record order merge→layout→start→render
+//      xfapresentationagent_disasm.c:13252-13261
+//   4. renderRecord
+//   5. endRecord → 'docClose' (after rendering — no visual effect, not run here)
+//      evidence: xfapresentationagent_disasm.c:9614 (getString(0x4b000d))
+//
+// Our pipeline computes layout AFTER the pre-layout phases (1, 2a-2d), so the
+// step-2e relayout loop is unnecessary: the first layout already sees script
+// results. Step 3 (docReady) runs post-layout via dispatchPostLayoutScripts().
 //
 // Script runAt values:
 //   - docOpen: executes when the form is first opened (before layout)
-//   - docReady: executes after the form is fully loaded
+//   - docReady: executes after layout, before rendering
 //   - pageOpen/pageClose: for page-level scripts (not applicable to static PDF)
 //   - deprecated: ignored
 // ────────────────────────────────────────────────────────────────────────────
 
-import { LayoutModel, LayoutNode, Result } from '../../types';
+import { LayoutModel, LayoutNode, PaginatedLayout, Result } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { ERROR_CODES } from '../../errors/error-codes';
 import {
@@ -40,20 +59,24 @@ import { PropertyChangeTracker, ApplyResult } from './property-change-tracker';
 import {
   buildDependencyGraph,
   getFieldsToRecalculate,
-  ADOBE_MAX_CASCADE_DEPTH,
   DependencyGraph,
 } from './script-dependency-tracker';
 import type { ScriptableNode } from './script-types';
 
-// ─── Adobe's exact cascade limit ────────────────────────────────────────
+// ─── Cascade safety limit ──────────────────────────────────────────────
 
-const MAX_CASCADE_ITERATIONS = ADOBE_MAX_CASCADE_DEPTH; // 25, matching Adobe
+// Adobe's recalculate() has NO iteration cap — its outer do/while(true) drains
+// the calculate and validate queues until both are empty
+// (evidence: xfaform_disasm.c:30360-30447). The limit below exists only to
+// keep pathological dependency cycles from hanging the renderer; it is not an
+// Adobe behavior.
+const CASCADE_SAFETY_LIMIT = 100;
 
 // ─── Public API ─────────────────────────────────────────────────────────
 
-export interface DispatchResult {
+export interface DispatchResult<TLayout = LayoutModel> {
   /** The modified layout model (with script-computed values) */
-  layout: LayoutModel;
+  layout: TLayout;
   /** Number of scripts executed */
   scriptsExecuted: number;
   /** Number of script errors (non-fatal) */
@@ -137,13 +160,18 @@ function executeScriptLifecycle(
   };
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 1: form:ready scripts
-  // Fires once on the form root — before any per-field initialization.
-  // Reference: xfascripthandler.dll fires "form:ready" event on the root subform.
+  // PHASE 1: form ready — activity="ready" with ref="$form" (or no ref).
+  // Fires once on the form model before any per-field initialization.
+  // evidence: XFAModelImpl::ready dispatches 'ready' on the model alias node
+  // xfa_disasm.c:49230-49275; default event ("OnFormReady","ready","$form")
+  // xfatemplate_disasm.c:32238-32244. Events with ref="$layout" are handled
+  // in PHASE 6 (layout ready), not here.
   // ═══════════════════════════════════════════════════════════════════════
   if (!config.skipEvents?.includes('ready') && !config.skipEvents?.includes('form:ready')) {
     const formReadyScripts = scripts.filter(
-      (s) => s.eventName === 'ready' || s.eventName === 'form:ready'
+      (s) =>
+        (s.eventName === 'ready' || s.eventName === 'form:ready') &&
+        !isLayoutReadyEvent(s)
     );
     for (const entry of formReadyScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
@@ -151,29 +179,23 @@ function executeScriptLifecycle(
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 2: initialize scripts — LEAF-FIRST depth-first order
-  // Adobe fires initialize on leaf nodes (fields, draws) first,
-  // then on their containing subforms, bottom-up.
-  // Reference: xfascripthandler.dll + xfatemplate.dll traversal order.
+  // PHASE 2: initialize + indexChange — LEAF-FIRST depth-first order.
+  // Adobe's initializeNewContentNodes fires 'initialize' (executeReason 4)
+  // and immediately after, 'indexChange' (executeReason 0x10) for the SAME
+  // node, once per new content node, leaf-first.
+  // evidence: xfaform_disasm.c:26396-26402 (FUN_17521320, called by
+  // XFAFormModel::initializeNewContentNodes, xfaform_disasm.c:15285-15291)
   // ═══════════════════════════════════════════════════════════════════════
   if (!config.skipEvents?.includes('initialize')) {
-    const initScripts = scripts.filter(
-      (s) => s.eventName === 'initialize' || s.runAt === 'docOpen'
-    );
-
-    // Sort leaf-first: fields/draws before subforms, deeper nodes before shallower
-    const sortedInit = sortLeafFirst(initScripts);
-
-    for (const entry of sortedInit) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
-    }
+    executeInitializePhase(scripts, fieldAccessor, jsEngine, allNodes, layout, data, stats, config);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // PHASE 3: calculate scripts — WITH DEPENDENCY-AWARE CASCADING
-  // Build dependency graph, execute in topological order, then cascade
-  // when values change. Adobe caps at 25 iterations.
-  // Reference: xfascripthandler.dll calculate cascade logic.
+  // evidence: recalculate drains the calculate queue (topological order is an
+  // optimization over Adobe's queue re-seeding; both converge to the fixed
+  // point) — xfaform_disasm.c:30360-30447. No Adobe iteration cap exists;
+  // CASCADE_SAFETY_LIMIT only guards against cycles.
   // ═══════════════════════════════════════════════════════════════════════
   if (!config.skipEvents?.includes('calculate')) {
     const calcScripts = scripts.filter((s) => s.eventName === 'calculate');
@@ -181,11 +203,12 @@ function executeScriptLifecycle(
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 4: validate scripts
-  // Fires on each field with a validate event, depth-first.
-  // In static PDF generation, validation failures are logged but don't
-  // prevent rendering (unlike interactive mode where they show errors).
-  // Reference: xfascripthandler.dll validate phase.
+  // PHASE 4: validate scripts — validate queue runs AFTER the calculate
+  // queue drains (Adobe recalculate order: calculate → validate).
+  // evidence: xfaform_disasm.c:30396-30420 (validate dispatch at event ID
+  // stored at formModel+0x11c after calculate queue at +0x118/+0x150).
+  // In static PDF generation validation failures are logged but don't
+  // prevent rendering.
   // ═══════════════════════════════════════════════════════════════════════
   if (!config.skipEvents?.includes('validate')) {
     const validateScripts = scripts.filter((s) => s.eventName === 'validate');
@@ -195,29 +218,28 @@ function executeScriptLifecycle(
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 5: docReady scripts
-  // Fires once after everything is initialized — for final adjustments.
-  // Reference: xfascripthandler.dll docReady event.
+  // PHASE 5: overlay — recalculate dispatches 'overlay' on the form model
+  // right after the calculate+validate queues drain, before ready($layout).
+  // evidence: xfaform_disasm.c:30429-30436 (jfLiteral "overlay" →
+  // XFAEventManager::eventOccurred inside FUN_17526110 / recalculate)
   // ═══════════════════════════════════════════════════════════════════════
-  if (!config.skipEvents?.includes('docReady')) {
-    const docReadyScripts = scripts.filter(
-      (s) => s.eventName === 'docReady' || s.runAt === 'docReady'
-    );
-    for (const entry of docReadyScripts) {
+  if (!config.skipEvents?.includes('overlay')) {
+    const overlayScripts = scripts.filter((s) => s.eventName === 'overlay');
+    for (const entry of overlayScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 6: layout:ready scripts (simulated)
-  // In Adobe, these fire after layout computation. Since we run scripts
-  // before layout, we execute them here as a best approximation.
-  // Reference: xfalayout.dll layout:ready event.
+  // PHASE 6: layout ready — activity="ready" with ref="$layout" (legacy
+  // name "layout:ready" also accepted). XFAFormLayout::ready dispatches this
+  // after initialize+recalculate complete; the renderer also scans template
+  // events for activity=ready + ref="$layout".
+  // evidence: xfalayout_disasm.c:56795 (jfLiteral "ready" → eventOccurred on
+  // the $layout pseudo-model); renderer_disasm.c:35574-35578.
   // ═══════════════════════════════════════════════════════════════════════
-  if (!config.skipEvents?.includes('layout:ready')) {
-    const layoutReadyScripts = scripts.filter(
-      (s) => s.eventName === 'layout:ready'
-    );
+  if (!config.skipEvents?.includes('layout:ready') && !config.skipEvents?.includes('layoutReady')) {
+    const layoutReadyScripts = scripts.filter((s) => isLayoutReadyEvent(s));
     for (const entry of layoutReadyScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
@@ -226,14 +248,7 @@ function executeScriptLifecycle(
   // ═══════════════════════════════════════════════════════════════════════
   // POST-EXECUTION: Detect and apply all property changes
   // ═══════════════════════════════════════════════════════════════════════
-  for (const [path, node] of allNodes) {
-    changeTracker.detectChanges(path, node);
-  }
-
-  const applyResult = changeTracker.applyChangesToLayout(layout);
-
-  // Also apply via the legacy path for backwards compatibility
-  applyModifiedValues(allNodes, layout);
+  const applyResult = applyTrackedChanges(allNodes, changeTracker, layout);
 
   return {
     layout,
@@ -243,6 +258,203 @@ function executeScriptLifecycle(
     propertyChanges: applyResult.valuesChanged + applyResult.presenceChanged + applyResult.accessChanged,
     layoutDirty: applyResult.layoutDirty,
   };
+}
+
+// ─── Post-Layout Scripts (docReady) ─────────────────────────────────────
+
+/**
+ * Execute scripts that Adobe fires AFTER layout and BEFORE rendering:
+ * 'docReady' (runAt="docReady" accepted too).
+ *
+ * evidence: XFAPresentationAgent::startRecord dispatches
+ * getString(0x4b000c)="docReady" on the form model
+ * (xfapresentationagent_disasm.c:20726-20732), and the record pipeline runs
+ * mergeRecord → layoutRecord → startRecord → renderRecord
+ * (xfapresentationagent_disasm.c:13252-13261).
+ *
+ * 'docClose' is intentionally NOT executed: endRecord fires it after
+ * renderRecord (xfapresentationagent_disasm.c:9614-9620), so its mutations
+ * cannot affect a static PDF's appearance.
+ *
+ * Runs against the PAGINATED tree — the exact nodes the renderer walks.
+ * Call once after layout completes and before rendering.
+ *
+ * Known deviation: Adobe re-runs layout when docReady changes layout-affecting
+ * properties (vtable+0xa0, xfapresentationagent_disasm.c:20735-20737). We rely
+ * on the renderer honoring presence at draw time (pdf-renderer.ts:88) instead;
+ * a presence change to hidden/inactive may therefore leave its former layout
+ * space occupied.
+ */
+export function dispatchPostLayoutScripts(
+  layout: PaginatedLayout,
+  data: Record<string, unknown>,
+  config: ScriptDispatchConfig = {}
+): Result<DispatchResult<PaginatedLayout>> {
+  if (config.skipScripts) {
+    return success({
+      layout,
+      scriptsExecuted: 0,
+      scriptErrors: 0,
+      errorMessages: [],
+      propertyChanges: 0,
+      layoutDirty: false,
+    });
+  }
+
+  try {
+    // Structural view of the paginated tree so the LayoutModel-based walkers
+    // (node map, script collection, change application) can be reused. The
+    // view references the SAME node objects the renderer will walk.
+    const view = paginatedToLayoutView(layout);
+    const allNodes = buildNodeMapFromLayout(view);
+    const fieldAccessor = createFieldAccessor(allNodes, data);
+    const changeTracker = new PropertyChangeTracker();
+    for (const [path, node] of allNodes) {
+      changeTracker.snapshot(path, node);
+    }
+    const jsEngine = new JavaScriptEngine(fieldAccessor, config);
+    const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
+
+    const scripts = collectScriptsFromLayout(view);
+    if (!config.skipEvents?.includes('docReady')) {
+      const docReadyScripts = scripts.filter(
+        (s) => s.eventName === 'docReady' || s.runAt === 'docReady'
+      );
+      for (const entry of docReadyScripts) {
+        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, view, data, stats);
+      }
+    }
+
+    const applyResult = applyTrackedChanges(allNodes, changeTracker, view);
+
+    return success({
+      layout,
+      scriptsExecuted: stats.executed,
+      scriptErrors: stats.errors,
+      errorMessages: stats.errorMessages,
+      propertyChanges:
+        applyResult.valuesChanged + applyResult.presenceChanged + applyResult.accessChanged,
+      layoutDirty: applyResult.layoutDirty,
+    });
+  } catch (e) {
+    return failure(
+      ERROR_CODES.SCRIPT_EXECUTION_FAILED?.code ?? 'SCR_6001',
+      `${ERROR_CODES.SCRIPT_EXECUTION_FAILED?.message ?? 'Script execution failed'}: ${e}`
+    );
+  }
+}
+
+/**
+ * Build a LayoutModel-shaped view over a paginated tree: top-level children
+ * are all page contents (so node paths line up between script collection and
+ * change application), plus the per-page masterPageChildren.
+ */
+function paginatedToLayoutView(paginated: PaginatedLayout): LayoutModel {
+  return {
+    rootSubformName: paginated.rootSubformName ?? '',
+    rootEvents: paginated.rootEvents,
+    children: paginated.pages.flatMap((page) => page.children),
+    pages: paginated.pages.map((page) => ({
+      name: `page${page.pageIndex}`,
+      medium: page.medium,
+      contentArea: page.contentArea,
+      masterPageChildren: page.masterPageChildren,
+    })),
+  };
+}
+
+// ─── Phase 2: initialize + indexChange (leaf-first) ─────────────────────
+
+/**
+ * Whether a script entry is the layout-ready event (ready ref=$layout).
+ * evidence: renderer matches activity=getString(0x4b000b)="ready" and
+ * ref="$layout" — renderer_disasm.c:35574-35578; XFAFormLayout::ready
+ * dispatches 'ready' on the $layout pseudo-model — xfalayout_disasm.c:56795.
+ * The legacy synthetic name "layout:ready" is also honored.
+ */
+function isLayoutReadyEvent(entry: ScriptEntry): boolean {
+  return (
+    entry.eventName === 'layout:ready' ||
+    (entry.eventName === 'ready' && entry.ref === '$layout')
+  );
+}
+
+/**
+ * Per-node pairing of initialize and indexChange, executed leaf-first.
+ * evidence: initializeNewContentNodes dispatches initialize (reason 4) and
+ * then immediately indexChange (reason 0x10) for the same node, once per new
+ * content node — xfaform_disasm.c:26396-26402 (FUN_17521320).
+ */
+function executeInitializePhase(
+  scripts: ScriptEntry[],
+  fieldAccessor: FieldAccessor,
+  jsEngine: JavaScriptEngine,
+  allNodes: Map<string, ScriptableNode>,
+  layout: LayoutModel,
+  data: Record<string, unknown>,
+  stats: { executed: number; errors: number; errorMessages: string[] },
+  config: ScriptDispatchConfig
+): void {
+  const relevant = scripts.filter(
+    (s) =>
+      s.eventName === 'initialize' ||
+      s.eventName === 'indexChange' ||
+      s.runAt === 'docOpen'
+  );
+  if (relevant.length === 0) return;
+
+  // Group per element so initialize and indexChange fire as a pair.
+  const grouped = new Map<string, { init: ScriptEntry[]; index: ScriptEntry[] }>();
+  for (const entry of relevant) {
+    const group = grouped.get(entry.elementPath) ?? { init: [], index: [] };
+    if (entry.eventName === 'indexChange') {
+      group.index.push(entry);
+    } else {
+      group.init.push(entry);
+    }
+    grouped.set(entry.elementPath, group);
+  }
+
+  const perPath = [...grouped.entries()].map(([elementPath, group]) => ({
+    elementPath,
+    element: group.init[0]?.element ?? group.index[0].element,
+    init: group.init,
+    index: group.index,
+  }));
+
+  // Leaf-first: fields/draws before containers, deeper before shallower.
+  for (const item of sortLeafFirst(perPath)) {
+    if (!config.skipEvents?.includes('initialize')) {
+      for (const entry of item.init) {
+        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      }
+    }
+    if (!config.skipEvents?.includes('indexChange')) {
+      for (const entry of item.index) {
+        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      }
+    }
+  }
+}
+
+// ─── Shared post-phase change application ───────────────────────────────
+
+/**
+ * Detect snapshot diffs, apply them to the layout tree, and mirror values via
+ * the legacy path. Shared by the pre-layout lifecycle and docReady.
+ */
+function applyTrackedChanges(
+  allNodes: Map<string, ScriptableNode>,
+  changeTracker: PropertyChangeTracker,
+  layout: LayoutModel
+): ApplyResult {
+  for (const [path, node] of allNodes) {
+    changeTracker.detectChanges(path, node);
+  }
+  const applyResult = changeTracker.applyChangesToLayout(layout);
+  // Also apply via the legacy path for backwards compatibility
+  applyModifiedValues(allNodes, layout);
+  return applyResult;
 }
 
 // ─── Phase 3: Calculate with Dependency-Aware Cascading ─────────────────
@@ -286,8 +498,10 @@ function executeCalculatePhase(
     executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
   }
 
-  // Cascading passes: re-execute scripts whose dependencies changed
-  for (let cascade = 1; cascade < MAX_CASCADE_ITERATIONS; cascade++) {
+  // Cascading passes: re-execute scripts whose dependencies changed.
+  // Adobe has no iteration cap (xfaform_disasm.c:30360 do/while(true) drains
+  // queues until empty); CASCADE_SAFETY_LIMIT only guards against cycles.
+  for (let cascade = 1; cascade <= CASCADE_SAFETY_LIMIT; cascade++) {
     let anyModified = false;
 
     for (const path of orderedPaths) {
@@ -303,11 +517,12 @@ function executeCalculatePhase(
       }
     }
 
-    if (!anyModified) break;
+    if (!anyModified) return;
 
-    if (cascade === MAX_CASCADE_ITERATIONS - 1) {
+    if (cascade === CASCADE_SAFETY_LIMIT) {
       stats.errorMessages.push(
-        `[calculate] Maximum cascade depth (${MAX_CASCADE_ITERATIONS}) reached — matching Adobe LiveCycle limit`
+        `[calculate] Cascade safety limit (${CASCADE_SAFETY_LIMIT}) reached — dependency cycle? ` +
+          `Adobe's recalculate has no cap (xfaform_disasm.c:30360); this guard exists only to avoid hangs`
       );
     }
   }
@@ -381,7 +596,9 @@ function executeSingleScript(
  * Within the same depth, maintain document order.
  * This matches Adobe's initialize event firing order.
  */
-function sortLeafFirst(scripts: ScriptEntry[]): ScriptEntry[] {
+function sortLeafFirst<T extends { elementPath: string; element: ScriptableNode }>(
+  scripts: T[]
+): T[] {
   return [...scripts].sort((a, b) => {
     const aDepth = a.elementPath.split('.').length;
     const bDepth = b.elementPath.split('.').length;
@@ -405,6 +622,18 @@ function sortLeafFirst(scripts: ScriptEntry[]): ScriptEntry[] {
 function buildNodeMapFromLayout(layout: LayoutModel): Map<string, ScriptableNode> {
   const map = new Map<string, ScriptableNode>();
 
+  // Root subform entry — the root is collapsed to rootSubformName in the
+  // LayoutModel; its scripts live in layout.rootEvents (see parse-xdp.ts).
+  if (layout.rootSubformName) {
+    map.set(layout.rootSubformName, {
+      type: 'subform',
+      name: layout.rootSubformName,
+      presence: 'visible',
+      events: layout.rootEvents,
+      children: [],
+    });
+  }
+
   function walkNodes(nodes: LayoutNode[], parentPath: string) {
     for (const node of nodes) {
       const name = node.name ?? '<unnamed>';
@@ -424,6 +653,12 @@ function buildNodeMapFromLayout(layout: LayoutModel): Map<string, ScriptableNode
       };
 
       map.set(path, scriptable);
+      // Leaf-name fallback: XFA scripts may reference a node by its bare name
+      // when unambiguous (e.g. `stage = stage + "A"` for field content.stage).
+      // Exact SOM paths always win; first occurrence claims the short name.
+      if (scriptable.name && !map.has(scriptable.name)) {
+        map.set(scriptable.name, scriptable);
+      }
 
       if (node.type === 'subform') {
         walkNodes((node as { children: LayoutNode[] }).children, path);
@@ -444,6 +679,19 @@ function buildNodeMapFromLayout(layout: LayoutModel): Map<string, ScriptableNode
 function collectScriptsFromLayout(layout: LayoutModel): ScriptEntry[] {
   const entries: ScriptEntry[] = [];
 
+  // Root-subform scripts — the root node itself is not in the children tree
+  // (LayoutModel keeps only rootSubformName + rootEvents).
+  if (layout.rootSubformName && layout.rootEvents?.length) {
+    const rootScriptable: ScriptableNode = {
+      type: 'subform',
+      name: layout.rootSubformName,
+      presence: 'visible',
+      events: layout.rootEvents,
+      children: [],
+    };
+    entries.push(...collectScriptsFromNode(rootScriptable, layout.rootSubformName));
+  }
+
   function walkNodes(nodes: LayoutNode[], parentPath: string) {
     for (const node of nodes) {
       const name = node.name ?? '<unnamed>';
@@ -455,6 +703,10 @@ function collectScriptsFromLayout(layout: LayoutModel): ScriptEntry[] {
         presence: node.presence,
         events: 'events' in node ? (node as { events?: ScriptableNode['events'] }).events : undefined,
         calculate: 'calculate' in node ? (node as { calculate?: ScriptableNode['calculate'] }).calculate : undefined,
+        // evidence: <validate> scripts are attached to fields by the template
+        // parser (parse-xdp.ts:217) and must be collected for the validate
+        // queue of XFAFormModel::recalculate (xfaform_disasm.c:30396-30420)
+        validate: 'validate' in node ? (node as { validate?: ScriptableNode['validate'] }).validate : undefined,
         resolvedValue: 'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
         children: [],
       };
@@ -490,6 +742,7 @@ function collectScriptsFromNode(node: ScriptableNode, path: string): ScriptEntry
           scriptContent: event.script,
           language: detectScriptLanguage(event.contentType),
           runAt: event.runAt,
+          ref: event.ref,
         });
       }
     }
@@ -547,6 +800,8 @@ function normalizeEventName(name?: string, activity?: string): string {
       case 'exit': return 'exit';
       case 'mouseenter': return 'mouseEnter';
       case 'mouseexit': return 'mouseExit';
+      case 'mouseup': return 'mouseUp';
+      case 'mousedown': return 'mouseDown';
       case 'ready': return 'ready';
       case 'docready': return 'docReady';
       case 'docclose': return 'docClose';
@@ -560,6 +815,12 @@ function normalizeEventName(name?: string, activity?: string): string {
       case 'postexecute': return 'postExecute';
       case 'presign': return 'preSign';
       case 'postsign': return 'postSign';
+      case 'preopen': return 'preOpen';
+      case 'postopen': return 'postOpen';
+      case 'preclose': return 'preClose';
+      case 'postclose': return 'postClose';
+      case 'validationstate': return 'validationState';
+      case 'overlay': return 'overlay';
       case 'full': return 'full';
       case 'indexchange': return 'indexChange';
       default: return normalized;

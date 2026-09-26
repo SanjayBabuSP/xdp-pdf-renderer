@@ -55,6 +55,13 @@ class FormCalcEnv {
     return undefined;
   }
 
+  has(name: string): boolean {
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      if (this.scopes[i].has(name)) return true;
+    }
+    return false;
+  }
+
   set(name: string, value: unknown): void {
     for (let i = this.scopes.length - 1; i >= 0; i--) {
       if (this.scopes[i].has(name)) {
@@ -84,6 +91,8 @@ export interface FieldAccessor {
   getField(path: string, prefix: '$' | '$$'): unknown;
   /** Set a field value by SOM path */
   setField(path: string, prefix: '$' | '$$', value: unknown): void;
+  /** Whether an unqualified name refers to an existing form field */
+  hasField?(path: string): boolean;
   /** Get the current node being scripted */
   getCurrentNode(): XfaNode | null;
   /** Get form-level data */
@@ -510,6 +519,7 @@ export class FormCalcEvaluator {
   private fieldAccessor: FieldAccessor;
   private modifiedFields: string[] = [];
   private recursionDepth = 0;
+  private lastValue: unknown = undefined;
   private maxRecursionDepth = 50;
 
   constructor(fieldAccessor: FieldAccessor) {
@@ -519,18 +529,20 @@ export class FormCalcEvaluator {
   evaluate(program: Program): FormCalcResult {
     this.modifiedFields = [];
     this.recursionDepth = 0;
+    this.lastValue = undefined;
     try {
       this.execBlock(program.body);
     } catch (e) {
       if (e instanceof ReturnSignal) {
         // Return from top-level is fine
+        this.lastValue = e.value;
       } else if (e instanceof BreakSignal || e instanceof ContinueSignal) {
         throw new FormCalcError('Break/Continue outside of loop');
       } else {
         throw e;
       }
     }
-    return { value: undefined, modifiedFields: [...this.modifiedFields] };
+    return { value: this.lastValue, modifiedFields: [...this.modifiedFields] };
   }
 
   evaluateExpression(node: FormCalcNode): unknown {
@@ -546,7 +558,9 @@ export class FormCalcEvaluator {
   private exec(node: FormCalcNode): void {
     switch (node.type) {
       case 'ExprStmt':
-        this.eval((node as ExprStmt).expr);
+        // The value of the last top-level expression is the program result
+        // (executeSingleScript applies it as the field value for <calculate>).
+        this.lastValue = this.eval((node as ExprStmt).expr);
         break;
       case 'IfStmt':
         this.execIf(node as IfStmt);
@@ -681,34 +695,40 @@ export class FormCalcEvaluator {
         // Array element access — simplified
         current = undefined;
       }
-      let newVal: unknown;
-      switch (node.operator) {
-        case '=': newVal = value; break;
-        case '+=': newVal = toNumber(current) + toNumber(value); break;
-        case '-=': newVal = toNumber(current) - toNumber(value); break;
-        case '*=': newVal = toNumber(current) * toNumber(value); break;
-        case '/=': newVal = toNumber(current) / toNumber(value); break;
-        case '~=': case '&=': case '\\=': newVal = String(current ?? '') + String(value ?? ''); break;
-        case '^=': newVal = Math.pow(toNumber(current), toNumber(value)); break;
-        default: newVal = value;
-      }
+      const newVal = this.computeAssignedValue(node.operator, current, value);
       this.fieldAccessor.setField(fr.path, fr.prefix, newVal);
       this.modifiedFields.push(fr.path);
     } else if (node.target.type === 'Identifier') {
       const id = node.target as Identifier;
-      let current = this.env.get(id.name);
-      let newVal: unknown;
-      switch (node.operator) {
-        case '=': newVal = value; break;
-        case '+=': newVal = toNumber(current) + toNumber(value); break;
-        case '-=': newVal = toNumber(current) - toNumber(value); break;
-        case '*=': newVal = toNumber(current) * toNumber(value); break;
-        case '/=': newVal = toNumber(current) / toNumber(value); break;
-        case '~=': case '&=': case '\\=': newVal = String(current ?? '') + String(value ?? ''); break;
-        case '^=': newVal = Math.pow(toNumber(current), toNumber(value)); break;
-        default: newVal = value;
+      // Unqualified assignment targets an existing form field (XFA SOM
+      // scoping resolves bare names to fields) unless the name was declared
+      // as a local variable via Dim/var.
+      if (!this.env.has(id.name) && this.fieldAccessor.hasField?.(id.name)) {
+        const current = this.fieldAccessor.getField(id.name, '$');
+        const newVal = this.computeAssignedValue(node.operator, current, value);
+        this.fieldAccessor.setField(id.name, '$', newVal);
+        this.modifiedFields.push(id.name);
+      } else {
+        const current = this.env.get(id.name);
+        this.env.set(id.name, this.computeAssignedValue(node.operator, current, value));
       }
-      this.env.set(id.name, newVal);
+    }
+  }
+
+  private computeAssignedValue(
+    operator: AssignExpr['operator'],
+    current: unknown,
+    value: unknown
+  ): unknown {
+    switch (operator) {
+      case '=': return value;
+      case '+=': return toNumber(current) + toNumber(value);
+      case '-=': return toNumber(current) - toNumber(value);
+      case '*=': return toNumber(current) * toNumber(value);
+      case '/=': return toNumber(current) / toNumber(value);
+      case '~=': case '&=': case '\\=': return String(current ?? '') + String(value ?? '');
+      case '^=': return Math.pow(toNumber(current), toNumber(value));
+      default: return value;
     }
   }
 
@@ -716,8 +736,12 @@ export class FormCalcEvaluator {
     switch (node.type) {
       case 'Literal':
         return (node as Literal).value;
-      case 'Identifier':
-        return this.env.get((node as Identifier).name);
+      case 'Identifier': {
+        const name = (node as Identifier).name;
+        if (this.env.has(name)) return this.env.get(name);
+        // Unqualified names resolve to form fields (XFA SOM scoping)
+        return this.fieldAccessor.getField(name, '$');
+      }
       case 'FieldRef':
         return this.evalFieldRef(node as FieldRef);
       case 'OrExpr':
@@ -736,7 +760,8 @@ export class FormCalcEvaluator {
         const ae = node as AddExpr;
         const l = this.eval(ae.left);
         const r = this.eval(ae.right);
-        return ae.operator === '+' ? toNumber(l) + toNumber(r) : toNumber(l) - toNumber(r);
+        if (ae.operator === '+') return addValues(l, r);
+        return toNumber(l) - toNumber(r);
       }
       case 'MulExpr': {
         const me = node as MulExpr;
@@ -855,6 +880,21 @@ function toNumber(val: unknown): number {
     return isNaN(num) ? 0 : num;
   }
   return 0;
+}
+
+/**
+ * FormCalc '+' semantics: numeric operands add, anything else concatenates
+ * (e.g. `msg = msg + "x"` with a non-numeric msg must append, not coerce).
+ */
+function addValues(l: unknown, r: unknown): unknown {
+  const empty = (v: unknown): boolean => v === null || v === undefined || v === '';
+  const numLike = (v: unknown): boolean => !empty(v) && !isNaN(Number(v));
+  if (typeof l === 'number' && typeof r === 'number') return l + r;
+  if (numLike(l) && numLike(r)) return Number(l) + Number(r);
+  if (empty(l) && numLike(r)) return Number(r);
+  if (empty(r) && numLike(l)) return Number(l);
+  if (empty(l) && empty(r)) return 0;
+  return String(l ?? '') + String(r ?? '');
 }
 
 function flattenArgs(args: unknown[]): unknown[] {

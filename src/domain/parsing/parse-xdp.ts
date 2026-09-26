@@ -77,12 +77,18 @@ export function parseXdp(xdpXml: string): Result<LayoutModel> {
   const children = parseChildren(rootSubform);
   const config = parseConfig(getChild(root as Record<string, unknown>, 'config'));
   const connection = parseConnectionSet(getChild(root as Record<string, unknown>, 'connectionSet'));
+  // The root subform is collapsed to rootSubformName — carry its <event>
+  // elements (ready ref=$form / $layout, overlay, docReady, …) so the script
+  // dispatcher can fire them. evidence: XFAModelImpl::ready dispatches
+  // 'ready' on the model alias node (xfa_disasm.c:49230-49275).
+  const rootEvents = parseEvents(getChild(rootSubform, 'event'));
 
   return success({
     rootSubformName: attr(rootSubform, 'name') ?? 'value',
     locale: attr(rootSubform, 'locale'),
     pages,
     children,
+    rootEvents,
     config,
     ...connection,
   } as LayoutModel);
@@ -481,6 +487,14 @@ function normalizeEventActivity(activity?: string, name?: string): string | unde
       'postsign': 'postSign',
       'full': 'full',
       'indexchange': 'indexChange',
+      'mouseup': 'mouseUp',
+      'mousedown': 'mouseDown',
+      'preopen': 'preOpen',
+      'postopen': 'postOpen',
+      'preclose': 'preClose',
+      'postclose': 'postClose',
+      'validationstate': 'validationState',
+      'overlay': 'overlay',
       'form:ready': 'ready',
       'layout:ready': 'layout:ready',
     };

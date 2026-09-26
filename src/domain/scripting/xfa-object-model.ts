@@ -18,10 +18,11 @@ export function createFieldAccessor(
       // $$ = form-level reference (absolute path from form root)
       // $ = current node context (relative path)
       const node = allNodes.get(path);
-      if (node) {
-        return node.resolvedValue ?? null;
+      if (node && node.resolvedValue !== undefined) {
+        return node.resolvedValue;
       }
-      // Fallback: try to resolve from data
+      // Fall back to the data backing store (also covers nodes that have no
+      // bound/resolved value yet)
       return resolvePathFromData(path, data);
     },
 
@@ -32,6 +33,10 @@ export function createFieldAccessor(
       }
       // Also update data backing store
       setPathInData(path, data, value);
+    },
+
+    hasField(path: string): boolean {
+      return allNodes.has(path);
     },
 
     getCurrentNode(): XfaNode | null {
@@ -87,6 +92,14 @@ export interface ScriptEntry {
   language: 'formcalc' | 'javascript';
   /** When to run */
   runAt?: string;
+  /**
+   * The event's ref target ($form, $layout, $host, $).
+   * evidence: createEventNode(name, activity, parent, ref) writes ref on every
+   * default event node — xfatemplate_disasm.c:32238-32264 ("OnFormReady"/ready/$form,
+   * "OnFormClosing"/docClose/$host). The renderer matches activity=ready +
+   * ref="$layout" (renderer_disasm.c:35574-35578).
+   */
+  ref?: string;
 }
 
 export function collectScripts(
@@ -110,6 +123,7 @@ export function collectScripts(
             scriptContent: event.script,
             language: detectLanguage(event.contentType),
             runAt: event.runAt,
+            ref: event.ref,
           });
         }
       }

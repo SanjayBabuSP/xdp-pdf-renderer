@@ -2,7 +2,7 @@
 // Scripting Engine — Public API re-export
 // ────────────────────────────────────────────────────────────────────────────
 
-export { dispatchScripts } from './event-dispatcher';
+export { dispatchScripts, dispatchPostLayoutScripts } from './event-dispatcher';
 export type { DispatchResult, ScriptDispatchConfig } from './event-dispatcher';
 export { createFieldAccessor, buildNodeMap, collectScripts, scriptableToXfaNode } from './xfa-object-model';
 export type { ScriptEntry } from './xfa-object-model';

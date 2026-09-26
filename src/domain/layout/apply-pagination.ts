@@ -14,7 +14,7 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
       masterPageChildren: pageDef.masterPageChildren,
       children: layout.children,
     });
-    return success({ pages });
+    return success({ pages, rootSubformName: layout.rootSubformName, rootEvents: layout.rootEvents });
   }
 
   // Flow all content through the first page template's height, then split into chunks.
@@ -59,7 +59,7 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
     }
   }
 
-  return success({ pages });
+  return success({ pages, rootSubformName: layout.rootSubformName, rootEvents: layout.rootEvents });
 }
 
 /**
