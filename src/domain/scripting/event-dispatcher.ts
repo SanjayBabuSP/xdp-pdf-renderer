@@ -491,37 +491,47 @@ function executeCalculatePhase(
     ? graph.executionOrder
     : calcScripts.map((s) => s.elementPath);
 
-  // Initial pass: execute all calculate scripts in order
+  // Initial pass: execute all calculate scripts in topological order.
+  let changedPaths = new Set<string>();
   for (const path of orderedPaths) {
     const entry = scriptByPath.get(path);
     if (!entry) continue;
+    const before = snapshotValue(entry.element);
     executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+    if (before !== snapshotValue(entry.element)) changedPaths.add(path);
   }
 
-  // Cascading passes: re-execute scripts whose dependencies changed.
-  // Adobe has no iteration cap (xfaform_disasm.c:30360 do/while(true) drains
-  // queues until empty); CASCADE_SAFETY_LIMIT only guards against cycles.
-  for (let cascade = 1; cascade <= CASCADE_SAFETY_LIMIT; cascade++) {
-    let anyModified = false;
-
-    for (const path of orderedPaths) {
-      const entry = scriptByPath.get(path);
-      if (!entry) continue;
-
-      const before = snapshotValue(entry.element);
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
-      const after = snapshotValue(entry.element);
-
-      if (before !== after) {
-        anyModified = true;
+  // Cascading passes: re-execute only scripts that READ a field changed by a
+  // different script during the previous pass. Self-writes are excluded — a
+  // calculate script modifying its own field does not re-trigger itself, so
+  // self-referential expressions like `stage + "C"` execute exactly once per
+  // drain instead of looping until the safety cap.
+  // evidence: recalculate drains the queue until empty, xfaform_disasm.c:30360
+  // (do/while(true); entries are dequeued before their handler runs, so a
+  // handler's own write cannot re-enqueue itself mid-drain). CASCADE_SAFETY_LIMIT
+  // still guards genuine cycles among distinct scripts.
+  for (let cascade = 1; cascade <= CASCADE_SAFETY_LIMIT && changedPaths.size > 0; cascade++) {
+    const nextRun = new Set<string>();
+    for (const changed of changedPaths) {
+      for (const dependent of getFieldsToRecalculate(changed, graph)) {
+        if (dependent !== changed) nextRun.add(dependent);
       }
     }
+    if (nextRun.size === 0) return;
 
-    if (!anyModified) return;
+    changedPaths = new Set();
+    for (const path of orderedPaths) {
+      if (!nextRun.has(path)) continue;
+      const entry = scriptByPath.get(path);
+      if (!entry) continue;
+      const before = snapshotValue(entry.element);
+      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      if (before !== snapshotValue(entry.element)) changedPaths.add(path);
+    }
 
-    if (cascade === CASCADE_SAFETY_LIMIT) {
+    if (cascade === CASCADE_SAFETY_LIMIT && changedPaths.size > 0) {
       stats.errorMessages.push(
-        `[calculate] Cascade safety limit (${CASCADE_SAFETY_LIMIT}) reached — dependency cycle? ` +
+        `[calculate] Cascade safety limit (${CASCADE_SAFETY_LIMIT}) reached — dependency cycle among calculate scripts? ` +
           `Adobe's recalculate has no cap (xfaform_disasm.c:30360); this guard exists only to avoid hangs`
       );
     }

@@ -7,6 +7,7 @@ export type FormCalcNode =
   | ExprStmt
   | IfStmt
   | ForStmt
+  | ForEachStmt
   | WhileStmt
   | RepeatStmt
   | BreakStmt
@@ -55,6 +56,19 @@ export interface ForStmt {
   step: FormCalcNode | null;
   body: FormCalcNode[];
   isDownto: boolean;
+}
+
+/**
+ * `foreach <var> in <list> ... endfor` — iterate over a node list/wildcard
+ * or array value. evidence: keyword table entries foreach/in/endfor at
+ * jfformcalc_disasm.c `.data 0x15d2a290`; type-9 (reference) expansion at
+ * `:17756`.
+ */
+export interface ForEachStmt {
+  type: 'ForEachStmt';
+  variable: string;
+  iterable: FormCalcNode;
+  body: FormCalcNode[];
 }
 
 export interface WhileStmt {
@@ -120,7 +134,9 @@ export interface NotExpr {
 
 export interface CompareExpr {
   type: 'CompareExpr';
-  operator: '=' | '<>' | '<' | '<=' | '>' | '>=';
+  /** Symbolic or mnemonic (eq/ne/gt/ge/lt/le) — `eq` must stay distinct from
+   *  `=` so statement-level conversion never turns `x eq 5` into an assignment */
+  operator: '=' | '==' | '<>' | '<' | '<=' | '>' | '>=' | 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le';
   left: FormCalcNode;
   right: FormCalcNode;
 }

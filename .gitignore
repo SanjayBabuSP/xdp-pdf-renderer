@@ -8,3 +8,6 @@ coverage/
 !test/**/*.pdf
 reference/
 **/.verify/
+
+# Locally imported Adobe fonts (npm run fonts:import) — licensed with Designer
+assets/fonts/adobe/

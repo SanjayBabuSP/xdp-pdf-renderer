@@ -8,6 +8,7 @@ import {
   ExprStmt,
   IfStmt,
   ForStmt,
+  ForEachStmt,
   WhileStmt,
   RepeatStmt,
   BreakStmt,
@@ -31,6 +32,10 @@ export class FormCalcParser {
   constructor(source: string) {
     const lexer = new FormCalcLexer(source);
     this.tokens = lexer.tokenize();
+    if (lexer.error) {
+      const e = lexer.error;
+      throw new FormCalcParseError(e.message, e.line, e.column);
+    }
   }
 
   parse(): Program {
@@ -43,16 +48,53 @@ export class FormCalcParser {
 
   private parseBlock(): FormCalcNode[] {
     const stmts: FormCalcNode[] = [];
-    while (!this.isAtEnd() && !this.check(TokenType.END) && !this.check(TokenType.ELSE) && !this.check(TokenType.ELSEIF)) {
+    while (
+      !this.isAtEnd() &&
+      !this.check(TokenType.END) &&
+      !this.check(TokenType.ENDIF) &&
+      !this.check(TokenType.ENDFOR) &&
+      !this.check(TokenType.ENDWHILE) &&
+      !this.check(TokenType.ELSE) &&
+      !this.check(TokenType.ELSEIF) &&
+      !this.check(TokenType.UNTIL)
+    ) {
       const stmt = this.parseStatement();
       if (stmt) stmts.push(stmt);
     }
     return stmts;
   }
 
+  /** Accept `end` or a specific terminator keyword (`endif`, `endfor`, …). */
+  private expectBlockEnd(...terminators: TokenType[]): void {
+    if (terminators.some((t) => this.check(t))) {
+      this.advance();
+      return;
+    }
+    if (this.check(TokenType.END)) {
+      this.advance();
+      // Two-word forms: `end if`, `end for`, `end foreach`, `end while`
+      if (
+        this.check(TokenType.IF) ||
+        this.check(TokenType.FOR) ||
+        this.check(TokenType.FOREACH) ||
+        this.check(TokenType.WHILE)
+      ) {
+        this.advance();
+      }
+      return;
+    }
+    const tok = this.current();
+    throw new FormCalcParseError(
+      `Expected end block but got ${tok.type} ('${tok.value}')`,
+      tok.line,
+      tok.column
+    );
+  }
+
   private parseStatement(): FormCalcNode | null {
     if (this.check(TokenType.IF)) return this.parseIf();
     if (this.check(TokenType.FOR)) return this.parseFor();
+    if (this.check(TokenType.FOREACH)) return this.parseForEach();
     if (this.check(TokenType.WHILE)) return this.parseWhile();
     if (this.check(TokenType.REPEAT)) return this.parseRepeat();
     if (this.check(TokenType.BREAK)) { this.advance(); return { type: 'BreakStmt' }; }
@@ -80,7 +122,7 @@ export class FormCalcParser {
       this.advance();
       elseBranch = this.parseBlock();
     }
-    this.expect(TokenType.END);
+    this.expectBlockEnd(TokenType.ENDIF);
     return { type: 'IfStmt', condition, thenBranch, elseIfBranches, elseBranch };
   }
 
@@ -89,26 +131,47 @@ export class FormCalcParser {
     const variable = this.expect(TokenType.IDENT).value;
     this.expect(TokenType.EQUAL);
     const start = this.parseExpression();
+    // `to` / `upto` ascend, `downto` descends (keyword table :23176)
     const isDownto = this.check(TokenType.DOWNTO);
-    this.advance(); // TO or DOWNTO
+    if (!isDownto && !this.check(TokenType.TO) && !this.check(TokenType.UPTO)) {
+      const tok = this.current();
+      throw new FormCalcParseError(
+        `Expected to/upto/downto but got ${tok.type} ('${tok.value}')`,
+        tok.line,
+        tok.column
+      );
+    }
+    this.advance();
     const end = this.parseExpression();
     let step: FormCalcNode | null = null;
-    if (this.check(TokenType.IDENT) && this.current().value.toLowerCase() === 'step') {
+    if (this.check(TokenType.STEP)) {
       this.advance();
       step = this.parseExpression();
     }
-    this.expect(TokenType.DO);
+    if (this.check(TokenType.DO)) this.advance(); // optional `do`
     const body = this.parseBlock();
-    this.expect(TokenType.END);
+    this.expectBlockEnd(TokenType.ENDFOR);
     return { type: 'ForStmt', variable, start, end, step, body, isDownto };
+  }
+
+  /** `foreach <var> in <expr> [do] … endfor` — iterate a node list/array. */
+  private parseForEach(): ForEachStmt {
+    this.expect(TokenType.FOREACH);
+    const variable = this.expect(TokenType.IDENT).value;
+    this.expect(TokenType.IN);
+    const iterable = this.parseExpression();
+    if (this.check(TokenType.DO)) this.advance(); // optional `do`
+    const body = this.parseBlock();
+    this.expectBlockEnd(TokenType.ENDFOR);
+    return { type: 'ForEachStmt', variable, iterable, body };
   }
 
   private parseWhile(): WhileStmt {
     this.expect(TokenType.WHILE);
     const condition = this.parseExpression();
-    this.expect(TokenType.DO);
+    if (this.check(TokenType.DO)) this.advance(); // optional `do`
     const body = this.parseBlock();
-    this.expect(TokenType.END);
+    this.expectBlockEnd(TokenType.ENDWHILE);
     return { type: 'WhileStmt', condition, body };
   }
 
@@ -121,9 +184,20 @@ export class FormCalcParser {
   }
 
   private parseReturn(): ReturnStmt {
-    this.expect(TokenType.RETURN);
+    const retTok = this.expect(TokenType.RETURN);
     let value: FormCalcNode | null = null;
-    if (!this.check(TokenType.SEMICOLON) && !this.check(TokenType.NEWLINE) && !this.isAtEnd()) {
+    const isTerminator =
+      this.isAtEnd() ||
+      this.check(TokenType.END) ||
+      this.check(TokenType.ENDIF) ||
+      this.check(TokenType.ENDFOR) ||
+      this.check(TokenType.ENDWHILE) ||
+      this.check(TokenType.ELSE) ||
+      this.check(TokenType.ELSEIF) ||
+      this.check(TokenType.UNTIL);
+    // A bare `return`/`exit` ends at the line break; the value form must be
+    // on the same line as the keyword.
+    if (!isTerminator && this.current().line === retTok.line) {
       value = this.parseExpression();
     }
     return { type: 'ReturnStmt', value };
@@ -132,6 +206,11 @@ export class FormCalcParser {
   private parseVarDecl(): VarDecl {
     this.expect(TokenType.VAR);
     const name = this.expect(TokenType.IDENT).value;
+    // Optional type annotation: `var x as string = "a"` (cast keywords)
+    if (this.check(TokenType.as)) {
+      this.advance();
+      this.advance(); // type token (string/integer/date/…)
+    }
     let initializer: FormCalcNode | null = null;
     if (this.check(TokenType.EQUAL)) {
       this.advance();
@@ -187,7 +266,8 @@ export class FormCalcParser {
 
   private parseAnd(): FormCalcNode {
     let left = this.parseNot();
-    while (this.check(TokenType.AND)) {
+    // `&` is the symbolic Logical AND (doc operator table; engine token 0x102)
+    while (this.check(TokenType.AND) || this.check(TokenType.AMPERSAND)) {
       this.advance();
       const right = this.parseNot();
       left = { type: 'AndExpr', left, right };
@@ -205,28 +285,24 @@ export class FormCalcParser {
   }
 
   private parseComparison(): FormCalcNode {
-    let left = this.parseConcat();
-    while (
-      this.check(TokenType.EQUAL) ||
-      this.check(TokenType.NOT_EQUAL) ||
-      this.check(TokenType.LESS) ||
-      this.check(TokenType.LESS_EQUAL) ||
-      this.check(TokenType.GREATER) ||
-      this.check(TokenType.GREATER_EQUAL)
-    ) {
-      const op = this.advance().value as '=' | '<>' | '<' | '<=' | '>' | '>=';
-      const right = this.parseConcat();
-      left = { type: 'CompareExpr', operator: op, left, right };
-    }
-    return left;
-  }
-
-  private parseConcat(): FormCalcNode {
     let left = this.parseAdd();
-    while (this.check(TokenType.AMPERSAND) || this.check(TokenType.TILDE)) {
+    for (;;) {
+      const tok = this.current();
+      let op: string | null = null;
+      switch (tok.type) {
+        case TokenType.EQUAL: op = tok.value === '==' ? '==' : '='; break;
+        case TokenType.EQ: op = 'eq'; break;
+        case TokenType.NOT_EQUAL: op = tok.value === 'ne' || tok.value === 'NE' ? 'ne' : '<>'; break;
+        case TokenType.LESS: op = tok.value.toLowerCase() === 'lt' ? 'lt' : '<'; break;
+        case TokenType.LESS_EQUAL: op = tok.value.toLowerCase() === 'le' ? 'le' : '<='; break;
+        case TokenType.GREATER: op = tok.value.toLowerCase() === 'gt' ? 'gt' : '>'; break;
+        case TokenType.GREATER_EQUAL: op = tok.value.toLowerCase() === 'ge' ? 'ge' : '>='; break;
+        default: break;
+      }
+      if (op === null) break;
       this.advance();
       const right = this.parseAdd();
-      left = { type: 'ConcatExpr', left, right };
+      left = { type: 'CompareExpr', operator: op as never, left, right };
     }
     return left;
   }
@@ -278,26 +354,69 @@ export class FormCalcParser {
   private parsePostfix(): FormCalcNode {
     let expr = this.parsePrimary();
     while (true) {
-      if (this.check(TokenType.LPAREN)) {
-        // Function call — only if the preceding node is an Identifier
+      if (this.check(TokenType.DOT)) {
+        // SOM path chaining on a bare identifier: a.b, a.b.c, a.. (parent),
+        // a.# (index), a.* (all) — evidence: path chaining at :16746
         if (expr.type === 'Identifier') {
-          this.advance(); // (
-          const args: FormCalcNode[] = [];
-          if (!this.check(TokenType.RPAREN)) {
-            args.push(this.parseExpression());
-            while (this.check(TokenType.COMMA)) {
-              this.advance();
-              args.push(this.parseExpression());
-            }
-          }
-          this.expect(TokenType.RPAREN);
-          expr = { type: 'CallExpr', name: (expr as { type: 'Identifier'; name: string }).name, args };
-        } else {
-          break;
+          expr = { type: 'FieldRef', prefix: '$', path: expr.name };
+          continue;
         }
-      } else {
+        if (expr.type === 'FieldRef') {
+          const next = this.tokens[this.pos + 1];
+          if (next && next.type === TokenType.IDENT) {
+            this.advance(); // .
+            this.advance(); // ident
+            expr = { ...expr, path: expr.path + '.' + next.value };
+            continue;
+          }
+          if (next && next.type === TokenType.STAR) {
+            this.advance();
+            this.advance();
+            expr = { ...expr, path: expr.path + '.*' };
+            continue;
+          }
+          if (next && next.type === TokenType.HASH) {
+            this.advance();
+            this.advance();
+            expr = { ...expr, path: expr.path + '.#' };
+            continue;
+          }
+          if (next && next.type === TokenType.DOT) {
+            this.advance(); // first .
+            this.advance(); // second .
+            expr = { ...expr, path: expr.path + '..' };
+            continue;
+          }
+        }
         break;
       }
+      if (this.check(TokenType.LBRACKET) && expr.type === 'FieldRef' && expr.index === undefined) {
+        this.advance();
+        const index = this.parseExpression();
+        this.expect(TokenType.RBRACKET);
+        expr = { ...expr, index };
+        continue;
+      }
+      if (this.check(TokenType.LPAREN)) {
+        // Function/method call: `foo(...)` or `xfa.host.messageBox(...)`
+        let name: string | null = null;
+        if (expr.type === 'Identifier') name = expr.name;
+        else if (expr.type === 'FieldRef') name = expr.path;
+        if (name === null) break;
+        this.advance(); // (
+        const args: FormCalcNode[] = [];
+        if (!this.check(TokenType.RPAREN)) {
+          args.push(this.parseExpression());
+          while (this.check(TokenType.COMMA)) {
+            this.advance();
+            args.push(this.parseExpression());
+          }
+        }
+        this.expect(TokenType.RPAREN);
+        expr = { type: 'CallExpr', name, args };
+        continue;
+      }
+      break;
     }
     return expr;
   }
@@ -308,8 +427,12 @@ export class FormCalcParser {
       return this.parseFieldRef();
     }
 
-    // Literal: null
+    // Literal: null — unless called as the Null() function (doc p82)
     if (this.check(TokenType.NULL)) {
+      if (this.tokens[this.pos + 1]?.type === TokenType.LPAREN) {
+        const tok = this.advance();
+        return { type: 'Identifier', name: tok.value.toLowerCase() };
+      }
       this.advance();
       return { type: 'Literal', value: null, dataType: 'null' };
     }
@@ -357,7 +480,10 @@ export class FormCalcParser {
       return { type: 'Identifier', name: tok.value };
     }
 
-    // Cast expressions: INTEGER(expr), STRING(expr), etc.
+    // Type keywords double as function names in call position — `Date()`,
+    // `Time()`, `Integer(x)`, … (the engine registry registers DATE/TIME);
+    // parsePostfix turns `kw(` into a CallExpr. Otherwise treat the keyword
+    // as a plain identifier (a field/var may be named `date` or `time`).
     if (
       this.check(TokenType.INTEGER) ||
       this.check(TokenType.STRING_KEYWORD) ||
@@ -368,10 +494,18 @@ export class FormCalcParser {
       this.check(TokenType.DATETIME_KEYWORD)
     ) {
       const tok = this.advance();
-      this.expect(TokenType.LPAREN);
-      const arg = this.parseExpression();
-      this.expect(TokenType.RPAREN);
-      return { type: 'CallExpr', name: tok.value.toLowerCase(), args: [arg] };
+      return { type: 'Identifier', name: tok.value };
+    }
+
+    // `mod(...)` (builtin MOD, registry FUN_15d086b0) and `if(...)`
+    // (builtin IF, FUN_15d06ed0) are callable in primary position; the
+    // keywords are only operators/statements when they lead a construct.
+    if (
+      this.check(TokenType.MOD) ||
+      (this.check(TokenType.IF) && this.tokens[this.pos + 1]?.type === TokenType.LPAREN)
+    ) {
+      const tok = this.advance();
+      return { type: 'Identifier', name: tok.value.toLowerCase() };
     }
 
     const tok = this.current();
@@ -401,14 +535,25 @@ export class FormCalcParser {
       );
     }
 
-    // Handle dotted path continuation: $field.subfield
+    // Handle dotted path continuation: $field.subfield, $field.*,
+    // $field.# (Occurrence.esi), $field.. (parent)
     while (this.check(TokenType.DOT)) {
-      this.advance();
-      if (this.check(TokenType.IDENT)) {
+      const next = this.tokens[this.pos + 1];
+      if (next?.type === TokenType.IDENT) {
+        this.advance();
         path += '.' + this.advance().value;
-      } else if (this.check(TokenType.STAR)) {
+      } else if (next?.type === TokenType.STAR) {
+        this.advance();
         this.advance();
         path += '.*';
+      } else if (next?.type === TokenType.HASH) {
+        this.advance();
+        this.advance();
+        path += '.#';
+      } else if (next?.type === TokenType.DOT) {
+        this.advance();
+        this.advance();
+        path += '..';
       } else {
         break;
       }

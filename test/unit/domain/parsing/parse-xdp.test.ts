@@ -19,6 +19,33 @@ const MINIMAL_XDP = `<?xml version="1.0" encoding="UTF-8"?>
 
 const NO_TEMPLATE_XDP = `<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"></xdp:xdp>`;
 
+const XDP_WITH_BORDER = `<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="0" y="0" w="200mm" h="260mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <draw name="box" x="10mm" y="10mm" w="40mm" h="20mm">
+        <border presence="visible">
+          <fill presence="visible" fillType="toRight">
+            <color value="255,0,0"/>
+            <opacity value="0.3"/>
+          </fill>
+          <corner radius="4pt"/>
+          <edge index="0" thickness="2pt" stroke="solid"><color value="0,0,0"/></edge>
+          <edge index="3" thickness="1pt" stroke="dashed"><color value="0,0,0"/><opacity value="0.5"/></edge>
+          <edge index="1" thickness="3pt" stroke="dotted"><color value="0,0,0"/></edge>
+          <edge index="2" thickness="1pt" stroke="solid"><color value="0,0,0"/></edge>
+        </border>
+      </draw>
+    </subform>
+  </template>
+</xdp:xdp>`;
+
 const XDP_WITH_TABLE = `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
@@ -103,6 +130,41 @@ describe('parse-xdp', () => {
         expect(table.columnWidths).toHaveLength(3);
         expect(table.columnWidths![0]).toBeCloseTo(141.73, 0); // 50mm ≈ 141.73pt
       }
+    });
+  });
+
+  describe('borders', () => {
+    it('orders edges by index and parses opacity/fillType', () => {
+      const result = parseXdp(XDP_WITH_BORDER);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      const draw = result.data.children.find((node) => node.name === 'box') as any;
+      expect(draw).toBeDefined();
+      const border = draw.border;
+      expect(border).toBeDefined();
+
+      // index 0=top, 1=right, 2=bottom, 3=left regardless of document order
+      expect(border.edges).toHaveLength(4);
+      expect(border.edges[0].thickness).toBeCloseTo(2);
+      expect(border.edges[1].thickness).toBeCloseTo(3);
+      expect(border.edges[2].thickness).toBeCloseTo(1);
+      expect(border.edges[3].style).toBe('dashed');
+      expect(border.edges[3].opacity).toBeCloseTo(0.5);
+
+      expect(border.fill.opacity).toBeCloseTo(0.3);
+      expect(border.fill.fillType).toBe('toRight');
+      expect(border.fill.color).toEqual({ r: 255, g: 0, b: 0 });
+      expect(border.cornerRadius).toBeCloseTo(4);
+    });
+
+    it('falls back to document order when index is absent', () => {
+      const xml = XDP_WITH_BORDER.replace(/ index="\d"/g, '');
+      const result = parseXdp(xml);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const draw = result.data.children.find((node) => node.name === 'box') as any;
+      expect(draw.border.edges.map((e: any) => e.thickness)).toEqual([2, 1, 3, 1]);
     });
   });
 

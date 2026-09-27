@@ -23,7 +23,30 @@ export interface Position {
   h?: number;
   minH?: number;
   minW?: number;
+  maxH?: number;
+  maxW?: number;
   rotate?: number;
+}
+
+/**
+ * breakBefore/breakAfter enum. evidence: xfa.dll string block
+ * "contentArea, pageArea, pageEven, pageFront, pageOdd" with "auto" as the
+ * schema default (AcroForm.ppi_disasm.c:794816 passes 0x350000=auto as
+ * default for enum properties) and value order from FUN_18527420
+ * (xfalayout_disasm.c:16579: 0x350002→pageArea target, 0x350001→contentArea
+ * via FUN_18526fe0 :16345).
+ */
+export type BreakValue = 'auto' | 'contentArea' | 'pageArea' | 'pageEven' | 'pageFront' | 'pageOdd';
+
+/**
+ * <keep> element — three enum properties, all "auto" = no keep
+ * (xfalayout_disasm.c:66094 hasActiveKeep: keeps only if any of the three
+ * properties differs from 0x360000=auto). Stored as raw attribute/child
+ * values because Designer rarely emits <keep>; the layout code treats any
+ * non-"auto" value as active.
+ */
+export interface KeepSpec {
+  [key: string]: string;
 }
 
 // ─── Font & Style ─────────────────────────────────────────────────────────────
@@ -47,11 +70,37 @@ export interface EdgeSpec {
   thickness?: number; // points
   color?: RgbColor;
   style?: string; // solid | dashed | dotted | embossed | etched | lowered | raised
+  /** Stroke transparency 0..1 (`/CA` ExtGState). evidence: pdfdocument:138444 */
+  opacity?: number;
+  /**
+   * Line-cap style for this edge: 'square'|'round'|'butt'.
+   * evidence: designrenderer:6182 cap enum 0x50000/1/2 → PDF J 0/1/2.
+   */
+  cap?: string;
+  /**
+   * Line-join style: 'miter'|'round'|'bevel'.
+   * evidence: designrenderer:6182 join enum 0x60000/1/2 → PDF j 0/1/2.
+   */
+  join?: string;
 }
 
 export interface FillSpec {
   presence?: string;
   color?: RgbColor;
+  /** Fill transparency 0..1 (`/ca` ExtGState). evidence: pdfdocument:144010 */
+  opacity?: number;
+  /**
+   * Fill type: 'solid'|'none'|'toTop'|'toBottom'|'toLeft'|'toRight'|'radial'.
+   * Gradient types map to PDF ShadingType 2 (axial) or 3 (radial).
+   * evidence: renderer:35845 (axial), renderer:36519 (radial), pdfldriver:40203.
+   */
+  fillType?: string;
+  /**
+   * End colour for gradient fills (the second stop).
+   * Absent → defaults to white {r:255,g:255,b:255}.
+   * evidence: renderer:35845 buildLinearGradient uses color1/color2 parameters.
+   */
+  color2?: RgbColor;
 }
 
 export interface BorderSpec {
@@ -143,7 +192,7 @@ export type PresenceValue = 'visible' | 'hidden' | 'invisible' | 'inactive';
 export interface SubformNode {
   type: 'subform';
   name?: string;
-  layout?: 'tb' | 'lr' | 'table' | 'row' | 'position';
+  layout?: 'tb' | 'lr' | 'rl-tb' | 'table' | 'row' | 'rl-row' | 'position';
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
   occur?: OccurSpec;
@@ -158,6 +207,11 @@ export interface SubformNode {
   events?: EventSpec[];
   /** XFA relevant attribute for conditional visibility (e.g. "$ + |rest.textContent != ''") */
   relevant?: string;
+  breakBefore?: BreakValue;
+  breakAfter?: BreakValue;
+  keep?: KeepSpec;
+  /** Set by expandRepeats on occurrence instances (0-based); engines stack them. */
+  repeatIndex?: number;
 }
 
 export interface ExclGroupNode {
@@ -171,6 +225,9 @@ export interface ExclGroupNode {
   border?: BorderSpec;
   margin?: MarginSpec;
   resolvedValue?: unknown;
+  breakBefore?: BreakValue;
+  breakAfter?: BreakValue;
+  keep?: KeepSpec;
 }
 
 export interface FieldNode {
@@ -197,6 +254,11 @@ export interface FieldNode {
   relevant?: string;
   /** Default value from <value> element */
   defaultValue?: unknown;
+  breakBefore?: BreakValue;
+  breakAfter?: BreakValue;
+  keep?: KeepSpec;
+  /** Set by expandRepeats on occurrence instances (0-based); engines stack them. */
+  repeatIndex?: number;
 }
 
 export interface DrawNode {
@@ -211,6 +273,21 @@ export interface DrawNode {
     sweepAngle?: number;
     /** For arc: start angle in degrees */
     startAngle?: number;
+    /**
+     * For image: aspect mode.
+     * 'none'=stretch, 'fit'=uniform scale, 'actual'=native DPI,
+     * 'width'=fit width, 'height'=fit height.
+     * evidence: xfaimageservice_disasm.c:9324.
+     */
+    aspectMode?: string;
+    /** For image: horizontal DPI (xres). evidence: xfaimageservice:9324. */
+    xdpi?: number;
+    /** For image: vertical DPI (yres). Defaults to xdpi. */
+    ydpi?: number;
+    /** For image: horizontal alignment within spare space. evidence: xfaimageservice:9281. */
+    hAlign?: 'left' | 'center' | 'right';
+    /** For image: vertical alignment within spare space. evidence: xfaimageservice:9281. */
+    vAlign?: 'top' | 'middle' | 'bottom';
   };
   font?: FontSpec;
   position?: Position;
@@ -220,6 +297,9 @@ export interface DrawNode {
   margin?: MarginSpec;
   border?: BorderSpec;
   events?: EventSpec[];
+  breakBefore?: BreakValue;
+  breakAfter?: BreakValue;
+  keep?: KeepSpec;
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;
@@ -335,6 +415,12 @@ export interface DataObject {
 
 export interface RenderOptions {
   fonts?: Record<string, string>;
+  /**
+   * Extra directories scanned for font files (.otf/.ttf) at render time.
+   * Merged with the imported Adobe manifest (`npm run fonts:import`) — useful
+   * for pointing at a Designer install or a system font directory.
+   */
+  fontDirs?: string[];
   pageHeight?: number;
   maxInputSize?: number;
   /** Hard-fail on missing required schema fields. Default true. Set false to tolerate real-world

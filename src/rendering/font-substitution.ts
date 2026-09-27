@@ -49,6 +49,12 @@ interface FontDescriptor {
   family: string;
   weight: string;
   posture: string;
+  /**
+   * True when the matching XCI `<equate>` carries `force="1"` — the rule must be
+   * applied unconditionally. `force="0"` rules apply only when the requested font
+   * is unavailable, which FontManager decides via `force` (font:26867).
+   */
+  force: boolean;
 }
 
 /**
@@ -77,11 +83,12 @@ export class FontSubstitution {
 
     for (const rule of this.rules) {
       if (matchesPattern(family, w, p, rule.from)) {
-        return applySubstitution(family, w, p, rule.to);
+        const descriptor = applySubstitution(family, w, p, rule.to);
+        return { ...descriptor, force: rule.force };
       }
     }
 
-    return { family, weight: w, posture: p };
+    return { family, weight: w, posture: p, force: false };
   }
 
   /**
@@ -117,13 +124,14 @@ function applySubstitution(
   toPattern: string
 ): FontDescriptor {
   const parts = splitPattern(toPattern);
-  if (parts.length !== 3) return { family: _family, weight, posture };
+  if (parts.length !== 3) return { family: _family, weight, posture, force: false };
 
   const [toFamily, toWeight, toPosture] = parts;
   return {
     family: toFamily === '*' ? _family : toFamily,
     weight: toWeight === '*' ? weight : toWeight,
     posture: toPosture === '*' ? posture : toPosture,
+    force: false,
   };
 }
 

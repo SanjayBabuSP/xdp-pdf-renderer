@@ -5,6 +5,18 @@ import fontkit from '@pdf-lib/fontkit';
 import { RenderOptions, FontEquateRule } from '../types';
 import { FontSubstitution } from './font-substitution';
 import { isBoldWeight, mapToStandardPdfFont, isWinAnsiSafe } from './standard-fonts';
+import {
+  FontManifest,
+  FontVariant,
+  adobeFontDir,
+  familyKey,
+  loadManifest,
+  lookupVariants,
+  normalizePosture,
+  normalizeWeight,
+  pickVariant,
+  scanFontDir,
+} from './font-registry';
 
 import defaultFontsJson from '../config/default-fonts.json';
 
@@ -27,10 +39,15 @@ export class FontManager {
   private customFonts: Record<string, string>;
   private doc: PDFDocument;
   private fontSubstitution: FontSubstitution;
+  private fontDirs: string[];
+  /** Manifest of imported Adobe faces; undefined = not loaded yet, null = none. */
+  private adobeManifest: FontManifest | null | undefined;
+  private scannedDirs: Map<string, FontManifest> = new Map();
 
   constructor(doc: PDFDocument, options?: RenderOptions, fontEquateRules?: FontEquateRule[]) {
     this.doc = doc;
     this.customFonts = options?.fonts ?? {};
+    this.fontDirs = options?.fontDirs ?? [];
     this.fontSubstitution = new FontSubstitution(fontEquateRules);
     this.doc.registerFontkit(fontkit);
   }
@@ -64,35 +81,33 @@ export class FontManager {
   private async loadFont(family?: string, weight?: string, posture?: string): Promise<PDFFont> {
     const requested = family ?? 'Helvetica';
 
-    // 1. Check custom fonts from options (exact match first)
-    if (this.customFonts[requested]) {
-      return this.loadCustomFont(this.customFonts[requested]);
-    }
+    // XCI equate rules: `force="1"` always applies, `force="0"` only applies when
+    // the requested family has no embeddable face and no base-14 counterpart
+    // (Designer applies the mapping then filters by `fontExists` — font:26836-26842).
+    const available = this.hasFontFor(requested, weight, posture);
+    const rule = this.fontSubstitution.resolve(requested, weight, posture);
+    const changed =
+      familyKey(rule.family) !== familyKey(requested) ||
+      normalizeWeight(rule.weight) !== normalizeWeight(weight) ||
+      normalizePosture(rule.posture) !== normalizePosture(posture);
+    const useSubstitution = changed && (rule.force || !available);
+    const targetFamily = useSubstitution ? rule.family : requested;
+    const targetWeight = useSubstitution && rule.weight !== '*' ? rule.weight : weight;
+    const targetPosture = useSubstitution && rule.posture !== '*' ? rule.posture : posture;
 
-    // 2. Check default font paths (exact match)
-    const defaultPath = DEFAULT_FONTS[requested];
-    if (defaultPath && fs.existsSync(defaultPath)) {
-      return this.loadCustomFont(defaultPath);
-    }
+    // 1. Embeddable file: explicit map → default-fonts.json → imported Adobe manifest
+    //    → user font directories.
+    const file = this.fileFor(targetFamily, targetWeight, targetPosture);
+    if (file) return this.loadCustomFont(file);
 
-    // 3. Apply XCI font substitution rules (e.g. Helvetica → Arial)
-    const substituted = this.fontSubstitution.resolve(requested, weight, posture);
-    if (substituted.family !== requested || substituted.weight !== weight || substituted.posture !== posture) {
-      if (this.customFonts[substituted.family]) {
-        return this.loadCustomFont(this.customFonts[substituted.family]);
-      }
-      const subDefaultPath = DEFAULT_FONTS[substituted.family];
-      if (subDefaultPath && fs.existsSync(subDefaultPath)) {
-        return this.loadCustomFont(subDefaultPath);
-      }
-    }
-
-    // 4. Base-14 standard PDF font (Designer.xdc <seq> mapping): try the requested
-    //    family first, then the XCI-substituted family (Arial → Helvetica metrics).
-    const weightToUse = substituted.weight === '*' ? weight : substituted.weight;
-    const postureToUse = substituted.posture === '*' ? posture : substituted.posture;
-    for (const candidate of [requested, substituted.family]) {
-      const standardName = mapToStandardPdfFont(candidate, weightToUse, postureToUse);
+    // 2. Base-14 standard PDF font (Designer.xdc <seq> mapping): the substituted
+    //    family first, then the originally requested one.
+    for (const candidate of [targetFamily, requested]) {
+      const standardName = mapToStandardPdfFont(
+        candidate,
+        candidate === targetFamily ? targetWeight : weight,
+        candidate === targetFamily ? targetPosture : posture
+      );
       if (standardName) {
         const font = this.doc.embedStandardFont(standardName);
         this.standardFonts.add(font);
@@ -100,10 +115,55 @@ export class FontManager {
       }
     }
 
-    // 5. Fall back to the bundled Unicode-capable font (embedded via fontkit) rather than
-    // pdf-lib's built-in standard fonts, which only encode WinAnsi (Latin-1) and throw on
-    // characters like "Δ", "µ", or accented names that are common in real-world form data.
-    return this.loadUnicodeFallback(isBoldWeight(weightToUse) ? 'bold' : weightToUse);
+    // 3. Fall back to the bundled Unicode-capable font (embedded via fontkit) rather than
+    //    pdf-lib's built-in standard fonts, which only encode WinAnsi (Latin-1) and throw on
+    //    characters like "Δ", "µ", or accented names that are common in real-world form data.
+    return this.loadUnicodeFallback(
+      isBoldWeight(targetWeight ?? weight) ? 'bold' : targetWeight ?? weight
+    );
+  }
+
+  /** A family is "available" when an embeddable file or a base-14 font backs it. */
+  private hasFontFor(family: string, weight?: string, posture?: string): boolean {
+    if (this.fileFor(family, weight, posture)) return true;
+    return mapToStandardPdfFont(family, weight, posture) !== undefined;
+  }
+
+  /** Resolve a family (+ variant) to a font file path, or undefined. */
+  private fileFor(family: string, weight?: string, posture?: string): string | undefined {
+    // Explicit override from RenderOptions.fonts (exact family match, as before).
+    const custom = this.customFonts[family];
+    if (custom) return custom;
+
+    // Packaged default paths (existing behaviour, relative to the working directory).
+    const defaultPath = DEFAULT_FONTS[family];
+    if (defaultPath && fs.existsSync(defaultPath)) return defaultPath;
+
+    // Imported Adobe faces (`npm run fonts:import`) + any extra font directories.
+    const variant = this.findVariant(family, weight, posture);
+    return variant?.file;
+  }
+
+  private findVariant(family: string, weight?: string, posture?: string): FontVariant | undefined {
+    const manifest = this.getManifest();
+    if (manifest) {
+      const variants = lookupVariants(manifest, family);
+      if (variants?.length) return pickVariant(variants, weight, posture);
+    }
+    for (const dir of this.fontDirs) {
+      const scanned = this.scannedDirs.get(dir) ?? scanFontDir(dir);
+      this.scannedDirs.set(dir, scanned);
+      const variants = lookupVariants(scanned, family);
+      if (variants?.length) return pickVariant(variants, weight, posture);
+    }
+    return undefined;
+  }
+
+  private getManifest(): FontManifest | null {
+    if (this.adobeManifest === undefined) {
+      this.adobeManifest = loadManifest(adobeFontDir());
+    }
+    return this.adobeManifest;
   }
 
   private loadUnicodeFallback(weight?: string): Promise<PDFFont> {

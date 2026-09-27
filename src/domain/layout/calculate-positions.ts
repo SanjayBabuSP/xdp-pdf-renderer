@@ -1,264 +1,57 @@
-import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, AbsolutePosition } from '../../types';
+import { Result, LayoutModel, LayoutNode, SubformNode } from '../../types';
 import { success } from '../../lib/result-type';
+import { LayoutContext, LayoutResult } from './engine-types';
+import { layoutFlowSubform, layoutRootFlow } from './flow-engine';
+import { layoutPositionSubform, layoutLeafField, layoutLeafDraw, layoutExclGroup } from './position-engine';
+import { layoutTableSubform } from './table-engine';
 
-interface PositionContext {
-  x: number;
-  y: number;
-  availableWidth: number;
-}
+// ─── Layout dispatcher ─────────────────────────────────────────────────────
+// evidence: engine selection per node, xfalayout_disasm.c:15853-15926:
+//   0x1b0000/1/2 (lr-tb, rl-tb, tb) → XFAFlowLayout
+//   0x1b0003 (position)            → XFAPositionLayout
+//   0x1b0004 (table)               → XFATableLayout
+//   anything else                  → XFAPositionLayout (fallback)
+// and the per-child coercion at :49800-49900: invalid layout value →
+// position (warn 0x72a6), row/rl-row outside a table → illegal (position
+// fallback). Legacy rl-tb→position coercion depends on a Designer legacy
+// flag we don't model — rl-tb flows right-to-left here (Appendix B: flow).
 
-/** Resolve all layout positions to absolute coordinates in points. */
+/** Resolve all layout positions to absolute coordinates in page-1 content space. */
 export function calculatePositions(layout: LayoutModel): Result<LayoutModel> {
   const firstPage = layout.pages[0];
-  const rootCtx: PositionContext = firstPage
+  const rootCtx: LayoutContext = firstPage
     ? { x: firstPage.contentArea.x, y: firstPage.contentArea.y, availableWidth: firstPage.contentArea.w }
     : { x: 0, y: 0, availableWidth: 0 };
-  // Positioned once against the first page's content area; applyPagination re-flows these onto later pages.
-  const positionedChildren = positionNodes(layout.children, rootCtx).nodes;
-
-  const positioned = {
-    ...layout,
-    children: positionedChildren,
-    pages: layout.pages.map((page) => {
-      const ctx: PositionContext = {
-        x: page.contentArea.x,
-        y: page.contentArea.y,
-        availableWidth: page.contentArea.w,
-      };
-      return {
-        ...page,
-        children: positionNodes(layout.children, ctx).nodes,
-      };
-    }),
-  };
-  return success(positioned);
+  // Positioned once against the first page's content area; applyPagination
+  // translates each page's slice onto that page's own content-area origin.
+  const children = layoutRootFlow(layout.children, rootCtx, layoutNode);
+  return success({ ...layout, children });
 }
 
-function positionNodes(
-  nodes: LayoutNode[],
-  ctx: PositionContext
-): { nodes: LayoutNode[]; usedHeight: number } {
-  const result: LayoutNode[] = [];
-  let yOffset = 0;
+function layoutNode(node: LayoutNode, ctx: LayoutContext): LayoutResult {
+  if (node.type === 'field') return layoutLeafField(node, ctx);
+  if (node.type === 'draw') return layoutLeafDraw(node, ctx);
+  if (node.type === 'exclGroup') return layoutExclGroup(node, ctx, layoutNode);
+  return layoutSubform(node, ctx);
+}
 
-  for (const node of nodes) {
-    const { positionedNode, height } = positionNode(node, { ...ctx, y: ctx.y + yOffset });
-    result.push(positionedNode);
-    yOffset += height;
+function layoutSubform(node: SubformNode, ctx: LayoutContext): LayoutResult {
+  const mode = node.layout ?? 'position';
+  switch (mode) {
+    case 'table':
+      return layoutTableSubform(node, ctx, layoutNode);
+    case 'row':
+    case 'rl-row':
+      // Illegal outside a table (evidence above) — position fallback.
+      return layoutPositionSubform(node, ctx, layoutNode);
+    case 'tb':
+      return layoutFlowSubform(node, ctx, 'tb', layoutNode);
+    case 'lr':
+      return layoutFlowSubform(node, ctx, 'lr', layoutNode);
+    case 'rl-tb':
+      return layoutFlowSubform(node, ctx, 'rl', layoutNode);
+    case 'position':
+    default:
+      return layoutPositionSubform(node, ctx, layoutNode);
   }
-
-  return { nodes: result, usedHeight: yOffset };
-}
-
-function positionNode(
-  node: LayoutNode,
-  ctx: PositionContext
-): { positionedNode: LayoutNode; height: number } {
-  if (node.type === 'subform') return positionSubform(node, ctx);
-  if (node.type === 'field') return positionField(node, ctx);
-  if (node.type === 'draw') return positionDraw(node, ctx);
-  if (node.type === 'exclGroup') return positionExclGroup(node, ctx);
-  return { positionedNode: node, height: 0 };
-}
-
-function positionSubform(
-  node: SubformNode,
-  ctx: PositionContext
-): { positionedNode: SubformNode; height: number } {
-  if (node.layout === 'table') return positionTable(node, ctx);
-  if (node.layout === 'lr') return positionLrSubform(node, ctx);
-  if (node.layout === 'position') return positionAbsoluteSubform(node, ctx);
-  return positionTbSubform(node, ctx);
-}
-
-/**
- * XFA's default layout ("position") places each child at its own explicit x/y, relative to this
- * subform's origin (ctx.x/ctx.y, already resolved by the caller), rather than flowing them one
- * after another. The subform's own height comes from its declared h/minH, not from summing
- * children (they may overlap or be sparse).
- */
-function positionAbsoluteSubform(
-  node: SubformNode,
-  ctx: PositionContext
-): { positionedNode: SubformNode; height: number } {
-  const width = node.position?.w ?? ctx.availableWidth;
-
-  const children = node.children.map((child) => {
-    const childCtx: PositionContext = {
-      x: ctx.x + getChildX(child),
-      y: ctx.y + getChildY(child),
-      availableWidth: getNodeWidth(child) ?? width,
-    };
-    return positionNode(child, childCtx).positionedNode;
-  });
-
-  // When h/minH is absent, derive height from the furthest extent of positioned children
-  let height = node.position?.h ?? node.position?.minH;
-  if (height == null || height === 0) {
-    let maxY = 0;
-    for (const child of children) {
-      const childY = getChildY(child);
-      const childH = getNodeHeight(child) ?? 0;
-      const extent = childY + childH;
-      if (extent > maxY) maxY = extent;
-    }
-    height = maxY;
-  }
-  // Enforce minH even when h is specified
-  if (node.position?.minH != null && height < node.position.minH) {
-    height = node.position.minH;
-  }
-
-  return {
-    positionedNode: { ...node, children, position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height } } as SubformNode,
-    height,
-  };
-}
-
-function getChildX(node: LayoutNode): number {
-  return node.type === 'subform' || node.type === 'field' || node.type === 'draw' ? node.position?.x ?? 0 : 0;
-}
-
-function getChildY(node: LayoutNode): number {
-  return node.type === 'subform' || node.type === 'field' || node.type === 'draw' ? node.position?.y ?? 0 : 0;
-}
-
-function positionTbSubform(
-  node: SubformNode,
-  ctx: PositionContext
-): { positionedNode: SubformNode; height: number } {
-  const { nodes, usedHeight } = positionNodes(node.children, ctx);
-  return {
-    positionedNode: { ...node, children: nodes } as SubformNode,
-    height: usedHeight,
-  };
-}
-
-function positionLrSubform(
-  node: SubformNode,
-  ctx: PositionContext
-): { positionedNode: SubformNode; height: number } {
-  const result: LayoutNode[] = [];
-  let xOffset = 0;
-  let maxHeight = 0;
-
-  for (const child of node.children) {
-    const childCtx = { ...ctx, x: ctx.x + xOffset };
-    const { positionedNode, height } = positionNode(child, childCtx);
-    result.push(positionedNode);
-    const childWidth = getNodeWidth(child) ?? 0;
-    xOffset += childWidth;
-    if (height > maxHeight) maxHeight = height;
-  }
-
-  return {
-    positionedNode: { ...node, children: result } as SubformNode,
-    height: maxHeight,
-  };
-}
-
-function positionTable(
-  node: SubformNode,
-  ctx: PositionContext
-): { positionedNode: SubformNode; height: number } {
-  const colWidths = node.columnWidths ?? [];
-  const result: LayoutNode[] = [];
-  let yOffset = 0;
-
-  for (const child of node.children) {
-    if (child.type === 'subform' && child.layout === 'row') {
-      const { positionedNode, height } = positionTableRow(child, ctx, yOffset, colWidths);
-      result.push(positionedNode);
-      yOffset += height;
-    } else {
-      const { positionedNode, height } = positionNode(child, { ...ctx, y: ctx.y + yOffset });
-      result.push(positionedNode);
-      yOffset += height;
-    }
-  }
-
-  return { positionedNode: { ...node, children: result } as SubformNode, height: yOffset };
-}
-
-function positionTableRow(
-  row: SubformNode,
-  ctx: PositionContext,
-  yOffset: number,
-  colWidths: number[]
-): { positionedNode: SubformNode; height: number } {
-  const result: LayoutNode[] = [];
-  let xOffset = 0;
-  let maxHeight = 0;
-
-  row.children.forEach((cell, i) => {
-    const colWidth = colWidths[i] ?? ctx.availableWidth / Math.max(row.children.length, 1);
-    const cellCtx = { x: ctx.x + xOffset, y: ctx.y + yOffset, availableWidth: colWidth };
-    const { positionedNode, height } = positionNode(cell, cellCtx);
-    result.push(positionedNode);
-    xOffset += colWidth;
-    if (height > maxHeight) maxHeight = height;
-  });
-
-  return { positionedNode: { ...row, children: result } as SubformNode, height: Math.max(maxHeight, 18) };
-}
-
-function positionField(
-  node: FieldNode,
-  ctx: PositionContext
-): { positionedNode: FieldNode; height: number } {
-  const h = node.position?.h ?? node.position?.minH ?? 18;
-  const w = node.position?.w ?? ctx.availableWidth;
-  // Enforce minH/minW
-  const finalH = node.position?.minH != null ? Math.max(h, node.position.minH) : h;
-  const finalW = node.position?.minW != null ? Math.max(w, node.position.minW) : w;
-  return {
-    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w: finalW, h: finalH } } as FieldNode,
-    height: finalH,
-  };
-}
-
-function positionDraw(
-  node: DrawNode,
-  ctx: PositionContext
-): { positionedNode: DrawNode; height: number } {
-  const h = node.position?.h ?? 18;
-  const w = node.position?.w ?? ctx.availableWidth;
-  // Enforce minH/minW
-  const finalH = node.position?.minH != null ? Math.max(h, node.position.minH) : h;
-  const finalW = node.position?.minW != null ? Math.max(w, node.position.minW) : w;
-  return {
-    positionedNode: { ...node, position: { ...node.position, x: ctx.x, y: ctx.y, w: finalW, h: finalH } } as DrawNode,
-    height: finalH,
-  };
-}
-
-function positionExclGroup(
-  node: ExclGroupNode,
-  ctx: PositionContext
-): { positionedNode: ExclGroupNode; height: number } {
-  // ExclGroup's children are fields laid out vertically
-  const result: FieldNode[] = [];
-  let yOffset = 0;
-  for (const child of node.children) {
-    const { positionedNode, height } = positionField(child, { ...ctx, y: ctx.y + yOffset });
-    result.push(positionedNode);
-    yOffset += height;
-  }
-  return {
-    positionedNode: { ...node, children: result, position: { ...node.position, x: ctx.x, y: ctx.y } },
-    height: yOffset,
-  };
-}
-
-function getNodeWidth(node: LayoutNode): number | undefined {
-  if (node.type === 'field') return node.position?.w;
-  if (node.type === 'draw') return node.position?.w;
-  return undefined;
-}
-
-function getNodeHeight(node: LayoutNode): number | undefined {
-  if (node.type === 'field') return node.position?.h ?? node.position?.minH;
-  if (node.type === 'draw') return node.position?.h;
-  if (node.type === 'subform') return node.position?.h ?? node.position?.minH;
-  return undefined;
 }

@@ -12,19 +12,36 @@
       "http://www.xfa.org/schema/xfa-template/3.6/"
     ],
     "captionPlacements": ["left", "right", "top", "bottom", "inline"],
-    "borderStyles": ["solid", "dashed", "dotted", "dashDot", "dashDotDot"],
+    "borderStyles": ["solid", "dashed", "dotted", "dashDot", "dashDotDot", "embossed", "etched", "raised", "lowered"],
+    "borderEdgeCap": ["square", "round", "butt"],
+    "borderEdgeJoin": ["miter", "round", "bevel"],
+    "fillTypes": ["solid", "none", "toRight", "toBottom", "toLeft", "toTop", "radial"],
+    "gradientFills": true,
+    "cornerRadius": true,
+    "alpha": {
+      "fillOpacity": true,
+      "strokeOpacity": true,
+      "pageTransparencyGroup": true
+    },
+    "grayCollapse": true,
     "fontSubstitution": true,
     "fontEquateRules": true,
     "standardPdfFonts": ["Courier", "Helvetica", "Times", "Symbol", "ZapfDingbats"],
     "unicodeFontFallback": true,
     "fontColors": true,
+    "adobeFontImport": {
+      "enabled": true,
+      "command": "npm run fonts:import",
+      "faces": 88,
+      "families": 47
+    },
     "stockMediaSizes": true,
     "maxOccurLimit": 10000,
     "maxInputSizeBytes": 10485760
   },
   "unsupported": {
-    "features": ["acroForms", "barcodeRendering", "gradientFills", "iccColorManagement"],
-    "partialSupport": ["richTextFormatting", "cornerRadius"],
+    "features": ["acroForms", "barcodeRendering", "iccColorManagement"],
+    "partialSupport": ["richTextFormatting"],
     "imageFormats": ["image/bmp", "image/gif", "image/tiff"]
   }
 }

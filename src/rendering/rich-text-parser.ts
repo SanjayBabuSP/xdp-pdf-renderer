@@ -30,7 +30,9 @@ export function parseRichText(html: string): TextRun[] {
   if (!html || !html.trim()) return [];
 
   const runs: TextRun[] = [];
-  let remaining = html;
+  // exData stores the markup escaped (&lt;b&gt;…) because the XDP parser keeps
+  // XML entities intact — decode once before scanning for tags.
+  let remaining = decodeEntities(html);
   let currentBold = false;
   let currentItalic = false;
   let currentFontSize: number | undefined;
@@ -50,7 +52,7 @@ export function parseRichText(html: string): TextRun[] {
 
     if (!tagMatch) {
       // No more tags — capture remaining text
-      const text = decodeEntities(remaining.trim());
+      const text = remaining.trim();
       if (text) {
         runs.push({
           text,
@@ -66,7 +68,7 @@ export function parseRichText(html: string): TextRun[] {
     // Capture text before the tag
     const textBefore = tagMatch[1];
     if (textBefore) {
-      const decoded = decodeEntities(textBefore);
+      const decoded = textBefore;
       if (decoded) {
         runs.push({
           text: decoded,

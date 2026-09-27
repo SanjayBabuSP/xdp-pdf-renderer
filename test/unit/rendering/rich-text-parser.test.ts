@@ -94,6 +94,15 @@ describe('RichTextParser', () => {
       expect(plainText).toContain('A & B < C');
     });
 
+    it('parses escaped exData markup (XDP stores tags as &lt;…)', () => {
+      const runs = parseRichText(
+        'Hello &lt;b&gt;bold&lt;/b&gt; and &lt;span style="font-size:16pt"&gt;big&lt;/span&gt;'
+      );
+      expect(textRunsToPlainText(runs)).toBe('Hello bold and big');
+      expect(runs.some((r) => r.bold && r.text === 'bold')).toBe(true);
+      expect(runs.find((r) => r.text === 'big')?.fontSize).toBe(16);
+    });
+
     it('handles pixel font-size (converts to pt)', () => {
       const runs = parseRichText('<span style="font-size:16px">Pixel text</span>');
       const sizedRun = runs.find((r) => r.fontSize != null);

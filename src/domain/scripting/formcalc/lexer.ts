@@ -15,9 +15,16 @@ export enum TokenType {
   ELSE = 'ELSE',
   ELSEIF = 'ELSEIF',
   END = 'END',
+  ENDFOR = 'ENDFOR',
+  ENDIF = 'ENDIF',
+  ENDWHILE = 'ENDWHILE',
   FOR = 'FOR',
+  FOREACH = 'FOREACH',
+  IN = 'IN',
   TO = 'TO',
   DOWNTO = 'DOWNTO',
+  UPTO = 'UPTO',
+  STEP = 'STEP',
   WHILE = 'WHILE',
   DO = 'DO',
   REPEAT = 'REPEAT',
@@ -52,6 +59,8 @@ export enum TokenType {
   CARET = 'CARET',
   BACKSLASH = 'BACKSLASH',
   EQUAL = 'EQUAL',
+  /** mnemonic `eq` — always a comparison, never assignment (token 0x0103 ≠ '=' 0x3d) */
+  EQ = 'EQ',
   NOT_EQUAL = 'NOT_EQUAL',
   LESS = 'LESS',
   LESS_EQUAL = 'LESS_EQUAL',
@@ -92,15 +101,62 @@ export interface Token {
   column: number;
 }
 
+/**
+ * Decode the escape sequences Adobe FormCalc's parser handles inside string
+ * literals (FUN_15d0ead0 at jfformcalc_disasm.c:14611): only `\uXXXX`
+ * (4 hex digits) and `\UXXXXXXXX` (8 hex digits, UTF-16 with surrogate
+ * pairing). Every other backslash sequence is left literal — the engine's
+ * lexer never processes backslash escapes, so `"\n"` is backslash + n.
+ */
+export function decodeFormCalcString(raw: string): string {
+  if (raw.indexOf('\\') === -1) return raw;
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch !== '\\') {
+      out += ch;
+      continue;
+    }
+    const marker = raw[i + 1];
+    if (marker === 'u' || marker === 'U') {
+      const hexLen = marker === 'u' ? 4 : 8;
+      const hex = raw.slice(i + 2, i + 2 + hexLen);
+      if (hex.length === hexLen && /^[0-9a-fA-F]+$/.test(hex)) {
+        const code = parseInt(hex, 16);
+        if (code <= 0xffff) {
+          out += String.fromCharCode(code);
+          i += 1 + hexLen;
+          continue;
+        }
+        // \UXXXXXXXX above BMP: encode as UTF-16 surrogate pair
+        const cp = code - 0x10000;
+        out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+        i += 1 + hexLen;
+        continue;
+      }
+    }
+    // Not a recognized escape — keep the backslash literally
+    out += ch;
+  }
+  return out;
+}
+
 const KEYWORDS: Record<string, TokenType> = {
   if: TokenType.IF,
   then: TokenType.THEN,
   else: TokenType.ELSE,
   elseif: TokenType.ELSEIF,
   end: TokenType.END,
+  endfor: TokenType.ENDFOR,
+  endif: TokenType.ENDIF,
+  endwhile: TokenType.ENDWHILE,
   for: TokenType.FOR,
+  foreach: TokenType.FOREACH,
+  in: TokenType.IN,
   to: TokenType.TO,
+  upto: TokenType.UPTO,
   downto: TokenType.DOWNTO,
+  step: TokenType.STEP,
   while: TokenType.WHILE,
   do: TokenType.DO,
   repeat: TokenType.REPEAT,
@@ -108,6 +164,7 @@ const KEYWORDS: Record<string, TokenType> = {
   break: TokenType.BREAK,
   continue: TokenType.CONTINUE,
   return: TokenType.RETURN,
+  exit: TokenType.RETURN, // exit ≡ return — same token 0x0124 in the engine
   var: TokenType.VAR,
   null: TokenType.NULL,
   true: TokenType.TRUE,
@@ -117,6 +174,12 @@ const KEYWORDS: Record<string, TokenType> = {
   not: TokenType.NOT,
   xor: TokenType.XOR,
   mod: TokenType.MOD,
+  eq: TokenType.EQ,
+  ne: TokenType.NOT_EQUAL,
+  gt: TokenType.GREATER,
+  ge: TokenType.GREATER_EQUAL,
+  lt: TokenType.LESS,
+  le: TokenType.LESS_EQUAL,
   as: TokenType.as,
   fractional: TokenType.FRACTIONAL,
   integer: TokenType.INTEGER,
@@ -133,6 +196,8 @@ export class FormCalcLexer {
   private pos = 0;
   private line = 1;
   private column = 1;
+  /** Lexical error captured for the parser (unterminated string, …) */
+  error: { message: string; line: number; column: number } | null = null;
 
   constructor(source: string) {
     this.source = source;
@@ -242,6 +307,12 @@ export class FormCalcLexer {
       }
     }
 
+    // Line comment: ';' (Adobe FormCalc comment — `;` and `//` only, no /* */)
+    if (ch === ';') {
+      this.skipLineComment();
+      return this.next();
+    }
+
     // Newlines
     if (ch === '\n') {
       this.advance();
@@ -264,7 +335,7 @@ export class FormCalcLexer {
     }
 
     // Identifiers and keywords
-    if (this.isAlpha(ch) || ch === '_' || ch === '$') {
+    if (this.isAlpha(ch) || ch === '_' || ch === '$' || ch === '!') {
       return this.readIdent(startLine, startCol);
     }
 
@@ -291,6 +362,7 @@ export class FormCalcLexer {
         if (this.peek() === '=') { this.advance(); return { type: TokenType.CONCAT_ASSIGN, value: '~=', line: startLine, column: startCol }; }
         return { type: TokenType.TILDE, value: '~', line: startLine, column: startCol };
       case '=':
+        if (this.peek() === '=') { this.advance(); return { type: TokenType.EQUAL, value: '==', line: startLine, column: startCol }; }
         return { type: TokenType.EQUAL, value: '=', line: startLine, column: startCol };
       case '<':
         if (this.peek() === '>') { this.advance(); return { type: TokenType.NOT_EQUAL, value: '<>', line: startLine, column: startCol }; }
@@ -301,6 +373,10 @@ export class FormCalcLexer {
         return { type: TokenType.GREATER, value: '>', line: startLine, column: startCol };
       case '&':
         return { type: TokenType.AMPERSAND, value: '&', line: startLine, column: startCol };
+      case '|':
+        // Logical OR operator (doc operator table: Logical OR `|` `or`;
+        // engine lexer maps 0x7c → OR token at jfformcalc_disasm.c:21207)
+        return { type: TokenType.OR, value: '|', line: startLine, column: startCol };
       case '.':
         return { type: TokenType.DOT, value: '.', line: startLine, column: startCol };
       case ',':
@@ -328,32 +404,36 @@ export class FormCalcLexer {
     }
   }
 
+  /**
+   * String literal. evidence: the Adobe lexer does NO backslash processing
+   * (jfformcalc_disasm.c:21053-21130) — a doubled quote "" embeds a quote,
+   * and the parser's decode step (FUN_15d0ead0 :14611) handles only
+   * \uXXXX / \UXXXXXXXX (UTF-16 with surrogate pairing); every other
+   * backslash sequence stays literal. So "\n" is backslash + n, NOT newline.
+   */
   private readString(line: number, column: number): Token {
     this.advance(); // opening quote
-    let value = '';
-    while (!this.isAtEnd() && this.peek() !== '"') {
-      if (this.peek() === '\\' && this.peekNext() === '"') {
+    let raw = '';
+    let closed = false;
+    while (!this.isAtEnd()) {
+      const ch = this.peek();
+      if (ch === '"') {
         this.advance();
-        value += this.advance();
-      } else if (this.peek() === '\\' && this.peekNext() === '\\') {
-        this.advance();
-        value += this.advance();
-      } else if (this.peek() === '\\' && this.peekNext() === 'n') {
-        this.advance();
-        this.advance();
-        value += '\n';
-      } else if (this.peek() === '\\' && this.peekNext() === 't') {
-        this.advance();
-        this.advance();
-        value += '\t';
-      } else {
-        value += this.advance();
+        if (this.peek() === '"') {
+          // Doubled quote embeds a literal quote and the string continues.
+          this.advance();
+          raw += '"';
+          continue;
+        }
+        closed = true;
+        break; // closing quote
       }
+      raw += this.advance();
     }
-    if (!this.isAtEnd()) {
-      this.advance(); // closing quote
+    if (!closed) {
+      this.error = { message: 'Unterminated string literal', line, column };
     }
-    return { type: TokenType.STRING, value, line, column };
+    return { type: TokenType.STRING, value: decodeFormCalcString(raw), line, column };
   }
 
   private readHexLiteral(line: number, column: number): Token {
@@ -391,6 +471,10 @@ export class FormCalcLexer {
 
   private readIdent(line: number, column: number): Token {
     let value = '';
+    // ! is a valid start — alias for the root xfa.datasets (e.g. !dbresult)
+    if (this.peek() === '!') {
+      value += this.advance();
+    }
     // $ is a valid start for XFA references like $field
     if (this.peek() === '$') {
       value += this.advance();
@@ -399,7 +483,10 @@ export class FormCalcLexer {
         value += this.advance();
       }
     }
-    while (!this.isAtEnd() && (this.isAlphaNumeric(this.peek()) || this.peek() === '_')) {
+    while (
+      !this.isAtEnd() &&
+      (this.isAlphaNumeric(this.peek()) || this.peek() === '_' || this.peek() === '!')
+    ) {
       value += this.advance();
     }
     // Check for keyword

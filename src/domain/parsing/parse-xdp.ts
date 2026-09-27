@@ -21,6 +21,8 @@ import {
   ConfigSpec,
   FontEquateRule,
   MarginSpec,
+  BreakValue,
+  KeepSpec,
   BorderSpec,
   EdgeSpec,
   RgbColor,
@@ -29,6 +31,7 @@ import {
 import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-utils';
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
+import { parseOpacityValue } from '../../lib/opacity';
 import { ERROR_CODES } from '../../errors/error-codes';
 
 /**
@@ -191,6 +194,7 @@ function parseSubform(subform: unknown): SubformNode {
     position: parsePosition(subform),
     events: parseEvents(getChild(subform, 'event')),
     relevant: relevant ?? undefined,
+    ...parseBreaks(subform),
   };
 }
 
@@ -227,6 +231,7 @@ function parseField(field: unknown): FieldNode {
     border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
     relevant: relevant ?? undefined,
     defaultValue,
+    ...parseBreaks(field),
   };
 }
 
@@ -273,6 +278,7 @@ function parseDraw(draw: unknown): DrawNode {
     margin: parseMargin(getChild(draw, 'margin')),
     border: parseBorder(getChild(draw, 'border')),
     events: parseEvents(getChild(draw, 'event')),
+    ...parseBreaks(draw),
   };
 }
 
@@ -280,12 +286,27 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
   if (!value) return undefined;
   const image = getChild(value, 'image');
   if (image) {
+    // XFA image attributes (xfaimageservice_disasm.c:9324, :9281):
+    //   aspect="none|fit|actual|width|height"
+    //   xdpi/ydpi (or xres/yres) for actual-mode DPI sizing
+    //   hAlign/vAlign for alignment within spare space
+    const aspectRaw = attr(image, 'aspect');
+    const xdpiRaw = attr(image, 'xdpi') ?? attr(image, 'xres');
+    const ydpiRaw = attr(image, 'ydpi') ?? attr(image, 'yres');
+    const hAlignRaw = attr(image, 'hAlign') as DrawNode['value'] extends { hAlign?: infer T } ? T : never;
+    const vAlignRaw = attr(image, 'vAlign') as DrawNode['value'] extends { vAlign?: infer T } ? T : never;
     return {
       type: 'image',
       contentType: attr(image, 'contentType') ?? 'image/png',
       content: textContent(image),
+      aspectMode: aspectRaw ?? undefined,
+      xdpi: xdpiRaw ? parseFloat(xdpiRaw) : undefined,
+      ydpi: ydpiRaw ? parseFloat(ydpiRaw) : undefined,
+      hAlign: hAlignRaw ?? undefined,
+      vAlign: vAlignRaw ?? undefined,
     };
   }
+
   const exData = getChild(value, 'exData');
   if (exData) {
     return {
@@ -337,21 +358,90 @@ function parseColor(colorEl: unknown): RgbColor | undefined {
 function parseBorder(el: unknown): BorderSpec | undefined {
   if (!el) return undefined;
   const edgeEls = toArray<unknown>(getChild(el, 'edge'));
-  const edges: EdgeSpec[] = edgeEls.map((edge) => ({
-    presence: attr(edge, 'presence'),
-    thickness: attr(edge, 'thickness') ? toPointsOrZero(attr(edge, 'thickness')) : undefined,
-    color: parseColor(getChild(edge, 'color')),
-    style: attr(edge, 'stroke'),
-  }));
+  // XFA orders border sides by <edge index> (0..3); fall back to document order
+  // when the attribute is absent. Rendering draws them 0,2,1,3 (designrenderer:6283+).
+  const edges: EdgeSpec[] = [];
+  edgeEls.forEach((edge, i) => {
+    const parsed: EdgeSpec = {
+      presence: attr(edge, 'presence'),
+      thickness: attr(edge, 'thickness') ? toPointsOrZero(attr(edge, 'thickness')) : undefined,
+      color: parseColor(getChild(edge, 'color')),
+      style: attr(edge, 'stroke'),
+      opacity: parseEdgeOpacity(edge),
+      // Cap/join: designrenderer:6182 edgeInfo->capStyle / joinStyle.
+      // XFA attributes: cap="square"|"round"|"butt", join="miter"|"round"|"bevel".
+      cap: attr(edge, 'cap') ?? undefined,
+      join: attr(edge, 'join') ?? undefined,
+    };
+    const indexRaw = attr(edge, 'index');
+    const index = indexRaw != null ? Number.parseInt(indexRaw, 10) : i;
+    if (Number.isInteger(index) && index >= 0 && index <= 3) edges[index] = parsed;
+    else edges.push(parsed);
+  });
+  const compacted = edges.filter((edge) => edge !== undefined);
   const fillEl = getChild(el, 'fill');
   const fill = fillEl
-    ? { presence: attr(fillEl, 'presence'), color: parseColor(getChild(fillEl, 'color')) }
+    ? {
+        presence: attr(fillEl, 'presence'),
+        color: parseColor(getChild(fillEl, 'color')),
+        opacity: parseFillOpacity(fillEl),
+        fillType: attr(fillEl, 'fillType'),
+        // Gradient end colour: XFA stores it in a <linear color="…"/> or second
+        // <color> child when fillType is a gradient type.
+        // evidence: renderer:35845 uses color1/color2 for axial gradient bounds.
+        color2: parseFillColor2(fillEl),
+      }
     : undefined;
   const cornerEl = getChild(el, 'corner');
   const cornerRadius = cornerEl && attr(cornerEl, 'radius') ? toPointsOrZero(attr(cornerEl, 'radius')) : undefined;
 
-  if (edges.length === 0 && !fill && cornerRadius == null) return undefined;
-  return { presence: attr(el, 'presence'), edges: edges.length > 0 ? edges : undefined, fill, cornerRadius };
+  if (compacted.length === 0 && !fill && cornerRadius == null) return undefined;
+  return { presence: attr(el, 'presence'), edges: compacted.length > 0 ? edges : undefined, fill, cornerRadius };
+}
+
+/** `<fill opacity="…">` or `<fill><opacity value="…"/></fill>`. */
+function parseFillOpacity(fillEl: unknown): number | undefined {
+  const child = getChild(fillEl, 'opacity');
+  const fromChild = child ? (attr(child, 'value') ?? textContent(child)) : undefined;
+  return parseOpacityValue(attr(fillEl, 'opacity') ?? fromChild);
+}
+
+/**
+ * Parse the gradient end colour (color2) from a fill element.
+ *
+ * XFA stores the end colour of a gradient in two ways:
+ *   1. A `<linear color="r,g,b">` child element (the common path in Designer 11).
+ *   2. A second `<color>` child following the first.
+ *
+ * evidence: renderer:35845 buildLinearGradient uses color1 and color2 params.
+ */
+function parseFillColor2(fillEl: unknown): RgbColor | undefined {
+  // Path 1: <linear color="r,g,b"/> child
+  const linearEl = getChild(fillEl, 'linear');
+  if (linearEl) {
+    const c = attr(linearEl, 'color');
+    if (c) return parseColorString(c);
+  }
+  // Path 2: second <color> child (rare but spec-legal)
+  const colorEls = toArray<unknown>(getChild(fillEl, 'color'));
+  if (colorEls.length >= 2) return parseColor(colorEls[1]);
+  return undefined;
+}
+
+/** Parse a comma-separated `"r,g,b"` color string (used in <linear color="…"/>). */
+function parseColorString(raw: string): RgbColor | undefined {
+  const parts = raw.split(',').map((s) => parseInt(s.trim(), 10));
+  if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+    return { r: parts[0], g: parts[1], b: parts[2] };
+  }
+  return undefined;
+}
+
+/** `<edge><opacity value="…"/></edge>` (stroke alpha, pdfdocument:138444). */
+function parseEdgeOpacity(edge: unknown): number | undefined {
+  const child = getChild(edge, 'opacity');
+  const fromChild = child ? (attr(child, 'value') ?? textContent(child)) : undefined;
+  return parseOpacityValue(attr(edge, 'opacity') ?? fromChild);
 }
 
 function parseBind(bind: unknown): BindSpec | undefined {
@@ -400,8 +490,50 @@ function parsePosition(el: unknown): Position {
     h: attr(el, 'h') ? toPointsOrZero(attr(el, 'h')) : undefined,
     minH: attr(el, 'minH') ? toPointsOrZero(attr(el, 'minH')) : undefined,
     minW: attr(el, 'minW') ? toPointsOrZero(attr(el, 'minW')) : undefined,
+    maxH: attr(el, 'maxH') ? toPointsOrZero(attr(el, 'maxH')) : undefined,
+    maxW: attr(el, 'maxW') ? toPointsOrZero(attr(el, 'maxW')) : undefined,
     rotate: attr(el, 'rotate') ? parseFloat(attr(el, 'rotate')!) : undefined,
   };
+}
+
+const BREAK_VALUES = ['contentArea', 'pageArea', 'pageEven', 'pageFront', 'pageOdd'] as const;
+
+/**
+ * breakBefore/breakAfter attributes + optional <keep> element.
+ * evidence: xfa.dll atom block "breakAfter, breakBefore … contentArea,
+ * pageArea, pageEven, pageFront, pageOdd"; default auto (0x350000,
+ * AcroForm.ppi_disasm.c:794816); keep has three enum properties all
+ * defaulting to auto (xfalayout_disasm.c:66094 hasActiveKeep).
+ */
+function parseBreaks(el: unknown): {
+  breakBefore?: BreakValue;
+  breakAfter?: BreakValue;
+  keep?: KeepSpec;
+} {
+  const parseBreak = (v: string | undefined): BreakValue | undefined => {
+    if (!v || v === 'auto') return undefined;
+    return (BREAK_VALUES as readonly string[]).includes(v) ? (v as BreakValue) : undefined;
+  };
+  const out: { breakBefore?: BreakValue; breakAfter?: BreakValue; keep?: KeepSpec } = {};
+  const bb = parseBreak(attr(el, 'breakBefore'));
+  const ba = parseBreak(attr(el, 'breakAfter'));
+  if (bb) out.breakBefore = bb;
+  if (ba) out.breakAfter = ba;
+
+  const keepEl = getChild(el, 'keep');
+  if (keepEl != null && typeof keepEl === 'object') {
+    const keep: KeepSpec = {};
+    for (const [key, val] of Object.entries(keepEl as Record<string, unknown>)) {
+      if (key.startsWith('@_')) {
+        const name = key.slice(2);
+        keep[name] = String(val);
+      } else if (typeof val === 'string' || typeof val === 'number') {
+        keep[key] = String(val);
+      }
+    }
+    if (Object.keys(keep).length > 0) out.keep = keep;
+  }
+  return out;
 }
 
 function parseCaption(caption: unknown): CaptionSpec | undefined {

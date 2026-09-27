@@ -25,13 +25,22 @@ export function calculateTableLayout(node: SubformNode, availableWidth: number):
   };
 }
 
+/**
+ * Column count = the max sum of colSpans across rows (colSpan-aware
+ * occupancy — evidence: occupancy/tracking in xfalayout_disasm.c table
+ * layout; a cell with colSpan="2" occupies two column slots).
+ */
 function inferColumnCount(node: SubformNode): number {
+  let max = 0;
   for (const child of node.children) {
-    if (child.type === 'subform' && child.layout === 'row') {
-      return child.children.length;
+    if (child.type !== 'subform' || (child.layout !== 'row' && child.layout !== 'rl-row')) continue;
+    let sum = 0;
+    for (const cell of child.children) {
+      sum += cell.type === 'field' ? Math.max(1, cell.colSpan ?? 1) : 1;
     }
+    if (sum > max) max = sum;
   }
-  return 0;
+  return max;
 }
 
 /** Apply table layout computation across all table subforms in the layout. */

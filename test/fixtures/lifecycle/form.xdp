@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/2.8/">
+    <subform name="value" bind="dataRef" ref="$">
+      <event activity="ready" ref="$form">
+        <script contentType="application/x-formcalc">stage = stage + "A"</script>
+      </event>
+      <event activity="overlay">
+        <script contentType="application/x-formcalc">stage = stage + "E"</script>
+      </event>
+      <event activity="ready" ref="$layout">
+        <script contentType="application/x-formcalc">stage = stage + "F"</script>
+      </event>
+      <event activity="docReady" ref="$host">
+        <script contentType="application/x-formcalc">stage = stage + "G"</script>
+      </event>
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="19.05mm" y="19.05mm" w="171.45mm" h="257.35mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <subform name="content" layout="tb">
+        <field name="stage" w="100mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="30mm">
+            <value><text>Stage</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.stage"/>
+          <event activity="initialize">
+            <script contentType="application/x-formcalc">stage = stage + "B"</script>
+          </event>
+          <event activity="validate">
+            <script contentType="application/x-formcalc">stage = stage + "D"</script>
+          </event>
+          <calculate override="auto">
+            <script contentType="application/x-formcalc">stage + "C"</script>
+          </calculate>
+        </field>
+      </subform>
+    </subform>
+  </template>
+  <config xmlns="http://ns.adobe.com/xdp/xci/3.0/">
+    <present>
+      <pdf>
+        <version>1.7</version>
+      </pdf>
+    </present>
+  </config>
+  <connectionSet xmlns="http://www.xfa.org/schema/xfa-connection-set/2.8/">
+    <dataConnection name="DataConnection" dataDescription="value"/>
+  </connectionSet>
+</xdp:xdp>
