@@ -107,3 +107,243 @@ export function md5(input: Uint8Array): Uint8Array {
 
   return digest;
 }
+
+// ─── PDF Standard Security Handler primitives ──────────────────────────────
+
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+
+/** 32-byte password padding string from the PDF spec (Algorithm 2, step 1). */
+export const PASSWORD_PADDING = new Uint8Array([
+  0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56,
+  0xff, 0xfa, 0x01, 0x08, 0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80,
+  0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
+]);
+
+/** Pad/truncate a password to 32 bytes per the PDF spec. */
+export function padPassword(password: string): Uint8Array {
+  const out = new Uint8Array(32);
+  const bytes = new TextEncoder().encode(password);
+  const len = Math.min(bytes.length, 32);
+  out.set(bytes.subarray(0, len), 0);
+  out.set(PASSWORD_PADDING.subarray(0, 32 - len), len);
+  return out;
+}
+
+export function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
+/** Little-endian encoding helpers used by per-object key derivation. */
+export function le32(value: number): Uint8Array {
+  return new Uint8Array([
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff,
+  ]);
+}
+
+export function le24(value: number): Uint8Array {
+  return new Uint8Array([value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff]);
+}
+
+export function le16(value: number): Uint8Array {
+  return new Uint8Array([value & 0xff, (value >>> 8) & 0xff]);
+}
+
+export function xorKey(key: Uint8Array, n: number): Uint8Array {
+  const out = new Uint8Array(key.length);
+  for (let i = 0; i < key.length; i++) out[i] = key[i] ^ n;
+  return out;
+}
+
+/** RC4 stream cipher (symmetric). */
+export function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
+  const s = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) s[i] = i;
+  let j = 0;
+  for (let i = 0; i < 256; i++) {
+    j = (j + s[i] + key[i % key.length]) & 0xff;
+    [s[i], s[j]] = [s[j], s[i]];
+  }
+  const out = new Uint8Array(data.length);
+  let i = 0;
+  j = 0;
+  for (let k = 0; k < data.length; k++) {
+    i = (i + 1) & 0xff;
+    j = (j + s[i]) & 0xff;
+    [s[i], s[j]] = [s[j], s[i]];
+    out[k] = data[k] ^ s[(s[i] + s[j]) & 0xff];
+  }
+  return out;
+}
+
+/** AES-128-CBC encrypt with a random IV prepended (PDF 1.6 AESV2 objects). */
+export function aesCbcEncrypt(key: Uint8Array, data: Uint8Array): Uint8Array {
+  const iv = randomBytes(16);
+  const cipher = createCipheriv('aes-128-cbc', key, iv);
+  const encrypted = Buffer.concat([cipher.update(Buffer.from(data)), cipher.final()]);
+  return concatBytes(new Uint8Array(iv), new Uint8Array(encrypted));
+}
+
+/** AES-128-CBC decrypt, stripping the prepended IV. Used by round-trip tests. */
+export function aesCbcDecrypt(key: Uint8Array, data: Uint8Array): Uint8Array {
+  const iv = data.subarray(0, 16);
+  const decipher = createDecipheriv('aes-128-cbc', key, iv);
+  const out = Buffer.concat([decipher.update(Buffer.from(data.subarray(16))), decipher.final()]);
+  return new Uint8Array(out);
+}
+
+export function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
+  return out;
+}
+
+export function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.length % 2 === 0 ? hex : `0${hex}`;
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export function stringToBytes(value: string): Uint8Array {
+  const out = new Uint8Array(value.length);
+  for (let i = 0; i < value.length; i++) out[i] = value.charCodeAt(i) & 0xff;
+  return out;
+}
+
+export function bytesToBinaryString(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += String.fromCharCode(b);
+  return out;
+}
+
+// ─── Standard Security Handler key algorithms ──────────────────────────────
+
+/**
+ * Algorithm 2 — compute the `/O` (owner) entry.
+ */
+export function computeOwnerEntry(
+  ownerPassword: string,
+  userPassword: string,
+  revision: number,
+  keyLength: number,
+): Uint8Array {
+  const paddedOwner = padPassword(ownerPassword || userPassword);
+  const paddedUser = padPassword(userPassword);
+
+  let digest = md5(paddedOwner);
+  if (revision >= 3) {
+    for (let i = 0; i < 50; i++) digest = md5(digest);
+  }
+  const rc4Key = digest.subarray(0, keyLength);
+
+  let o = rc4(rc4Key, paddedUser);
+  if (revision >= 3) {
+    for (let i = 1; i <= 19; i++) {
+      o = rc4(xorKey(rc4Key, i), o);
+    }
+  }
+  return o;
+}
+
+/**
+ * Algorithm 3 — derive the file encryption key from the user password, `/O`,
+ * `/P` and the first `/ID` string.
+ */
+export function computeEncryptionKey(
+  userPassword: string,
+  o: Uint8Array,
+  permissions: number,
+  id0: Uint8Array,
+  revision: number,
+  keyLength: number,
+  encryptMetadata = true,
+): Uint8Array {
+  const parts = [padPassword(userPassword), o, le32(permissions), id0];
+  if (revision >= 4 && !encryptMetadata) parts.push(new Uint8Array([0xff, 0xff, 0xff, 0xff]));
+
+  let digest = md5(concatBytes(...parts));
+  if (revision >= 3) {
+    for (let i = 0; i < 50; i++) digest = md5(digest.subarray(0, keyLength));
+  }
+  return digest.subarray(0, keyLength);
+}
+
+/**
+ * Algorithms 4 & 5 — compute the `/U` (user) entry.
+ */
+export function computeUserEntry(
+  encryptionKey: Uint8Array,
+  id0: Uint8Array,
+  revision: number,
+): Uint8Array {
+  if (revision === 2) {
+    return rc4(encryptionKey, PASSWORD_PADDING);
+  }
+
+  const digest = md5(concatBytes(PASSWORD_PADDING, id0));
+  let u = rc4(encryptionKey, digest);
+  for (let i = 1; i <= 19; i++) {
+    u = rc4(xorKey(encryptionKey, i), u);
+  }
+  const out = new Uint8Array(32);
+  out.set(u.subarray(0, 16), 0);
+  out.set(randomBytes(16), 16);
+  return out;
+}
+
+/**
+ * Algorithm 1 — per-object key derived from the file key and the object's
+ * number/generation (plus the AES salt for AESV2 objects).
+ */
+export function objectKey(
+  encryptionKey: Uint8Array,
+  objectNumber: number,
+  generationNumber: number,
+  useAES: boolean,
+): Uint8Array {
+  const parts = [encryptionKey, le24(objectNumber), le16(generationNumber)];
+  if (useAES) parts.push(new Uint8Array([0x73, 0x41, 0x6c, 0x54])); // "sAlT"
+  const digest = md5(concatBytes(...parts));
+  return digest.subarray(0, Math.min(encryptionKey.length + 5, 16));
+}
+
+/**
+ * Algorithm 6 — verify a user password against the stored `/U` entry
+ * (used by tests and by tools that validate credentials).
+ */
+export function authenticateUserPassword(
+  password: string,
+  o: Uint8Array,
+  u: Uint8Array,
+  permissions: number,
+  id0: Uint8Array,
+  revision: number,
+  keyLength: number,
+  encryptMetadata = true,
+): Uint8Array | null {
+  const key = computeEncryptionKey(password, o, permissions, id0, revision, keyLength, encryptMetadata);
+  if (revision === 2) {
+    const expected = rc4(key, PASSWORD_PADDING);
+    return bytesEqual(expected, u) ? key : null;
+  }
+  const digest = md5(concatBytes(PASSWORD_PADDING, id0));
+  let test = rc4(key, digest);
+  for (let i = 1; i <= 19; i++) test = rc4(xorKey(key, i), test);
+  return bytesEqual(test.subarray(0, 16), u.subarray(0, 16)) ? key : null;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}

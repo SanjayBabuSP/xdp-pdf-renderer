@@ -15,7 +15,7 @@
  */
 
 /** Format detected by magic-byte sniffing. */
-export type ImageFormat = 'png' | 'jpeg' | 'gif' | 'bmp' | 'tiff' | 'pdf' | 'unknown';
+export type ImageFormat = 'png' | 'jpeg' | 'gif' | 'bmp' | 'tiff' | 'jpx' | 'pdf' | 'unknown';
 
 /**
  * Detect the image format from the raw byte content.
@@ -52,6 +52,16 @@ export function sniffImageFormat(bytes: Uint8Array | Buffer): ImageFormat {
     (bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[2] === 0x00 && bytes[3] === 0x2a)
   ) return 'tiff';
 
+  // JPEG 2000: JP2 signature box (00 00 00 0C 6A 50 20 20) or raw codestream (FF 4F).
+  if (
+    (bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x00 && bytes[3] === 0x0c) ||
+    (bytes[0] === 0xff && bytes[1] === 0x4f)
+  ) {
+    // Distinguish from other length-prefixed containers by the `jP` marker.
+    if (bytes[4] === 0x6a && bytes[5] === 0x50) return 'jpx';
+    if (bytes[0] === 0xff && bytes[1] === 0x4f) return 'jpx';
+  }
+
   // PDF: %PDF
   if (
     bytes[0] === 0x25 &&
@@ -78,5 +88,6 @@ export function resolveImageFormat(bytes: Uint8Array | Buffer, contentTypehint?:
   if (ct.includes('gif')) return 'gif';
   if (ct.includes('bmp')) return 'bmp';
   if (ct.includes('tiff')) return 'tiff';
+  if (ct.includes('jp2') || ct.includes('jpx') || ct.includes('jpeg2000')) return 'jpx';
   return 'unknown';
 }

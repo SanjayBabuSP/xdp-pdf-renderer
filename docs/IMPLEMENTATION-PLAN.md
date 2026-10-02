@@ -10,7 +10,7 @@
 
 1. **The decompiled C is the spec.** Every behavioral change cites `reference/decompiled/<file>_disasm.c:line` in a code comment or test (`// evidence: xfalayout_disasm.c:16822`). We port algorithms/semantics from pseudocode — we never copy Adobe code (clean-room, educational use).
 2. **Pure TypeScript, `pdf-lib` stays.** Where pdf-lib lacks an API (ExtGState alpha, shading dicts), manipulate `PDFRawStream`/`PDFDictionary` directly in a small `src/rendering/pdf-lowlevel.ts`.
-3. **Explicitly out of scope** (visual-match decision): `/XFA` packet embedding, AcroForm widget annotations, `NeedsRendering`/`NeedAppearances`, printer drivers, ICU-full collation, ExtendScript (existing `js-engine` covers JS), barcodes whose XDC says `support="none"`.
+3. **Opt-in since the G1–G16 parity program** (see [MECHANICALSEAL-ADOBE-PARITY-PLAN.md](./MECHANICALSEAL-ADOBE-PARITY-PLAN.md#feature-parity-migration-program-g1g16)): `/XFA` packet embedding (`adobe.embedXfa`), AcroForm widget annotations (`adobe.acroForm`) and tagged PDF (`adobe.tagged`). Still out of scope: printer drivers, ICU-full collation, ExtendScript (the existing `js-engine` covers JS), barcodes whose XDC says `support="none"` (except the proactively-added 1D encoders).
 4. **No milestone merges without a rendered oracle diff.**
 
 ---
@@ -271,4 +271,4 @@ family base = `0xcaf90 + familyIndex × 0x2FB0` in `.data`; entries are pointers
 ### A6. Images & PDF structure (`jfgraphic`, `xfaimageservice`, `pdfldriver`, `pdfdocument`)
 - Magic-byte format sniff (`jfgraphic:17878`); importers for PNG/JPEG/GIF/BMP/TIFF/EPS/SVG (`:19577`).
 - Aspect modes none/fit/actual/width/height (`xfaimageservice:9324`) + alignment offsets (`:9281`); JPEG passes through as `/DCTDecode`, else Flate (`pdfldriver:46760`).
-- Adobe output = AcroForm + `/XFA` hybrid with widgets & appearance streams (`pdfldriver:1627`, `xfaxdptkagent:5779`) — **deliberately not ported** per visual-match decision; ported subset: MediaBox from content area, `/Rotate` mod 360, font subsetting, Flate ≥ threshold.
+- Adobe output = AcroForm + `/XFA` hybrid with widgets & appearance streams (`pdfldriver:1627`, `xfaxdptkagent:5779`) — **opt-in** via `adobe.acroForm` + `adobe.embedXfa` (appearance streams left to the viewer via `/NeedAppearances`). Ported subset: MediaBox from content area, `/Rotate` mod 360, font subsetting (default on), Flate ≥ threshold.

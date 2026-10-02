@@ -37,12 +37,34 @@ export {
 export type { FontSequenceRule } from './font-sequences';
 
 // XFA Event Bubbling
-export { XfaEventDispatcher, createXfaEvent, XFA_EVENTS, BUBBLING_EVENTS, NON_BUBBLING_EVENTS } from './xfa-event-bubbling';
-export type { XfaEvent, EventPhase, EventHandler, EventTarget } from './xfa-event-bubbling';
+export {
+  XfaEventDispatcher,
+  createXfaEvent,
+  eventBubbles,
+  XFA_EVENTS,
+  BUBBLING_EVENTS,
+  NON_BUBBLING_EVENTS,
+} from './xfa-event-bubbling';
+export type { XfaEvent, EventPhase, EventHandler } from './xfa-event-bubbling';
 
 // XFA Namespace Validation
 export { validateXfaNamespaces, validateNamespacePrefixes, getVersionFeatures } from './xfa-namespace-validation';
 export type { NamespaceValidationResult } from './xfa-namespace-validation';
+
+// /XFA package embedding
+export { embedXfaPackage, extractXfaPackets } from './pdf-xfa';
+export type { XfaPacket } from './pdf-xfa';
+
+// Tagged PDF
+export { markDocumentTagged } from './pdf-tagged';
+export type { TaggedOptions } from './pdf-tagged';
+
+// AcroForm interactive fields
+export { createAcroFormFields } from './pdf-acroform';
+export type { AcroFormOptions } from './pdf-acroform';
+
+// PDF catalog metadata (version / Adobe extension level)
+export { applyPdfVersion, applyAdobeExtensionLevel } from './pdf-catalog';
 
 // Crypto Utilities (internal use)
 export { md5 } from './crypto-utils';

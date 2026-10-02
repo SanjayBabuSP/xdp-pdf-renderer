@@ -8,6 +8,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { ScriptableNode, XfaNode } from '../script-types';
+import { LayoutNode } from '../../../types';
 
 // ─── Node Proxy Factory ─────────────────────────────────────────────────
 
@@ -20,6 +21,28 @@ import { ScriptableNode, XfaNode } from '../script-types';
  * @param modifiedFields - Array to track which fields were modified by scripts
  * @param parentProxy - Parent proxy reference (for $.parent)
  */
+/** Symbol the `$` proxy answers with its SOM path (used by `xfa.layout.page`). */
+export const XFA_NODE_KEY = Symbol('xfa.node.key');
+
+/**
+ * Mutation hooks backing `instanceManager` (G5). The JS engine installs these
+ * around script execution; they operate on the shared node map / layout tree.
+ */
+export interface ProxyHooks {
+  addInstance(parentPath: string): string | null;
+  removeInstance(parentPath: string, index: number): void;
+  setInstances(parentPath: string, count: number): void;
+  moveInstance(parentPath: string, from: number, to: number): void;
+}
+
+// Script execution is synchronous, so a module-level hook slot is safe and
+// avoids threading the hooks through every recursive proxy construction.
+let activeHooks: ProxyHooks | undefined;
+
+export function setActiveProxyHooks(hooks: ProxyHooks | undefined): void {
+  activeHooks = hooks;
+}
+
 export function createXfaFormProxy(
   nodeMap: Map<string, ScriptableNode>,
   currentPath: string,
@@ -33,6 +56,9 @@ export function createXfaFormProxy(
   return new Proxy(target, {
     get(_target, prop) {
       if (typeof prop === 'symbol') {
+        if (prop === XFA_NODE_KEY) {
+          return currentPath;
+        }
         if (prop === Symbol.toPrimitive) {
           return () => node?.resolvedValue ?? '';
         }
@@ -209,6 +235,20 @@ export function createXfaFormProxy(
               return createXfaFormProxy(nodeMap, children[numIdx], modifiedFields);
             }
             return null;
+          }
+
+          // `<assist>` / `<extras>` sub-objects (G6). Returned by reference so
+          // `$.assist.toolTip = "..."` mutates the layout node directly.
+          if (propName === 'assist' || propName === 'extras') {
+            const ownPath = currentPath ? `${currentPath}.${propName}` : propName;
+            if (!nodeMap.has(ownPath)) {
+              const layout = node?.layoutNode as
+                | { assist?: Record<string, unknown>; extras?: Record<string, unknown> }
+                | undefined;
+              const bag = layout?.[propName];
+              if (bag) return bag;
+              if (propName === 'extras') return {};
+            }
           }
 
           // Navigate to child by name
@@ -396,22 +436,24 @@ function createInstanceManagerProxy(
   currentPath: string,
   modifiedFields: string[]
 ): Record<string, unknown> {
-  const children = getChildPaths(nodeMap, currentPath);
-
   return {
-    count: children.length,
+    // A getter so the count reflects instances added/removed during the script.
+    get count() {
+      return getChildPaths(nodeMap, currentPath).length;
+    },
     addInstance: (_merge?: boolean) => {
-      // In static PDF generation, addInstance is a no-op with a warning
-      return null;
+      const path = activeHooks?.addInstance(currentPath);
+      if (!path) return null;
+      return createXfaFormProxy(nodeMap, path, modifiedFields);
     },
-    removeInstance: (_index: number) => {
-      // In static PDF generation, removeInstance is a no-op
+    removeInstance: (index: number) => {
+      activeHooks?.removeInstance(currentPath, index);
     },
-    setInstances: (_count: number) => {
-      // In static PDF generation, setInstances is a no-op
+    setInstances: (count: number) => {
+      activeHooks?.setInstances(currentPath, count);
     },
-    moveInstance: (_from: number, _to: number) => {
-      // In static PDF generation, moveInstance is a no-op
+    moveInstance: (from: number, to: number) => {
+      activeHooks?.moveInstance(currentPath, from, to);
     },
   };
 }

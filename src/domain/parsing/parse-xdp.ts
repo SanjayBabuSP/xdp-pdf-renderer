@@ -27,6 +27,9 @@ import {
   EdgeSpec,
   RgbColor,
   ChoiceListItem,
+  AssistSpec,
+  ExtrasSpec,
+  TraversalSpec,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment } from '../../lib/xml-utils';
@@ -34,6 +37,7 @@ import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { parseOpacityValue } from '../../lib/opacity';
 import { ERROR_CODES } from '../../errors/error-codes';
 import { stampUids } from '../../lib/node-uid';
+import { validateXfaNamespaces } from '../../adobe/xfa-namespace-validation';
 
 /**
  * Default font equate rules from Adobe LiveCycle Designer 11.0's Designer.xci.
@@ -60,10 +64,20 @@ const TEMPLATE_NAMESPACES = [
 ];
 
 /** Parse an XDP XML string into the internal LayoutModel. */
-export function parseXdp(xdpXml: string): Result<LayoutModel> {
+export interface XdpParseOptions {
+  /**
+   * Reject templates whose XFA version is recognised but unsupported
+   * (2.0–2.7, 3.0–3.5). Default false: parse with a warning.
+   */
+  strict?: boolean;
+  /** Override the XML input size cap (bytes). */
+  maxInputSize?: number;
+}
+
+export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<LayoutModel> {
   let parsed: Record<string, unknown>;
   try {
-    parsed = parseXml(xdpXml);
+    parsed = parseXml(xdpXml, options.maxInputSize);
   } catch (e) {
     return failure(ERROR_CODES.MALFORMED_XML.code, `${ERROR_CODES.MALFORMED_XML.message}: ${e}`);
   }
@@ -73,6 +87,20 @@ export function parseXdp(xdpXml: string): Result<LayoutModel> {
 
   const template = findTemplate(root as Record<string, unknown>);
   if (!template) return failure(ERROR_CODES.MISSING_TEMPLATE.code, ERROR_CODES.MISSING_TEMPLATE.message);
+
+  // G16: validate the template namespace / XFA version (xfa-namespace-validation).
+  // Unsupported-but-known versions fail in strict mode, otherwise they warn and
+  // are parsed in backward-compatible mode.
+  const namespaceResult = validateXfaNamespaces(
+    collectNamespaces(root as Record<string, unknown>, template),
+    options.strict === true,
+  );
+  if (!namespaceResult.valid) {
+    return failure(
+      'XDP_UNSUPPORTED_XFA_VERSION',
+      namespaceResult.errors.join('; ') || 'Unsupported XFA template namespace',
+    );
+  }
 
   const rootSubform = findRootSubform(template);
   if (!rootSubform) return failure(ERROR_CODES.MISSING_ROOT_SUBFORM.code, ERROR_CODES.MISSING_ROOT_SUBFORM.message);
@@ -99,7 +127,28 @@ export function parseXdp(xdpXml: string): Result<LayoutModel> {
     rootEvents,
     config,
     ...connection,
+    version: namespaceResult.detectedVersion ?? undefined,
+    warnings: namespaceResult.warnings.length > 0 ? namespaceResult.warnings : undefined,
   } as LayoutModel);
+}
+
+/** Collect `xmlns` / `xmlns:*` declarations from the XDP root and template. */
+function collectNamespaces(
+  root: Record<string, unknown>,
+  template: unknown,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const element of [root, template]) {
+    if (!element || typeof element !== 'object') continue;
+    for (const key of Object.keys(element as Record<string, unknown>)) {
+      if (key === '@_xmlns') {
+        out[''] = String((element as Record<string, unknown>)[key]);
+      } else if (key.startsWith('@_xmlns:')) {
+        out[key.slice('@_xmlns:'.length)] = String((element as Record<string, unknown>)[key]);
+      }
+    }
+  }
+  return out;
 }
 
 function findTemplate(root: Record<string, unknown>): unknown {
@@ -164,16 +213,62 @@ function defaultPage(): PageDefinition {
 function parseChildren(parent: unknown): LayoutNode[] {
   const nodes: LayoutNode[] = [];
   const subforms = toArray<unknown>(getChild(parent, 'subform'));
+  const subformSets = toArray<unknown>(getChild(parent, 'subformSet'));
+  const areas = toArray<unknown>(getChild(parent, 'area'));
   const fields = toArray<unknown>(getChild(parent, 'field'));
   const draws = toArray<unknown>(getChild(parent, 'draw'));
   const exclGroups = toArray<unknown>(getChild(parent, 'exclGroup'));
 
   subforms.forEach((s) => nodes.push(parseSubform(s)));
+  // <subformSet> holds mutually-exclusive alternatives; the active one is
+  // selected by @initial (default: the first child). Previously the whole
+  // element was silently dropped, losing an entire branch of the template.
+  subformSets.forEach((set) => {
+    const active = parseSubformSet(set);
+    if (active) nodes.push(active);
+  });
+  // <area> is a subform-shaped, data-unbound container.
+  areas.forEach((a) => nodes.push(parseArea(a)));
   fields.forEach((f) => nodes.push(parseField(f)));
   draws.forEach((d) => nodes.push(parseDraw(d)));
   exclGroups.forEach((eg) => nodes.push(parseExclGroup(eg)));
 
   return nodes;
+}
+
+/**
+ * `<subformSet>` — a group of alternative subforms of which exactly one is
+ * instantiated. `@initial` selects the default (0-based; anything unparseable
+ * falls back to the first child, which is what Designer seeds a new set with).
+ */
+function parseSubformSet(set: unknown): SubformNode | undefined {
+  const subs = toArray<unknown>(getChild(set, 'subform'));
+  if (subs.length === 0) return undefined;
+  const parsed = Number.parseInt(attr(set, 'initial') ?? '0', 10);
+  const idx = Number.isFinite(parsed) && parsed >= 0 && parsed < subs.length ? parsed : 0;
+  const active = parseSubform(subs[idx]);
+  // The set is a SOM scope (`set.alt0`); the chosen alternative stays a child
+  // so both names remain addressable. Without a name the set is transparent.
+  const setName = attr(set, 'name');
+  if (!setName) return active;
+  return {
+    type: 'subform',
+    name: setName,
+    uid: attr(set, 'id') ?? undefined,
+    layout: 'position',
+    occur: parseOccur(getChild(set, 'occur')),
+    children: [active],
+    presence: (attr(set, 'presence') as PresenceValue) ?? 'visible',
+    position: parsePosition(set),
+    assist: parseAssist(set),
+    extras: parseExtras(set),
+    ...parseBreaks(set),
+  };
+}
+
+/** `<area>` — layout container with no data binding (renders like a plain subform). */
+function parseArea(area: unknown): SubformNode {
+  return parseSubform(area);
 }
 
 function parseSubform(subform: unknown): SubformNode {
@@ -200,6 +295,9 @@ function parseSubform(subform: unknown): SubformNode {
     position: parsePosition(subform),
     events: parseEvents(getChild(subform, 'event')),
     relevant: relevant ?? undefined,
+    assist: parseAssist(subform),
+    extras: parseExtras(subform),
+    traversal: parseTraversal(subform),
     ...parseBreaks(subform),
   };
 }
@@ -222,7 +320,7 @@ function parseField(field: unknown): FieldNode {
     uid: attr(field, 'id') ?? undefined,
     bindMatch: bind?.match,
     bindRef: bind?.ref,
-    formatPicture: bind?.picture,
+    formatPicture: parseFormatPicture(field, bind),
     ui: parseUi(ui),
     font: parseFont(getChild(field, 'font')),
     caption: parseCaption(getChild(field, 'caption')),
@@ -238,6 +336,9 @@ function parseField(field: unknown): FieldNode {
     border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
     relevant: relevant ?? undefined,
     defaultValue,
+    assist: parseAssist(field),
+    extras: parseExtras(field),
+    traversal: parseTraversal(field),
     ...parseBreaks(field),
   };
 }
@@ -259,18 +360,24 @@ function findUiElement(ui: unknown): unknown {
 
 function parseExclGroup(eg: unknown): ExclGroupNode {
   const bind = parseBind(getChild(eg, 'bind'));
-  const fields = toArray<unknown>(getChild(eg, 'field')).map(parseField);
+  // XFA allows field/draw/subform/nested-exclGroup here; parseChildren handles
+  // all of them. The old `field`-only collection dropped every other child.
+  const children = parseChildren(eg);
   return {
     type: 'exclGroup',
     name: attr(eg, 'name'),
     uid: attr(eg, 'id') ?? undefined,
     bindMatch: bind?.match,
     bindRef: bind?.ref,
-    children: fields,
+    children,
     position: parsePosition(eg),
     presence: (attr(eg, 'presence') as PresenceValue) ?? 'visible',
     border: parseBorder(getChild(eg, 'border')),
     margin: parseMargin(getChild(eg, 'margin')),
+    relevant: attr(eg, 'relevant') ?? undefined,
+    assist: parseAssist(eg),
+    extras: parseExtras(eg),
+    traversal: parseTraversal(eg),
   };
 }
 
@@ -287,6 +394,9 @@ function parseDraw(draw: unknown): DrawNode {
     margin: parseMargin(getChild(draw, 'margin')),
     border: parseBorder(getChild(draw, 'border')),
     events: parseEvents(getChild(draw, 'event')),
+    relevant: attr(draw, 'relevant') ?? undefined,
+    assist: parseAssist(draw),
+    extras: parseExtras(draw),
     ...parseBreaks(draw),
   };
 }
@@ -461,6 +571,79 @@ function parseEdgeOpacity(edge: unknown): number | undefined {
   const child = getChild(edge, 'opacity');
   const fromChild = child ? (attr(child, 'value') ?? textContent(child)) : undefined;
   return parseOpacityValue(attr(edge, 'opacity') ?? fromChild);
+}
+
+/**
+ * `<assist>` — accessibility annotations (`toolTip`, `description`, `name`,
+ * `usage`). Readable from scripts as `$.assist.toolTip`.
+ */
+function parseAssist(el: unknown): AssistSpec | undefined {
+  const assist = getChild(el, 'assist');
+  if (!assist) return undefined;
+  const toolTip = textContent(getChild(assist, 'toolTip'));
+  const description = textContent(getChild(assist, 'description'));
+  const name = textContent(getChild(assist, 'name'));
+  const usage = textContent(getChild(assist, 'usage'));
+  const spec: AssistSpec = {};
+  if (toolTip) spec.toolTip = toolTip;
+  if (description) spec.description = description;
+  if (name) spec.name = name;
+  if (usage) spec.usage = usage;
+  return Object.keys(spec).length > 0 ? spec : undefined;
+}
+
+/** `<extras><<name> value="..."/></extras>` — author baggage, `$.extras.<name>`. */
+function parseExtras(el: unknown): ExtrasSpec | undefined {
+  const extras = getChild(el, 'extras');
+  if (extras == null || typeof extras !== 'object') return undefined;
+  const out: ExtrasSpec = {};
+  for (const [name, raw] of Object.entries(extras as Record<string, unknown>)) {
+    if (name === '#text' || name === '__cdata' || name === '__comment') continue;
+    for (const child of toArray<unknown>(raw)) {
+      // fast-xml-parser yields a bare string/number/boolean for simple
+      // elements and an object (`{@_value}` / `{#text}`) once attributes,
+      // CDATA or nested markup are involved.
+      if (typeof child !== 'object') {
+        const text = String(child);
+        if (text !== '') out[name] = text;
+        continue;
+      }
+      if (child == null || typeof child !== 'object') continue;
+      const value = attr(child, 'value');
+      const text = value ?? textContent(child);
+      if (text !== undefined && text !== '') out[name] = text;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * `<traversal order="..."><field name="a" .../></traversal>` — the authored
+ * focus order for a container. Preserved for the AcroForm tab-order writer.
+ */
+function parseTraversal(el: unknown): TraversalSpec | undefined {
+  const traversal = getChild(el, 'traversal');
+  if (!traversal) return undefined;
+  const spec: TraversalSpec = {};
+  const order = attr(traversal, 'order');
+  if (order) spec.order = order;
+  const fields = toArray<unknown>(getChild(traversal, 'field'))
+    .map((f) => attr(f, 'name'))
+    .filter((n): n is string => !!n);
+  if (fields.length > 0) spec.fields = fields;
+  return Object.keys(spec).length > 0 ? spec : undefined;
+}
+
+/**
+ * Display picture for a field. Adobe keeps two pictures: `bind/picture`
+ * parses the incoming data, `format/picture` (or the fallback `value/picture`)
+ * formats the outgoing display. We render display, so the format/value pair
+ * wins and `bind/picture` is only a fallback when neither exists.
+ */
+function parseFormatPicture(field: unknown, bind: BindSpec | undefined): string | undefined {
+  const formatPicture = textContent(getChild(getChild(field, 'format'), 'picture'));
+  const valuePicture = textContent(getChild(getChild(field, 'value'), 'picture'));
+  return formatPicture || valuePicture || bind?.picture || undefined;
 }
 
 function parseBind(bind: unknown): BindSpec | undefined {
@@ -713,7 +896,10 @@ function parseDefaultValue(valueEl: unknown): unknown {
 
 function parseUi(ui: unknown): UiSpec | undefined {
   if (!ui) return undefined;
-  if (getChild(ui, 'textEdit')) {
+  // fast-xml-parser yields `''` for a self-closing element, so test for key
+  // *presence* rather than truthiness (`<ui><signature/></ui>`).
+  const has = (name: string): boolean => getChild(ui, name) !== undefined;
+  if (has('textEdit')) {
     const te = getChild(ui, 'textEdit');
     return {
       type: 'textEdit',
@@ -723,7 +909,7 @@ function parseUi(ui: unknown): UiSpec | undefined {
       vAlign: attr(te, 'vAlign'),
     };
   }
-  if (getChild(ui, 'numericEdit')) {
+  if (has('numericEdit')) {
     const ne = getChild(ui, 'numericEdit');
     return {
       type: 'numericEdit',
@@ -731,7 +917,7 @@ function parseUi(ui: unknown): UiSpec | undefined {
       vAlign: attr(ne, 'vAlign'),
     };
   }
-  if (getChild(ui, 'dateTimeEdit')) {
+  if (has('dateTimeEdit')) {
     const dte = getChild(ui, 'dateTimeEdit');
     return {
       type: 'dateTimeEdit',
@@ -739,8 +925,8 @@ function parseUi(ui: unknown): UiSpec | undefined {
       vAlign: attr(dte, 'vAlign'),
     };
   }
-  if (getChild(ui, 'imageEdit')) return { type: 'imageEdit' };
-  if (getChild(ui, 'checkButton')) {
+  if (has('imageEdit')) return { type: 'imageEdit' };
+  if (has('checkButton')) {
     const cb = getChild(ui, 'checkButton');
     return {
       type: 'checkButton',
@@ -749,7 +935,7 @@ function parseUi(ui: unknown): UiSpec | undefined {
       mark: attr(cb, 'mark'),
     };
   }
-  if (getChild(ui, 'choiceList')) {
+  if (has('choiceList')) {
     const cl = getChild(ui, 'choiceList');
     const items = parseChoiceListItems(cl);
     return {
@@ -759,27 +945,59 @@ function parseUi(ui: unknown): UiSpec | undefined {
       textEnclosure: attr(cl, 'textEnclosure'),
     };
   }
-  if (getChild(ui, 'barcode')) {
+  if (has('barcode')) {
     const bc = getChild(ui, 'barcode');
     return {
       type: 'barcode',
       encodeHint: attr(bc, 'encodeHint'),
       charEncoding: attr(bc, 'charEncoding'),
+      symbology: attr(bc, 'symbology') ?? attr(bc, 'type'),
+      moduleWidth: attr(bc, 'moduleWidth'),
+      moduleHeight: attr(bc, 'moduleHeight'),
+      checksum: attr(bc, 'checksum'),
+      checkDigit: attr(bc, 'printCheckDigit'),
+      wideNarrowRatio: attr(bc, 'wideNarrowRatio'),
+      textLocation: attr(bc, 'textLocation'),
+      errorCorrectionLevel: attr(bc, 'errorCorrectionLevel'),
+      dataLength: attr(bc, 'dataLength'),
     };
   }
-  if (getChild(ui, 'button')) return { type: 'button' };
-  if (getChild(ui, 'signature')) return { type: 'signature' };
+  if (has('button')) {
+    const btn = getChild(ui, 'button');
+    return {
+      type: 'button',
+      label: textContent(getChild(btn, 'label')) ?? attr(btn, 'label'),
+      highlight: attr(btn, 'highlight'),
+    };
+  }
+  if (has('signature')) return { type: 'signature' };
   return { type: 'unknown' };
 }
 
+/** XFA `<items>` may hold `<text>` plus any scalar value element. */
+const CHOICE_ITEM_SCALARS = new Set([
+  'text', 'integer', 'float', 'decimal', 'boolean', 'dateTime', 'date', 'time', 'null', 'base64Binary',
+]);
+
 function parseChoiceListItems(cl: unknown): ChoiceListItem[] {
-  const itemsEls = toArray<unknown>(getChild(cl, 'items'));
   const result: ChoiceListItem[] = [];
-  for (const itemsEl of itemsEls) {
-    const texts = toArray<unknown>(getChild(itemsEl, 'text'));
-    for (const t of texts) {
-      const text = textContent(t);
-      if (text) result.push({ text });
+  for (const itemsEl of toArray<unknown>(getChild(cl, 'items'))) {
+    if (!itemsEl || typeof itemsEl !== 'object') continue;
+    for (const key of Object.keys(itemsEl as Record<string, unknown>)) {
+      if (key.startsWith('@_') || key.startsWith('?') || key === '__cdata') continue;
+      if (!CHOICE_ITEM_SCALARS.has(key)) continue;
+      for (const entry of toArray<unknown>((itemsEl as Record<string, unknown>)[key])) {
+        const explicit = attr(entry, 'value');
+        const content = textContent(entry) ?? '';
+        const value = explicit ?? content;
+        if (key === 'text') {
+          if (content === '' && explicit === undefined) continue;
+          result.push({ text: content || String(explicit ?? ''), value: String(value) });
+        } else if (value !== '') {
+          // Scalar item types display their canonical string form.
+          result.push({ text: content || String(value), value: String(value) });
+        }
+      }
     }
   }
   return result;

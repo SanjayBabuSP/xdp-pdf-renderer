@@ -178,6 +178,60 @@ export interface UiSpec {
   encodeHint?: string;
   /** For barcode: character encoding */
   charEncoding?: string;
+  /**
+   * For barcode: the symbology name. XFA's `<barcode symbology="...">` is the
+   * authoritative source; `encodeHint` is the older Designer-only alias.
+   * Values follow `adobepdf.xdc:212-252` (`barcodeDefinition type="..."`).
+   */
+  symbology?: string;
+  /** For barcode: module (bar) width, e.g. `0.25mm`. Range hints live in the .xdc. */
+  moduleWidth?: string;
+  /** For barcode: module height, e.g. `5mm`. */
+  moduleHeight?: string;
+  /** For barcode: check-digit mode (`auto`/`none`/`1mod10`/…). */
+  checksum?: string;
+  /** For barcode: print the computed check digit. */
+  checkDigit?: string;
+  /** For barcode: fixed wide:narrow ratio (`2.2-3.0`, `fixed`, …). */
+  wideNarrowRatio?: string;
+  /** For barcode: human-readable text placement (`none`/`above`/`below`/…). */
+  textLocation?: string;
+  /** For barcode: error correction level (`0-8` for pdf417, `0-3` for QR). */
+  errorCorrectionLevel?: string;
+  /** For barcode: required payload length, e.g. `9`, `1-14`, `20,25,29,31`. */
+  dataLength?: string;
+  /** For button: the button label (`<ui><button><label>`). */
+  label?: string;
+  /** For button: press highlight style (`none`/`inverted`/`outline`/`push`). */
+  highlight?: string;
+}
+
+/**
+ * `<assist>` — accessibility / authoring annotations on an object.
+ * Evidence: `FormDesigner.exe_disasm.c` element table (`assist`),
+ * `xfa-namespace-validation.ts:43` (`'assist'`), XFA 3.3 schema.
+ * Exposed to scripts as `$.assist.toolTip` / `$.assist.description`.
+ */
+export interface AssistSpec {
+  toolTip?: string;
+  description?: string;
+  /** `<assist><name>` — accessible name (falls back to the field name). */
+  name?: string;
+  /** `<assist><usage>` — e.g. `readOnly`, `required`. */
+  usage?: string;
+}
+
+/** `<extras>` — author-defined key/value baggage, readable as `$.extras.<key>`. */
+export type ExtrasSpec = Record<string, string>;
+
+/**
+ * `<traversal>` — the authored focus order for a container.
+ * Consumed by the AcroForm tab-order writer (G8).
+ */
+export interface TraversalSpec {
+  order?: string;
+  /** Child `<field name="...">` entries, in authored order. */
+  fields?: string[];
 }
 
 export interface OccurSpec {
@@ -213,6 +267,12 @@ export interface SubformNode {
   events?: EventSpec[];
   /** XFA relevant attribute for conditional visibility (e.g. "$ + |rest.textContent != ''") */
   relevant?: string;
+  /** `<assist>` annotations (G6). */
+  assist?: AssistSpec;
+  /** `<extras>` author baggage (G6). */
+  extras?: ExtrasSpec;
+  /** `<traversal>` authored focus order (G6/G8). */
+  traversal?: TraversalSpec;
   breakBefore?: BreakValue;
   breakAfter?: BreakValue;
   keep?: KeepSpec;
@@ -227,9 +287,22 @@ export interface ExclGroupNode {
   uid?: string;
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
-  children: FieldNode[];
+  /**
+   * Children are `LayoutNode[]`: XFA allows `field`, `draw`, `subform` and
+   * nested `exclGroup` inside an exclusive group (G6 — the parser previously
+   * dropped every non-`field` child).
+   */
+  children: LayoutNode[];
   position?: Position;
   presence?: PresenceValue;
+  /** XFA relevant attribute for conditional visibility (G2). */
+  relevant?: string;
+  /** `<assist>` annotations (G6). */
+  assist?: AssistSpec;
+  /** `<extras>` author baggage (G6). */
+  extras?: ExtrasSpec;
+  /** `<traversal>` authored focus order (G6/G8). */
+  traversal?: TraversalSpec;
   border?: BorderSpec;
   margin?: MarginSpec;
   resolvedValue?: unknown;
@@ -264,6 +337,12 @@ export interface FieldNode {
   relevant?: string;
   /** Default value from <value> element */
   defaultValue?: unknown;
+  /** `<assist>` annotations (G6). */
+  assist?: AssistSpec;
+  /** `<extras>` author baggage (G6). */
+  extras?: ExtrasSpec;
+  /** `<traversal>` authored focus order (G6/G8). */
+  traversal?: TraversalSpec;
   breakBefore?: BreakValue;
   breakAfter?: BreakValue;
   keep?: KeepSpec;
@@ -309,6 +388,12 @@ export interface DrawNode {
   margin?: MarginSpec;
   border?: BorderSpec;
   events?: EventSpec[];
+  /** XFA relevant attribute for conditional visibility (G2). */
+  relevant?: string;
+  /** `<assist>` annotations (G6). */
+  assist?: AssistSpec;
+  /** `<extras>` author baggage (G6). */
+  extras?: ExtrasSpec;
   breakBefore?: BreakValue;
   breakAfter?: BreakValue;
   keep?: KeepSpec;
@@ -371,6 +456,10 @@ export interface LayoutModel {
   config?: ConfigSpec;
   xsdUri?: string;
   xsdRootElement?: string;
+  /** Detected XFA template version (e.g. `3.3`), from the template namespace. */
+  version?: string;
+  /** Namespace/version compatibility warnings surfaced during parsing (G16). */
+  warnings?: string[];
 }
 
 // ─── Schema Model ────────────────────────────────────────────────────────────
@@ -496,6 +585,15 @@ export interface AdobeOptions {
   flatten?: boolean | { fieldNames?: string[] };
   /** Tab order for form fields */
   tabOrder?: 'documents' | 'fields' | 'structure' | 'appearance';
+  /**
+   * Emit the XFA input fields as interactive AcroForm widgets in addition to
+   * the flat page content. Use `flatten` to bake them back down afterwards.
+   */
+  acroForm?: boolean | { tabOrderFromTraversal?: boolean };
+  /** Tagged / accessible structure tree. */
+  tagged?: boolean | { language?: string; title?: string };
+  /** Embed the source XDP packets into the AcroForm `/XFA` entry. */
+  embedXfa?: boolean;
 }
 
 // ─── Positioned / Paginated Layout ───────────────────────────────────────────

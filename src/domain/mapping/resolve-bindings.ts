@@ -63,7 +63,7 @@ function resolveDraw(node: DrawNode, data: DataObject): DrawNode {
 }
 
 function resolveExclGroup(node: ExclGroupNode, data: DataObject): ExclGroupNode {
-  const resolvedChildren = node.children.map((child) => resolveField(child, data));
+  const resolvedChildren = resolveNodes(node.children, data);
   if (node.bindMatch === 'dataRef' && node.bindRef) {
     const resolved = resolveXPath(node.bindRef, data);
     return { ...node, children: resolvedChildren, resolvedValue: resolved };

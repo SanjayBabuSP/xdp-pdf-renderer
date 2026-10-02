@@ -249,7 +249,7 @@ function shiftSubtree(node: LayoutNode, dx: number, dy: number): LayoutNode {
     return {
       ...ex,
       position: shiftPos(ex.position, dx, dy),
-      children: ex.children.map((c) => shiftSubtree(c, dx, dy) as FieldNode),
+      children: ex.children.map((c) => shiftSubtree(c, dx, dy)),
     } as ExclGroupNode;
   }
   if (node.type === 'field') {
@@ -304,7 +304,7 @@ function clipSubtree(node: LayoutNode, top: number, bottom: number): LayoutNode 
     const ex = node as ExclGroupNode;
     const children = ex.children
       .map((c) => clipSubtree(c, top, bottom))
-      .filter((c): c is LayoutNode => c != null) as FieldNode[];
+      .filter((c): c is LayoutNode => c != null);
     return { ...ex, position: newPos, children } as ExclGroupNode;
   }
   if (node.type === 'field') return { ...(node as FieldNode), position: newPos } as FieldNode;

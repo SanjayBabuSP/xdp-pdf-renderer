@@ -212,7 +212,8 @@ function isNullish(v: unknown): boolean {
  * isTruthy ⟺ toNumber(v) !== 0 && !isNaN (evidence: :836 — "abc" → false,
  * NaN → false, null → false, `not null` → true, `not 0` → true).
  */
-function formCalcTruthy(val: unknown): boolean {
+/** Truthiness rule used by `if`/`while`/`relevant` (numeric non-zero). */
+export function formCalcTruthy(val: unknown): boolean {
   const n = toNumber(val);
   return n !== 0 && !Number.isNaN(n);
 }

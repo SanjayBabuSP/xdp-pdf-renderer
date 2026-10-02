@@ -4,10 +4,10 @@ import { parseXml, getChild } from '../../lib/xml-utils';
 import { ERROR_CODES } from '../../errors/error-codes';
 
 /** Parse an XML data string into a plain JS object, normalizing repeating fields. */
-export function parseXmlData(xmlString: string, schema?: SchemaModel): Result<DataObject> {
+export function parseXmlData(xmlString: string, schema?: SchemaModel, maxInputSize?: number): Result<DataObject> {
   let parsed: Record<string, unknown>;
   try {
-    parsed = parseXml(xmlString);
+    parsed = parseXml(xmlString, maxInputSize);
   } catch (e) {
     return failure(ERROR_CODES.MALFORMED_XML.code, `${ERROR_CODES.MALFORMED_XML.message}: ${e}`);
   }

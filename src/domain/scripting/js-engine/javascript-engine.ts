@@ -4,8 +4,14 @@
 
 import * as vm from 'vm';
 import { XfaNode, ScriptEngineConfig, ScriptableNode } from '../script-types';
+import { LayoutNode } from '../../../types';
 import { FieldAccessor } from '../formcalc/evaluator';
-import { createXfaFormProxy } from './xfa-form-proxy';
+import {
+  createXfaFormProxy,
+  setActiveProxyHooks,
+  XFA_NODE_KEY,
+  ProxyHooks,
+} from './xfa-form-proxy';
 import { createRecordProxy } from './xfa-record-proxy';
 
 export class JavaScriptEngineError extends Error {
@@ -18,6 +24,20 @@ export interface JsExecutionResult {
   value: unknown;
   modifiedFields: string[];
   logs: string[];
+}
+
+/** Page-layout facts exposed to scripts through `xfa.layout` (G4). */
+export interface XfaLayoutInfo {
+  /** Number of pages in the generated document. */
+  pageCount: number;
+  /** Maps a ScriptableNode key (or its layout-node object) to a 1-based page. */
+  pageOf: Map<unknown, number>;
+  /** Number of content nodes per 1-based page. */
+  pageContent: Map<number, number>;
+}
+
+function emptyLayoutInfo(): XfaLayoutInfo {
+  return { pageCount: 0, pageOf: new Map(), pageContent: new Map() };
 }
 
 function createNullProxy(): Record<string, unknown> {
@@ -50,6 +70,7 @@ export class JavaScriptEngine {
   private modifiedFields: string[] = [];
   private nodeMap: Map<string, ScriptableNode> = new Map();
   private formDataForRecord: unknown = {};
+  private layoutInfo: XfaLayoutInfo = emptyLayoutInfo();
 
   constructor(fieldAccessor: FieldAccessor, config: ScriptEngineConfig = {}) {
     this.fieldAccessor = fieldAccessor;
@@ -74,6 +95,11 @@ export class JavaScriptEngine {
     this.formDataForRecord = formData ?? {};
   }
 
+  /** Supply page-layout facts for the `xfa.layout` pseudo-model (G4). */
+  setLayoutInfo(info: XfaLayoutInfo): void {
+    this.layoutInfo = info;
+  }
+
   execute(
     script: string,
     currentNode: XfaNode | null,
@@ -93,6 +119,8 @@ export class JavaScriptEngine {
       currentKey
     );
 
+    // `instanceManager` mutations act on the shared node map / layout tree.
+    setActiveProxyHooks(this.instanceHooks);
     try {
       const wrappedScript = this.wrapScript(script, eventName);
       const sandbox = vm.createContext(context);
@@ -113,6 +141,8 @@ export class JavaScriptEngine {
         );
       }
       throw new JavaScriptEngineError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActiveProxyHooks(undefined);
     }
   }
 
@@ -134,8 +164,8 @@ export class JavaScriptEngine {
         : currentNode
           ? this.createNodeProxy(currentNode)
           : createNullProxy();
-    const xfaObj = this.createXfaObject(formData, currentKey);
     const eventObj = this.createEventObject(currentNode, eventName);
+    const xfaObj = this.createXfaObject(formData, currentKey, eventObj);
     const hostObj = this.createHostObject();
 
     const consoleObj = {
@@ -271,7 +301,11 @@ export class JavaScriptEngine {
     });
   }
 
-  private createXfaObject(formData: unknown, currentKey?: string): Record<string, unknown> {
+  private createXfaObject(
+    formData: unknown,
+    currentKey: string | undefined,
+    eventObj: Record<string, unknown>,
+  ): Record<string, unknown> {
     // Use deep xfa.form proxy if nodeMap is available (Component 3 enhancement)
     // Anchored at the current script's node so `xfa.form.$...` scoped paths
     // start from the right place; falls back to the form root.
@@ -313,9 +347,64 @@ export class JavaScriptEngine {
       record: createRecordProxy(formData),
       template: templateProxy,
       datasets: datasetsProxy,
+      // `xfa.layout` — page-number and page-count queries used by Designer's
+      // auto-generated page-number scripts (G4).
+      layout: this.createLayoutObject(currentKey),
       host: this.createHostObject(),
-      event: createNullProxy(), // xfa.event is also accessible via xfa.event
+      // Adobe exposes the same event object as both `event` and `xfa.event`.
+      event: eventObj,
     };
+  }
+
+  /**
+   * `xfa.layout` pseudo-model.
+   *
+   * Adobe scripts (and Designer's page-number wizard) use
+   * `xfa.layout.page(this)` and `xfa.layout.pageCount()` — evidence:
+   * `ConvertIP.exe_disasm.c:73871` (`this.rawValue = xfa.layout.pageCount()`)
+   * and `FormDesigner.exe_disasm.c:2306780` (`xfa.layout.page(this)`).
+   */
+  private createLayoutObject(currentKey?: string): Record<string, unknown> {
+    const self = this;
+    return {
+      get ready() {
+        return true;
+      },
+      pageCount: () => self.layoutInfo.pageCount,
+      absPageCount: () => self.layoutInfo.pageCount,
+      page: (node?: unknown) => self.pageOfNode(node, currentKey),
+      absPage: (node?: unknown) => self.pageOfNode(node, currentKey),
+      pageContent: (page: unknown) => self.layoutInfo.pageContent.get(Number(page)) ?? 0,
+      // Adobe relayout returns the (unchanged) layout in a static render.
+      relayout: () => true,
+    };
+  }
+
+  /** Resolve `page(node)` arguments: current node, `$` proxy, SOM path or name. */
+  private pageOfNode(node?: unknown, currentKey?: string): number {
+    let key: string | undefined;
+    if (node == null) {
+      key = currentKey;
+    } else if (typeof node === 'string') {
+      key = node;
+    } else if (typeof node === 'object') {
+      const path = (node as Record<symbol, unknown>)[XFA_NODE_KEY];
+      key = typeof path === 'string' ? path : undefined;
+      if (!key) {
+        const candidate = node as { key?: string; path?: string; somExpression?: string };
+        key = candidate.key ?? candidate.path ?? candidate.somExpression;
+      }
+    }
+
+    if (key) {
+      const byKey = this.layoutInfo.pageOf.get(key);
+      if (byKey !== undefined) return byKey;
+      const scriptable = this.nodeMap.get(key);
+      if (scriptable && this.layoutInfo.pageOf.has(scriptable.layoutNode)) {
+        return this.layoutInfo.pageOf.get(scriptable.layoutNode)!;
+      }
+    }
+    return 0;
   }
 
   private createTemplateProxy(): Record<string, unknown> {
@@ -386,6 +475,140 @@ export class JavaScriptEngine {
       type: 'form',
       resolveNode: (somExpr: string) => self.resolveSomExpression(somExpr, null),
     };
+  }
+
+  // ─── instanceManager mutation hooks (G5) ──────────────────────────────
+
+  private instanceHooks: ProxyHooks = {
+    addInstance: (parentPath) => this.addInstance(parentPath),
+    removeInstance: (parentPath, index) => this.removeInstance(parentPath, index),
+    setInstances: (parentPath, count) => this.setInstances(parentPath, count),
+    moveInstance: (parentPath, from, to) => this.moveInstance(parentPath, from, to),
+  };
+
+  /**
+   * `instanceManager.addInstance()` — clone the container's last instance node,
+   * append it to the layout tree, and register the clone (and its subtree) in
+   * the shared node map. Returns the new node's SOM path, or null when there is
+   * no existing instance to clone.
+   */
+  private addInstance(parentPath: string): string | null {
+    const parent = this.nodeMap.get(parentPath);
+    const layoutParent = parent?.layoutNode as { children?: LayoutNode[] } | undefined;
+    const template = parent?.children?.[parent.children.length - 1]?.layoutNode as
+      | LayoutNode
+      | undefined;
+    if (!parent || !layoutParent?.children || !template) return null;
+
+    // Structured clone so edits to the new instance never alias the original.
+    const clone = JSON.parse(JSON.stringify(template)) as LayoutNode;
+    delete (clone as { resolvedValue?: unknown }).resolvedValue;
+    layoutParent.children.push(clone);
+    return this.registerSubtree(parent, clone);
+  }
+
+  /** `instanceManager.removeInstance(i)` — drop the i-th instance and its subtree. */
+  private removeInstance(parentPath: string, index: number): void {
+    const parent = this.nodeMap.get(parentPath);
+    const child = parent?.children?.[index];
+    if (!parent || !child) return;
+
+    const layoutParent = parent.layoutNode as { children?: LayoutNode[] } | undefined;
+    if (layoutParent?.children) {
+      const at = layoutParent.children.indexOf(child.layoutNode as LayoutNode);
+      if (at >= 0) layoutParent.children.splice(at, 1);
+    }
+    parent.children!.splice(index, 1);
+    this.unregisterSubtree(child);
+  }
+
+  /** `instanceManager.setInstances(n)` — grow or shrink to exactly n instances. */
+  private setInstances(parentPath: string, count: number): void {
+    const parent = this.nodeMap.get(parentPath);
+    if (!parent || count < 0) return;
+    let guard = 0;
+    while ((parent.children?.length ?? 0) > count && guard++ < 10000) {
+      this.removeInstance(parentPath, parent.children!.length - 1);
+    }
+    while ((parent.children?.length ?? 0) < count && guard++ < 10000) {
+      if (!this.addInstance(parentPath)) break;
+    }
+  }
+
+  /** `instanceManager.moveInstance(from, to)` — reorder instances. */
+  private moveInstance(parentPath: string, from: number, to: number): void {
+    const parent = this.nodeMap.get(parentPath);
+    const children = parent?.children;
+    if (!parent || !children) return;
+    if (from < 0 || from >= children.length || to < 0 || to >= children.length) return;
+    const [item] = children.splice(from, 1);
+    children.splice(to, 0, item);
+
+    const layoutParent = parent.layoutNode as { children?: LayoutNode[] } | undefined;
+    if (layoutParent?.children) {
+      const at = layoutParent.children.indexOf(item.layoutNode as LayoutNode);
+      if (at >= 0) {
+        const [layoutItem] = layoutParent.children.splice(at, 1);
+        layoutParent.children.splice(to, 0, layoutItem);
+      }
+    }
+  }
+
+  /** Register a freshly cloned layout node (and descendants) in the node map. */
+  private registerSubtree(parent: ScriptableNode, layoutNode: LayoutNode): string {
+    const name = layoutNode.name ?? '<unnamed>';
+    const basePath = parent.path ? `${parent.path}.${name}` : name;
+    let path = basePath;
+    let suffix = 1;
+    while (this.nodeMap.has(path)) {
+      suffix++;
+      path = `${basePath}#${suffix}`;
+    }
+
+    const record = (key: string): unknown => (layoutNode as unknown as Record<string, unknown>)[key];
+    const scriptable: ScriptableNode = {
+      type: layoutNode.type,
+      name: layoutNode.name,
+      key: path,
+      path,
+      uid: 'uid' in layoutNode ? (layoutNode as { uid?: string }).uid : undefined,
+      layoutNode,
+      parent,
+      presence: layoutNode.presence,
+      resolvedValue: record('resolvedValue') as unknown,
+      formatPicture: record('formatPicture') as string | undefined,
+      position: record('position') as ScriptableNode['position'],
+      events: record('events') as ScriptableNode['events'],
+      calculate: record('calculate') as ScriptableNode['calculate'],
+      validate: record('validate') as ScriptableNode['validate'],
+      children: [],
+    };
+
+    this.nodeMap.set(path, scriptable);
+    if (scriptable.name && !this.nodeMap.has(scriptable.name)) {
+      this.nodeMap.set(scriptable.name, scriptable);
+    }
+    if (!parent.children) parent.children = [];
+    parent.children.push(scriptable);
+
+    if (layoutNode.type === 'subform' || layoutNode.type === 'exclGroup') {
+      for (const child of (layoutNode as { children: LayoutNode[] }).children) {
+        this.registerSubtree(scriptable, child);
+      }
+    }
+    return path;
+  }
+
+  /** Remove a scriptable (and descendants) from the node map. */
+  private unregisterSubtree(scriptable: ScriptableNode): void {
+    if (scriptable.key) this.nodeMap.delete(scriptable.key);
+    if (scriptable.path && scriptable.path !== scriptable.key) {
+      this.nodeMap.delete(scriptable.path);
+    }
+    if (scriptable.name && this.nodeMap.get(scriptable.name) === scriptable) {
+      this.nodeMap.delete(scriptable.name);
+    }
+    for (const child of scriptable.children ?? []) this.unregisterSubtree(child);
   }
 
   private createEventObject(currentNode: XfaNode | null, eventName: string): Record<string, unknown> {

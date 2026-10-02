@@ -24,6 +24,36 @@ function splitNodeAttribute(path: string): { base: string; attribute?: (typeof N
 }
 
 /**
+ * Compound sub-object reads Adobe exposes on every XFA object: `$.assist.toolTip`
+ * and `$.extras.<key>` (G6 — `<assist>`/`<extras>` were parsed but unreachable).
+ * Reads straight off the mirrored layout node so the scriptable never goes stale.
+ */
+function readCompoundAttribute(node: ScriptableNode, path: string): unknown | undefined {
+  if (!path) return undefined;
+  const layout = node.layoutNode as
+    | { assist?: Record<string, string | undefined>; extras?: Record<string, string> }
+    | undefined;
+  if (path === 'assist') return layout?.assist;
+  if (path === 'extras') return layout?.extras;
+  if (path.startsWith('assist.')) {
+    const assist = layout?.assist;
+    if (!assist) return undefined;
+    return assist[path.slice('assist.'.length)];
+  }
+  if (path.startsWith('extras.')) {
+    const extras = layout?.extras;
+    if (!extras) return undefined;
+    return extras[path.slice('extras.'.length)];
+  }
+  return undefined;
+}
+
+/** `true` when `path` names a compound sub-object write (`assist.x`, `extras.x`). */
+function isCompoundAttribute(path: string): boolean {
+  return path.startsWith('assist') || path.startsWith('extras');
+}
+
+/**
  * Property suffixes FormCalc/XFA expose on nodes rather than child elements.
  * `node.rawValue` / `node.formattedValue` must resolve the *node* first and
  * then format it — never be looked up as a child named "rawValue".
@@ -161,6 +191,20 @@ export function createFieldAccessor(
     // Mirror onto the concrete layout node as well: the scriptable is the
     // mutation surface, `layoutNode` is what the renderer reads.
     const layout = self.layoutNode as Record<string, unknown> | undefined;
+    // `assist.toolTip` / `extras.author` — compound sub-object writes (G6).
+    if (name.startsWith('assist.') || name.startsWith('extras.')) {
+      if (!layout) return;
+      const dot = name.indexOf('.');
+      const head = name.slice(0, dot);
+      const key = name.slice(dot + 1);
+      const bag = layout[head];
+      if (bag && typeof bag === 'object') {
+        (bag as Record<string, unknown>)[key] = String(value);
+      } else if (head === 'assist' || head === 'extras') {
+        layout[head] = { [key]: String(value) };
+      }
+      return;
+    }
     switch (name) {
       case 'presence':
         self.presence = String(value);
@@ -201,6 +245,25 @@ export function createFieldAccessor(
     }
   };
 
+  /** Absolute-path compound read: longest node prefix + `assist.*`/`extras.*`. */
+  const resolveCompound = (path: string): unknown | undefined => {
+    // FormCalc hands `$ .assist.toolTip` through unqualified (`$.x.y` is not
+    // a node path), so try the scripting object itself first.
+    const self = currentNode();
+    if (self) {
+      const direct = readCompoundAttribute(self, path);
+      if (direct !== undefined) return direct;
+    }
+    const parts = path.split('.');
+    for (let i = parts.length - 1; i > 0; i--) {
+      const owner = allNodes.get(parts.slice(0, i).join('.'));
+      if (!owner) continue;
+      const value = readCompoundAttribute(owner, parts.slice(i).join('.'));
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  };
+
   const accessor: FieldAccessor & { setCurrentKey(key: string | null): void; getCurrentKey(): string | null } = {
     getField(rawPath: string): unknown {
       const path = normalizeSomPath(rawPath);
@@ -218,13 +281,20 @@ export function createFieldAccessor(
         if (prop.base.includes('.')) {
           const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
           if (child) return readValue(child) ?? null;
+          // `$ .assist.toolTip` / `$ .extras.owner` arrive here (the leading
+          // dot keeps them on the relative path) — read the sub-object.
+          const compound = readCompoundAttribute(self, prop.base);
+          if (compound !== undefined) return compound;
           return resolvePathFromData(rest, data);
         }
         if (prop.base) {
           const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
           if (child) return readValue(child) ?? null;
           const attr = readAttribute(self, prop.base);
-          return attr === undefined ? resolvePathFromData(rest, data) : attr;
+          if (attr !== undefined) return attr;
+          const compound = readCompoundAttribute(self, prop.base);
+          if (compound !== undefined) return compound;
+          return resolvePathFromData(rest, data);
         }
         return readValue(self) ?? null;
       }
@@ -261,6 +331,9 @@ export function createFieldAccessor(
         const value = readValue(node);
         if (value !== undefined) return value;
       }
+      // `form.field.assist.toolTip` — walk longest node prefix, read the rest.
+      const compound = resolveCompound(path);
+      if (compound !== undefined) return compound;
       return resolvePathFromData(path, data);
     },
 
@@ -288,6 +361,10 @@ export function createFieldAccessor(
             assignValue(child, value);
             return;
           }
+          writeAttribute(self, prop.base, value);
+          return;
+        }
+        if (isCompoundAttribute(prop.base)) {
           writeAttribute(self, prop.base, value);
           return;
         }

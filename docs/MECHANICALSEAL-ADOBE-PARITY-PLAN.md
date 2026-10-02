@@ -339,3 +339,44 @@ No PDF rasterizer is available in this environment (no `pdftoppm`/`gs`/`mutool`/
 extraction script (pdf-lib) asserting the presence/absence of specific value strings, unit
 strings, the DRAFT run, and full-cell black fills. Pixel-diffing against the reference requires a
 Windows host running Adobe LiveCycle (out of scope here).
+
+---
+
+# Feature-parity migration program (G1–G16)
+
+Execution of the full parity program identified from `reference/decompiled`
+(346 MB of Ghidra C dumps of Adobe Designer/Acrobat). Verification bar for this
+program: **unit + integration tests only, no visual/pixel diff**.
+
+Baseline: 457 tests / 35 suites → **601 tests / 55 suites**, `npm run build`
+clean, `npm run lint` clean except two pre-existing errors
+(`fill-paint.ts:20`, `image-embedder.ts:92`).
+
+| Gap | Item | Status | Key evidence / notes |
+|-----|------|--------|----------------------|
+| G1 | Barcodes | ✅ Done | `code128A/B/C/SSCC` were declared supported but fell through to Code 39 — now wired (`encodeCode128`, `encodeCode93`, `encodeMsi`, `encodeUpcE`, `2of5standard`). Checksums verified. |
+| G2 | `@relevant` conditional visibility | ✅ Done | `src/domain/mapping/relevance.ts`; `evaluateConditions(layout, data)`; fails open on parse errors; top-level `\|` OR lists. |
+| G3 | Interactive events + bubbling | ✅ Done | `dispatchInteractiveEvent`; node-aware `XfaEventDispatcher` in `src/adobe/xfa-event-bubbling.ts`; `xfa.event` fixed. |
+| G4 | `xfa.layout.*` | ✅ Done | `xfa.layout.page(this)` / `pageCount()` / `pageContent()` (see `ConvertIP.exe_disasm.c:73871`). |
+| G5 | `instanceManager` | ✅ Done | Real `addInstance` / `removeInstance` / `setInstances` / `moveInstance`; clones registered into the shared node map. |
+| G6 | Unparsed XFA nodes | ✅ Done | `<assist>`, `<extras>`, `<traversal>`, `<subformSet>`, `<area>`, `<format><picture>`, nested `exclGroup` children. |
+| G7 | choiceList / button / signature UI | ✅ Done | `resolveChoiceText`, `renderButton`, signature flatten; fixed empty-element `<ui><signature/>` presence detection. |
+| G8 | AcroForm widgets | ✅ Done (opt-in) | `adobe.acroForm`; `/FT`, `/T`, `/TU` (from `<assist>`), `/Ff`; `<traversal>` ordering. |
+| G9 | PDF encryption | ✅ Done | RC4-40 / RC4-128 / AES-128 (V1/V2/V4), `/Encrypt` in trailer, random `/ID`, per-object stream+string crypto. Object streams disabled when saving. |
+| G10 | Font subsetting | ✅ Done | `embedFont(bytes, { subset: true })`; verified embedded size ≪ full fallback TTF. |
+| G11 | Tagged PDF | ✅ Done (structure only) | `adobe.tagged`; `MarkInfo`, `StructTreeRoot`, per-page `StructParents`. Content-stream marked content (BDC/EMC) not yet emitted. |
+| G12 | `/XFA` package streams | ✅ Done | `adobe.embedXfa`; XDP packets re-serialised into `/XFA` name/stream array. |
+| G13 | Compound picture engine | ✅ Done | `date{…}` / `time{…}`, locale month/weekday names, AM/PM (`value-format.ts`). |
+| G14 | Image filters | ⚠️ Partial | RunLength + LZW decoders, JPEG 2000 dimension parsing, direct-filter XObjects for `JPXDecode`/`CCITTFaxDecode`. CCITT G4 decompression itself is pass-through only. |
+| G15 | Barcode symbology coverage | ⚠️ Partial | Added `code93`, `msi`, `upcE`, `2of5standard`. `pdf417` and the postal families (Adobe `support="software"`) remain pending — they need 2D/4-state encoders the current fixed-height `Bar` model cannot express. |
+| G16 | Dead code + config limits | ✅ Done | Wired `xfa-namespace-validation` (strict version enforcement), `font-sequences`; deleted the redundant `evaluate-calculations` stub; `maxInputSize`, `pdfVersion` and `adobeExtensionLevel` now enforced in output. |
+
+New public options (`RenderOptions.adobe`): `acroForm`, `tagged`,
+`embedXfa`. Barcode/font/security behaviour is unchanged unless opted in, with
+the exception of font subsetting (now always on) and the corrected Code 128
+encoders.
+
+## Remaining work
+- G11: emit marked-content operators so structure elements bind to MCIDs.
+- G14: implement CCITT Group 4 decompression for non-pass-through TIFFs.
+- G15: PDF417 and postal symbologies.

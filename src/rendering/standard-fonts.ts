@@ -46,6 +46,9 @@ const FAMILY_ALIASES: Record<string, string> = {
   'itc zapf dingbats': 'zapfdingbats',
 };
 
+/** Family names (all aliases) that resolve to a base-14 standard font. */
+export const BASE14_FAMILIES: readonly string[] = Object.keys(FAMILY_ALIASES);
+
 const BOLD_WEIGHTS = new Set(['bold', 'b', 'black', 'heavy', 'demi']);
 
 /**

@@ -112,3 +112,13 @@ export function rotatedTextMatrices(content: string, degrees: number): string[] 
 export function hasGreyFill(content: string, grey: number): boolean {
   return new RegExp(`(^|\\n)${grey} g(\\n|$)`).test(content);
 }
+
+/**
+ * Number of closed path regions (`closepath` operator `h`) in the stream.
+ *
+ * pdf-lib emits filled rectangles as `m/l/h/f` path segments rather than the
+ * `re` shorthand, so barcode bars must be counted with `h`.
+ */
+export function pathRectCount(content: string): number {
+  return content.split('\n').filter((l) => l.trim() === 'h').length;
+}

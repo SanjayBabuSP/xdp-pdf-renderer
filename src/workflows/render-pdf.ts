@@ -18,6 +18,11 @@ import { dispatchScripts, dispatchPostLayoutScripts } from '../domain/scripting'
 import { ERROR_CODES } from '../errors/error-codes';
 import {
   applyPdfSecurity,
+  applyPdfVersion,
+  applyAdobeExtensionLevel,
+  createAcroFormFields,
+  markDocumentTagged,
+  embedXfaPackage,
   addBookmarks,
   addAnnotations,
   createLayers,
@@ -37,13 +42,19 @@ export async function renderFormToPdf(
   options: RenderOptions = {}
 ): Promise<Result<Buffer>> {
   // ── Phase 1: Parse ──────────────────────────────────────────────────────
-  const layoutResult = parseXdp(xdpXml);
+  // `maxInputSize` bounds every XML input; `strictValidation` also enforces the
+  // XFA template version (G16 — xfa-namespace-validation).
+  const parseOptions = {
+    strict: options.strictValidation !== false,
+    maxInputSize: options.maxInputSize,
+  };
+  const layoutResult = parseXdp(xdpXml, parseOptions);
   if (!layoutResult.success) return layoutResult;
 
-  const schemaResult = parseXsd(xsdXml);
+  const schemaResult = parseXsd(xsdXml, options.maxInputSize);
   if (!schemaResult.success) return schemaResult;
 
-  const dataResult = parseXmlData(dataXml, schemaResult.data);
+  const dataResult = parseXmlData(dataXml, schemaResult.data, options.maxInputSize);
   if (!dataResult.success) return dataResult;
 
   // ── Phase 2: Validate ───────────────────────────────────────────────────
@@ -94,7 +105,11 @@ export async function renderFormToPdf(
   resolveXfaEmbeds(scriptResult.data.layout);
 
   // ── Phase 3b: Layout ────────────────────────────────────────────────────
-  const computedResult = computeLayout(scriptResult.data.layout, options.pageHeight);
+  const computedResult = computeLayout(
+    scriptResult.data.layout,
+    options.pageHeight,
+    dataResult.data as Record<string, unknown>
+  );
   if (!computedResult.success) return computedResult;
 
   // ── Phase 3c: docReady — AFTER layout, BEFORE rendering ─────────────────
@@ -124,11 +139,29 @@ export async function renderFormToPdf(
       fontEquateRules
     );
 
-    // ── Phase 5a: Apply Adobe-specific post-processing ─────────────────
+    // ── Phase 5a: Apply catalog metadata from <config> (G16) ─────────────
+    const config = layoutResult.data.config;
+    let dirty = false;
+    if (config?.pdfVersion) {
+      applyPdfVersion(doc, config.pdfVersion);
+      dirty = true;
+    }
+    if (config?.adobeExtensionLevel) {
+      applyAdobeExtensionLevel(doc, config.adobeExtensionLevel, config.pdfVersion ?? '1.7');
+      dirty = true;
+    }
+
+    // ── Phase 5b: Apply Adobe-specific post-processing ─────────────────
     if (options.adobe) {
-      applyAdobeFeatures(doc, options.adobe);
-      // Re-save with adobe features applied
-      const finalBytes = await doc.save();
+      applyAdobeFeatures(doc, options.adobe, finalLayout, xdpXml);
+      dirty = true;
+    }
+
+    if (dirty) {
+      // Encryption is applied before serialization; pdf-lib builds object
+      // streams during serialization (after encryption), so disable them.
+      const saveOptions = options.adobe?.security ? { useObjectStreams: false } : {};
+      const finalBytes = await doc.save(saveOptions);
       return success(Buffer.from(finalBytes));
     }
 
@@ -145,8 +178,12 @@ export async function renderFormToPdf(
  * Compute layout from a (possibly script-mutated) layout tree:
  * conditions → table layout → positions → pagination.
  */
-function computeLayout(layout: LayoutModel, pageHeight?: number): Result<PaginatedLayout> {
-  const filteredResult = evaluateConditions(layout);
+function computeLayout(
+  layout: LayoutModel,
+  pageHeight?: number,
+  data?: Record<string, unknown>
+): Result<PaginatedLayout> {
+  const filteredResult = evaluateConditions(layout, data);
   if (!filteredResult.success) return filteredResult;
 
   const tableLayoutResult = applyTableLayouts(
@@ -164,10 +201,16 @@ function computeLayout(layout: LayoutModel, pageHeight?: number): Result<Paginat
 /**
  * Apply Adobe-specific PDF features after rendering.
  */
-function applyAdobeFeatures(doc: PDFDocument, adobe: NonNullable<RenderOptions['adobe']>): void {
-  // Security / encryption
-  if (adobe.security) {
-    applyPdfSecurity(doc, adobe.security);
+function applyAdobeFeatures(
+  doc: PDFDocument,
+  adobe: NonNullable<RenderOptions['adobe']>,
+  layout: PaginatedLayout,
+  xdpXml: string,
+): void {
+  // Interactive AcroForm widgets from the XFA template (G8). Built before
+  // flattening so `flatten` can bake them back down when requested.
+  if (adobe.acroForm) {
+    createAcroFormFields(doc, layout, typeof adobe.acroForm === 'object' ? adobe.acroForm : {});
   }
 
   // Bookmarks / outlines
@@ -195,5 +238,21 @@ function applyAdobeFeatures(doc: PDFDocument, adobe: NonNullable<RenderOptions['
   // Tab ordering
   if (adobe.tabOrder) {
     setGlobalTabOrder(doc, adobe.tabOrder);
+  }
+
+  // Embed the source XDP packets into /XFA (G12).
+  if (adobe.embedXfa) {
+    embedXfaPackage(doc, xdpXml);
+  }
+
+  // Tagged / accessible structure tree
+  if (adobe.tagged) {
+    markDocumentTagged(doc, typeof adobe.tagged === 'object' ? adobe.tagged : {});
+  }
+
+  // Security / encryption LAST: it encrypts every indirect object, so it must
+  // run after all other features have mutated the document.
+  if (adobe.security) {
+    applyPdfSecurity(doc, adobe.security);
   }
 }

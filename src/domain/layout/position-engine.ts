@@ -175,7 +175,7 @@ export function layoutExclGroup(
   return {
     node: {
       ...node,
-      children: children as FieldNode[],
+      children,
       position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height },
     } as ExclGroupNode,
     height,

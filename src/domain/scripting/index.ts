@@ -2,8 +2,18 @@
 // Scripting Engine — Public API re-export
 // ────────────────────────────────────────────────────────────────────────────
 
-export { dispatchScripts, dispatchPostLayoutScripts } from './event-dispatcher';
-export type { DispatchResult, ScriptDispatchConfig } from './event-dispatcher';
+export {
+  dispatchScripts,
+  dispatchPostLayoutScripts,
+  dispatchInteractiveEvent,
+  buildScriptIndex,
+} from './event-dispatcher';
+export type {
+  DispatchResult,
+  ScriptDispatchConfig,
+  ScriptIndex,
+  InteractiveEventOptions,
+} from './event-dispatcher';
 export { createFieldAccessor, buildNodeMap, collectScripts, scriptableToXfaNode } from './xfa-object-model';
 export type { ScriptEntry } from './xfa-object-model';
 export type {
@@ -22,7 +32,13 @@ export type {
 } from './script-types';
 
 // Re-export FormCalc
-export { FormCalcParser, FormCalcEvaluator, FormCalcError, FormCalcParseError } from './formcalc';
+export {
+  FormCalcParser,
+  FormCalcEvaluator,
+  FormCalcError,
+  FormCalcParseError,
+  formCalcTruthy,
+} from './formcalc';
 export { FormCalcLexer, TokenType } from './formcalc/lexer';
 export type { Token } from './formcalc/lexer';
 export type { FieldAccessor, FormCalcResult } from './formcalc/evaluator';

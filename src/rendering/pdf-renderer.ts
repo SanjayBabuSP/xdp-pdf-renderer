@@ -33,6 +33,7 @@ import {
   MarginSpec,
 } from '../types';
 import { formatValue } from '../lib/value-format';
+import { resolveChoiceText, resolveButtonLabel } from './ui-values';
 import { FontManager } from './font-manager';
 import { embedBase64Image } from './image-embedder';
 import { computeImageRect } from './image-scaler';
@@ -62,6 +63,7 @@ import {
 import { dashArrayForStyle, xfaCapToPdf, clampCornerRadius } from './border-style';
 import { drawGradientFill, isGradientFill, isGray, grayLevel } from './fill-paint';
 import { renderBarcode } from './barcode-renderer';
+import { toPointsOrZero } from '../lib/unit-converter';
 import { ERROR_CODES } from '../errors/error-codes';
 
 /** Render the paginated layout to a PDF buffer. This is the only I/O boundary. */
@@ -175,7 +177,7 @@ async function renderExclGroup(
   // drawBorderBox handles fill (incl. gradients) then edges, in one pass.
   if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
   for (const child of node.children) {
-    await renderField(pdfPage, child, pageH, fontManager);
+    await renderNode(pdfPage, child, pageH, fontManager, _options, 1, 1);
   }
 }
 
@@ -430,7 +432,10 @@ async function renderField(
   const innerHeight = Math.max(height - margins.top - margins.bottom, 0);
   const fontSize = node.font?.size ?? 8;
   const fontColor = toPdfColor(node.font?.color);
-  const valueText = formatValue(node.resolvedValue, node.formatPicture);
+  // Choice lists display the selected item's text, not its export value (G7).
+  const valueText = node.ui?.type === 'choiceList'
+    ? resolveChoiceText(node.resolvedValue, node.ui.items)
+    : formatValue(node.resolvedValue, node.formatPicture);
   // JustH/JustV codes — para@hAlign wins, textEdit hAlign is the fallback
   // (flow-engine.ts:15 reads the same pair for box alignment).
   const justH = mapJustH(node.para?.hAlign ?? node.ui?.hAlign);
@@ -445,6 +450,16 @@ async function renderField(
   }
 
   if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
+
+  // Buttons draw their authored label centred in the widget box (G7); the
+  // data value is irrelevant. Signatures flatten to an empty (bordered) box.
+  if (node.ui?.type === 'button') {
+    await renderButton(pdfPage, node, x, y, width, innerHeight, fontSize, fontManager, fontColor, valueText);
+    return;
+  }
+  if (node.ui?.type === 'signature') {
+    return;
+  }
 
   const rotate = normalizeRotation(node.position?.rotate ?? 0);
   const rotation = rotate !== 0 ? degrees(rotate) : undefined;
@@ -512,6 +527,14 @@ async function renderField(
       color: captionColor,
       rotate: rotation,
     });
+  }
+
+  // Barcode fields draw bars, not glyphs (G1: `renderBarcode` had no call site).
+  if (node.ui?.type === 'barcode') {
+    await renderBarcodeValue(pdfPage, node, valueText, {
+      x, y, w: width, h: innerHeight,
+    }, fontManager, { fontSize, fontColor, align: valueAlign });
+    return;
   }
 
   // Draw field value with multi-line wrapping
@@ -625,6 +648,36 @@ async function renderField(
     }
     endOverflowClip(pdfPage, clipped);
   }
+}
+
+async function renderButton(
+  pdfPage: PDFPage,
+  node: FieldNode,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fontSize: number,
+  fontManager: FontManager,
+  fontColor: RGB,
+  valueText: string
+): Promise<void> {
+  const label = resolveButtonLabel(node.ui?.label, valueText, node.caption?.text);
+  if (!label) return;
+
+  const family = node.font?.family ?? 'Helvetica';
+  const font = await fontManager.getSafeFont(label, family, node.font?.weight, node.font?.posture);
+  const textWidth = measureTextWidth(label, fontSize, font);
+  const textOffset = Math.max((height - fontSize) / 2, 0);
+  // `highlight` describes the *press* appearance, which never shows in a
+  // flattened render, so the label is simply centred horizontally.
+  pdfPage.drawText(label, {
+    x: x + Math.max((width - textWidth) / 2, 0),
+    y: y + textOffset,
+    size: fontSize,
+    font,
+    color: fontColor,
+  });
 }
 
 async function renderCheckButton(
@@ -1015,4 +1068,84 @@ function wrapText(text: string, fontSize: number, maxWidth: number, font?: PDFFo
   if (!text) return [text];
   if (maxWidth <= 0) return text.split(/\r\n|\r|\n/);
   return breakLines(text, maxWidth, (s) => measureTextWidth(s, fontSize, font));
+}
+
+/**
+ * Draw an XFA `<field ui><barcode>` as vector bars plus an optional
+ * human-readable interpretation (HRI) line.
+ *
+ * Attribute semantics follow `adobepdf.xdc:212-252`
+ * (`moduleWidth`, `moduleHeight`, `wideNarrowRatio`, `textLocation`,
+ * `errorCorrectionLevel`, `checksum`, `dataLength`).
+ */
+async function renderBarcodeValue(
+  pdfPage: PDFPage,
+  node: FieldNode,
+  data: string,
+  box: { x: number; y: number; w: number; h: number },
+  fontManager: FontManager,
+  opts: { fontSize: number; fontColor?: RGB; align: 'left' | 'center' | 'right' }
+): Promise<void> {
+  const ui = node.ui;
+  if (!ui || box.w <= 0 || box.h <= 0) return;
+
+  const symbology = ui.symbology ?? ui.encodeHint ?? 'code39';
+  const textLocation = (ui.textLocation ?? 'none').toLowerCase();
+  const hasHri = textLocation !== 'none' && textLocation !== '';
+  const hriSize = Math.max(Math.min(opts.fontSize, box.h / 3), 4);
+  const hriH = hasHri ? hriSize + 3 : 0;
+  const above = textLocation.startsWith('above');
+
+  const barBox = {
+    x: box.x,
+    y: above ? box.y : box.y + hriH,
+    w: box.w,
+    h: Math.max(box.h - hriH, 1),
+  };
+
+  const moduleW = Math.max(toPointsOrZero(ui.moduleWidth) || 1, 0.1);
+  const ratio = parseWideNarrowRatio(ui.wideNarrowRatio);
+
+  renderBarcode(
+    pdfPage,
+    symbology,
+    data,
+    barBox.x,
+    barBox.y,
+    barBox.w,
+    barBox.h,
+    moduleW,
+    opts.align,
+    ratio,
+  );
+
+  if (hasHri && data) {
+    const hriFont = await fontManager.getSafeFont(data, node.font?.family ?? 'Helvetica');
+    const textW = measureTextWidth(data, hriSize, hriFont);
+    const slack = Math.max(box.w - textW, 0);
+    const hriX =
+      opts.align === 'center' ? box.x + slack / 2
+      : opts.align === 'right' ? box.x + slack
+      : box.x;
+    const hriY = above ? box.y + box.h - hriSize : box.y;
+    pdfPage.drawText(data, {
+      x: hriX,
+      y: hriY,
+      size: hriSize,
+      font: hriFont,
+      color: opts.fontColor ?? rgb(0, 0, 0),
+    });
+  }
+}
+
+/** `wideNarrowRatio` is authored either as a plain number or as a `.xdc` range. */
+function parseWideNarrowRatio(raw?: string): number {
+  if (!raw) return 2.5;
+  const nums = raw.match(/\d+(?:\.\d+)?/g);
+  if (!nums || nums.length === 0) return 2.5;
+  if (nums.length === 1) return Math.min(Math.max(parseFloat(nums[0]), 2), 3);
+  const lo = parseFloat(nums[0]);
+  const hi = parseFloat(nums[1]);
+  if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return 2.5;
+  return Math.min(Math.max((lo + hi) / 2, 2), 3);
 }

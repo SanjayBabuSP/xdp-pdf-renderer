@@ -1,17 +1,47 @@
 // ────────────────────────────────────────────────────────────────────────────
-// PDF Security — Password protection and permission controls
-// Implements PDF Standard Security Handler (Revision 2/3, RC4/AES)
+// PDF Security — Standard Security Handler (Revision 2/3/4, RC4 + AESV2)
+//
+// Implements the PDF 1.7 standard security handler end-to-end:
+//   • Algorithm 2/3/4/5 key entries (`/O`, `/U`) and the file encryption key
+//   • Algorithm 1 per-object keys
+//   • RC4 (V1/V2) and AES-128-CBC (V4, AESV2) stream/string encryption
+//   • Encrypt dictionary placed in the TRAILER, plus a random `/ID`
+//
+// Note: object streams must be disabled when saving (`useObjectStreams:false`)
+// because pdf-lib generates them during serialization, after this pass.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { PDFDocument, PDFName, PDFDict, PDFNumber, PDFString } from 'pdf-lib';
-import { md5 } from './crypto-utils';
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFObject,
+  PDFRawStream,
+  PDFStream,
+  PDFString,
+} from 'pdf-lib';
+import type { PDFContext } from 'pdf-lib';
+import {
+  authenticateUserPassword,
+  bytesToHex,
+  computeEncryptionKey,
+  computeOwnerEntry,
+  computeUserEntry,
+  hexToBytes,
+  objectKey,
+  rc4,
+  aesCbcEncrypt,
+  stringToBytes,
+} from './crypto-utils';
+import { randomBytes } from 'crypto';
 
 /** Permission flags (PDF Standard, Table 3.20) */
 export interface PDFPermissions {
   /** Allow printing (low resolution) */
   print?: boolean;
-  /** Allow printing high quality */
-  highPrint?: boolean;
   /** Allow modifying content */
   modify?: boolean;
   /** Allow copying/extracting text */
@@ -26,6 +56,8 @@ export interface PDFPermissions {
   assemble?: boolean;
   /** Allow high-quality printing */
   printHighQuality?: boolean;
+  /** Alias for `printHighQuality`. */
+  highPrint?: boolean;
 }
 
 export interface PDFSecurityOptions {
@@ -39,7 +71,6 @@ export interface PDFSecurityOptions {
   encryptionMethod?: 'rc4_40' | 'rc4_128' | 'aes_128';
 }
 
-/** Default permissions: everything allowed */
 const DEFAULT_PERMISSIONS: PDFPermissions = {
   print: true,
   highPrint: true,
@@ -52,172 +83,170 @@ const DEFAULT_PERMISSIONS: PDFPermissions = {
   printHighQuality: true,
 };
 
-/** Convert permissions to a PDF permission integer (bits 3-10 of P value) */
+/** Convert permissions to the signed 32-bit `/P` value (Table 3.20). */
 function permissionsToInt(perms: PDFPermissions): number {
-  let p = -3904; // bits 1-2 are always set (reserved), bits 13-32 are 0
-  // Bit 3: Print
-  if (perms.print) p |= 4;
-  // Bit 4: Modify
-  if (perms.modify) p |= 8;
-  // Bit 5: Copy
-  if (perms.copy) p |= 16;
-  // Bit 6: Annotate
-  if (perms.annotate) p |= 32;
-  // Bit 9: Fill forms
-  if (perms.fillForms) p |= 256;
-  // Bit 10: Extract (accessibility)
-  if (perms.extract) p |= 512;
-  // Bit 11: Assemble
-  if (perms.assemble) p |= 1024;
-  // Bit 12: High-quality print
-  if (perms.printHighQuality) p |= 2048;
-  return p;
+  let p = 0;
+  if (perms.print) p |= 1 << 2; // bit 3
+  if (perms.modify) p |= 1 << 3; // bit 4
+  if (perms.copy) p |= 1 << 4; // bit 5
+  if (perms.annotate) p |= 1 << 5; // bit 6
+  p |= 1 << 6; // bit 7 reserved = 1
+  p |= 1 << 7; // bit 8 reserved = 1
+  if (perms.fillForms) p |= 1 << 8; // bit 9
+  if (perms.extract) p |= 1 << 9; // bit 10
+  if (perms.assemble) p |= 1 << 10; // bit 11
+  if (perms.printHighQuality || perms.highPrint) p |= 1 << 11; // bit 12
+  return p | 0; // to signed
+}
+
+interface MethodParams {
+  v: number;
+  r: number;
+  keyLength: number;
+  useAES: boolean;
+}
+
+function methodParams(method: PDFSecurityOptions['encryptionMethod']): MethodParams {
+  switch (method) {
+    case 'rc4_40':
+      return { v: 1, r: 2, keyLength: 5, useAES: false };
+    case 'aes_128':
+      return { v: 4, r: 4, keyLength: 16, useAES: true };
+    case 'rc4_128':
+    default:
+      return { v: 2, r: 3, keyLength: 16, useAES: false };
+  }
 }
 
 /**
  * Apply security settings to a PDFDocument.
- * This modifies the document's trailer dictionary to add encryption.
- *
- * Note: This implements the PDF Standard Security Handler.
- * For production use, consider a dedicated PDF security library.
  */
 export function applyPdfSecurity(doc: PDFDocument, options: PDFSecurityOptions): void {
   const context = doc.context;
-  const trailer = context.lookup(context.trailerInfo.Root);
-  if (!trailer) return;
+  const { v, r, keyLength, useAES } = methodParams(options.encryptionMethod);
 
-  // Get or create the Encrypt dictionary
-  const rootDict = context.lookup(context.trailerInfo.Root) as PDFDict;
-  if (!rootDict) return;
-
-  // Create the Encrypt dictionary
-  const encryptDict = context.obj({}) as PDFDict;
-
-  // Filter and standard are required
-  encryptDict.set(PDFName.of('Filter'), PDFName.of('Standard'));
-
-  const method = options.encryptionMethod ?? 'rc4_128';
-  const ownerPwd = options.ownerPassword ?? options.userPassword ?? '';
   const userPwd = options.userPassword ?? '';
+  const ownerPwd = options.ownerPassword ?? options.userPassword ?? '';
+  const perms = { ...DEFAULT_PERMISSIONS, ...options.permissions };
+  const permissionBits = permissionsToInt(perms);
 
-  // Determine revision and key length
-  let v: number;
-  let r: number;
-  let keyLength: number;
+  // Random document identifier: ID[0] seeds the encryption key, ID[1] is opaque.
+  const id0 = new Uint8Array(randomBytes(16));
+  const id1 = new Uint8Array(randomBytes(16));
 
-  switch (method) {
-    case 'rc4_40':
-      v = 1;
-      r = 2;
-      keyLength = 5; // 40 bits
-      break;
-    case 'rc4_128':
-      v = 2;
-      r = 3;
-      keyLength = 16; // 128 bits
-      break;
-    case 'aes_128':
-      v = 4;
-      r = 4;
-      keyLength = 16; // 128 bits
-      break;
-    default:
-      v = 2;
-      r = 3;
-      keyLength = 16;
-  }
+  const o = computeOwnerEntry(ownerPwd, userPwd, r, keyLength);
+  const encryptionKey = computeEncryptionKey(userPwd, o, permissionBits, id0, r, keyLength);
+  const u = computeUserEntry(encryptionKey, id0, r);
 
+  const encryptDict = PDFDict.withContext(context);
+  encryptDict.set(PDFName.of('Filter'), PDFName.of('Standard'));
   encryptDict.set(PDFName.of('V'), PDFNumber.of(v));
   encryptDict.set(PDFName.of('R'), PDFNumber.of(r));
-  encryptDict.set(PDFName.of('Length'), PDFNumber.of(keyLength * 8));
+  if (v > 1) encryptDict.set(PDFName.of('Length'), PDFNumber.of(keyLength * 8));
+  encryptDict.set(PDFName.of('O'), PDFHexString.of(bytesToHex(o)));
+  encryptDict.set(PDFName.of('U'), PDFHexString.of(bytesToHex(u)));
+  encryptDict.set(PDFName.of('P'), PDFNumber.of(permissionBits));
 
-  // Compute O (owner key)
-  const o = computeOwnerKey(ownerPwd, userPwd, r, keyLength);
-  encryptDict.set(PDFName.of('O'), PDFString.of(o));
+  if (useAES) {
+    const stdcf = PDFDict.withContext(context);
+    stdcf.set(PDFName.of('CFM'), PDFName.of('AESV2'));
+    stdcf.set(PDFName.of('Length'), PDFNumber.of(16));
+    stdcf.set(PDFName.of('AuthEvent'), PDFName.of('DocOpen'));
+    const cf = PDFDict.withContext(context);
+    cf.set(PDFName.of('StdCF'), stdcf);
+    encryptDict.set(PDFName.of('CF'), cf);
+    encryptDict.set(PDFName.of('StmF'), PDFName.of('StdCF'));
+    encryptDict.set(PDFName.of('StrF'), PDFName.of('StdCF'));
+  }
 
-  // Compute U (user key)
-  const u = computeUserKey(userPwd, o, r, keyLength);
-  encryptDict.set(PDFName.of('U'), PDFString.of(u));
-
-  // Permissions
-  const perms = { ...DEFAULT_PERMISSIONS, ...options.permissions };
-  const p = permissionsToInt(perms);
-  encryptDict.set(PDFName.of('P'), PDFNumber.of(p));
-
-  // Register the encrypt dict
   const encryptRef = context.register(encryptDict);
 
-  // Set the Encrypt entry in the trailer
-  // Note: pdf-lib's trailer is accessed differently
-  // We attach it via the Info dictionary path
-  (rootDict as unknown as Record<string, unknown>)['Encrypt'] = encryptRef;
-}
-
-// ─── Key computation helpers ──────────────────────────────────────────────
-
-function passwordPad(password: string): Uint8Array {
-  const pad = [
-    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
-    0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
-    0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,
-    0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
-  ];
-  const result = new Uint8Array(32);
-  const passBytes = new TextEncoder().encode(password);
-  const len = Math.min(passBytes.length, 32);
-  for (let i = 0; i < len; i++) result[i] = passBytes[i];
-  for (let i = len; i < 32; i++) result[i] = pad[i];
-  return result;
-}
-
-function computeOwnerKey(ownerPassword: string, userPassword: string, r: number, keyLength: number): string {
-  const paddedOwner = passwordPad(ownerPassword);
-  const paddedUser = passwordPad(userPassword);
-
-  // MD5 hash of owner password
-  const hash = md5(paddedOwner);
-
-  // For revision 3+, iterate 50 times
-  if (r >= 3) {
-    for (let i = 0; i < 50; i++) {
-      // Would need full MD5 - simplified for now
-    }
+  // Encrypt every other indirect object with its own key (Algorithm 1).
+  for (const [ref, object] of context.enumerateIndirectObjects()) {
+    if (ref.objectNumber === encryptRef.objectNumber) continue;
+    const key = objectKey(encryptionKey, ref.objectNumber, ref.generationNumber, useAES);
+    const encrypted = encryptObject(object, key, useAES, context);
+    if (encrypted !== object) context.assign(ref, encrypted);
   }
 
-  // XOR obfuscation for 40-bit
-  if (keyLength === 5) {
-    const result = new Uint8Array(32);
-    for (let i = 0; i < 32; i++) {
-      result[i] = hash[i] ^ paddedUser[i];
-    }
-    return arrayToHex(result);
+  // The Encrypt dict and /ID live in the trailer, never encrypted.
+  context.trailerInfo.Encrypt = encryptRef;
+  context.trailerInfo.ID = context.obj([
+    PDFHexString.of(bytesToHex(id0)),
+    PDFHexString.of(bytesToHex(id1)),
+  ]);
+}
+
+function encryptObject(
+  object: PDFObject,
+  key: Uint8Array,
+  useAES: boolean,
+  context: PDFContext,
+): PDFObject {
+  if (object instanceof PDFStream) return encryptStream(object, key, useAES, context);
+  if (object instanceof PDFDict) return encryptDict(object, key, useAES, context);
+  if (object instanceof PDFArray) return encryptArray(object, key, useAES, context);
+  if (object instanceof PDFString || object instanceof PDFHexString) {
+    return encryptString(object, key, useAES);
   }
-
-  // For 128-bit, use RC4 encryption of user password with owner key
-  // Simplified: return hash as hex
-  return arrayToHex(hash);
+  return object;
 }
 
-function computeUserKey(userPassword: string, _o: string, r: number, _keyLength: number): string {
-  const padded = passwordPad(userPassword);
-  const hash = md5(padded);
+function encryptStream(
+  stream: PDFStream,
+  key: Uint8Array,
+  useAES: boolean,
+  context: PDFContext,
+): PDFObject {
+  const dict = encryptDict(stream.dict, key, useAES, context) as PDFDict;
+  const contents = stream.getContents();
+  const encrypted = useAES ? aesCbcEncrypt(key, contents) : rc4(key, contents);
+  return PDFRawStream.of(dict, encrypted);
+}
 
-  // For revision 2: simple XOR
-  if (r === 2) {
-    const result = new Uint8Array(32);
-    for (let i = 0; i < 32; i++) {
-      result[i] = hash[i];
-    }
-    return arrayToHex(result);
+function encryptDict(
+  dict: PDFDict,
+  key: Uint8Array,
+  useAES: boolean,
+  context: PDFContext,
+): PDFDict {
+  const out = PDFDict.withContext(context);
+  for (const [name, value] of dict.entries()) {
+    out.set(name, encryptObject(value, key, useAES, context));
   }
-
-  // For revision 3+: RC4 encryption
-  // Simplified for now
-  return arrayToHex(hash);
+  return out;
 }
 
-function arrayToHex(arr: Uint8Array): string {
-  return Array.from(arr)
-    .map((b) => String.fromCharCode(b))
-    .join('');
+function encryptArray(
+  array: PDFArray,
+  key: Uint8Array,
+  useAES: boolean,
+  context: PDFContext,
+): PDFArray {
+  const out = PDFArray.withContext(context);
+  for (const value of array.asArray()) out.push(encryptObject(value, key, useAES, context));
+  return out;
 }
+
+function encryptString(value: PDFString | PDFHexString, key: Uint8Array, useAES: boolean): PDFHexString {
+  const raw =
+    value instanceof PDFHexString
+      ? hexToBytes((value as unknown as { value: string }).value)
+      : stringToBytes((value as unknown as { value: string }).value);
+  const encrypted = useAES ? aesCbcEncrypt(key, raw) : rc4(key, raw);
+  return PDFHexString.of(bytesToHex(encrypted));
+}
+
+/**
+ * Whether a document must be serialized without object streams (security is
+ * applied before serialization, and pdf-lib builds object/xref streams during
+ * serialization — after encryption — so they must be disabled).
+ */
+export function securityDisablesObjectStreams(
+  security: PDFSecurityOptions | undefined,
+): boolean {
+  return security != null;
+}
+
+// Re-export so callers/tests can validate credentials without importing crypto-utils.
+export { authenticateUserPassword };

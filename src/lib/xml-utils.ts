@@ -10,9 +10,9 @@ export interface ParsedXml {
  * Parse an XML string into a plain JS object.
  * SECURITY: processEntities disabled to prevent XXE injection.
  */
-export function parseXml(xmlString: string): ParsedXml {
-  if (xmlString.length > MAX_INPUT_SIZE) {
-    throw new Error(`XML input exceeds maximum size of ${MAX_INPUT_SIZE} bytes`);
+export function parseXml(xmlString: string, maxInputSize: number = MAX_INPUT_SIZE): ParsedXml {
+  if (xmlString.length > maxInputSize) {
+    throw new Error(`XML input exceeds maximum size of ${maxInputSize} bytes`);
   }
 
   const parser = new XMLParser({

@@ -4,7 +4,8 @@ import { PDFDocument, PDFFont } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { RenderOptions, FontEquateRule } from '../types';
 import { FontSubstitution } from './font-substitution';
-import { isBoldWeight, mapToStandardPdfFont, isWinAnsiSafe } from './standard-fonts';
+import { BASE14_FAMILIES, isBoldWeight, mapToStandardPdfFont, isWinAnsiSafe } from './standard-fonts';
+import { resolveFontSequence } from '../adobe/font-sequences';
 import {
   FontManifest,
   FontVariant,
@@ -115,12 +116,62 @@ export class FontManager {
       }
     }
 
+    // 2b. Adobe <seq> fallback chains (font-sequences.ts): when neither an
+    //     embedded face nor a base-14 counterpart backs the family, walk its
+    //     substitution sequence before giving up to the bundled Unicode font.
+    const sequencedStandard = (await this.tryFontSequence(targetFamily, weight, posture))
+      ?? (await this.tryFontSequence(requested, weight, posture));
+    if (sequencedStandard) return sequencedStandard;
+
     // 3. Fall back to the bundled Unicode-capable font (embedded via fontkit) rather than
     //    pdf-lib's built-in standard fonts, which only encode WinAnsi (Latin-1) and throw on
     //    characters like "Δ", "µ", or accented names that are common in real-world form data.
     return this.loadUnicodeFallback(
       isBoldWeight(targetWeight ?? weight) ? 'bold' : targetWeight ?? weight
     );
+  }
+
+  /**
+   * Walk `family`'s Adobe substitution sequence and load the first candidate
+   * that has an embedded face or a base-14 counterpart. Returns undefined when
+   * the family has no rule or no candidate is available.
+   */
+  private async tryFontSequence(
+    family: string,
+    weight?: string,
+    posture?: string,
+  ): Promise<PDFFont | undefined> {
+    const sequenced = resolveFontSequence(family, this.availableFamilies(), posture, weight);
+    if (familyKey(sequenced) === familyKey(family)) return undefined;
+
+    const file = this.fileFor(sequenced, weight, posture);
+    if (file) return this.loadCustomFont(file);
+
+    const standardName = mapToStandardPdfFont(sequenced, weight, posture);
+    if (standardName) {
+      const font = this.doc.embedStandardFont(standardName);
+      this.standardFonts.add(font);
+      return font;
+    }
+    return undefined;
+  }
+
+  /** Every family name this manager can back with a face or a base-14 font. */
+  private availableFamilies(): Set<string> {
+    const names = new Set<string>();
+    for (const family of Object.keys(this.customFonts)) names.add(family);
+    for (const family of Object.keys(DEFAULT_FONTS)) names.add(family);
+    for (const family of BASE14_FAMILIES) names.add(family);
+
+    const manifest = this.getManifest();
+    if (manifest) for (const family of Object.keys(manifest.fonts)) names.add(family);
+
+    for (const dir of this.fontDirs) {
+      const scanned = this.scannedDirs.get(dir) ?? scanFontDir(dir);
+      this.scannedDirs.set(dir, scanned);
+      for (const family of Object.keys(scanned.fonts)) names.add(family);
+    }
+    return names;
   }
 
   /** A family is "available" when an embeddable file or a base-14 font backs it. */
@@ -174,7 +225,9 @@ export class FontManager {
   private async loadCustomFont(fontPath: string): Promise<PDFFont> {
     const resolvedPath = path.isAbsolute(fontPath) ? fontPath : path.resolve(fontPath);
     const fontBytes = fs.readFileSync(resolvedPath);
-    return this.doc.embedFont(fontBytes);
+    // `subset: true` embeds only the glyphs actually used (G10), matching
+    // Adobe's subsetted font output and shrinking the PDF substantially.
+    return this.doc.embedFont(fontBytes, { subset: true });
   }
 
   async getDefaultFont(): Promise<PDFFont> {

@@ -48,6 +48,7 @@ import {
 } from './script-types';
 import { FormCalcParser, FormCalcEvaluator, FormCalcError, FieldAccessor } from './formcalc';
 import { JavaScriptEngine, JavaScriptEngineError, JsExecutionResult } from './js-engine';
+import type { XfaLayoutInfo } from './js-engine/javascript-engine';
 import {
   createFieldAccessor,
   buildNodeMap,
@@ -56,6 +57,7 @@ import {
   ScriptEntry,
 } from './xfa-object-model';
 import { PropertyChangeTracker, ApplyResult } from './property-change-tracker';
+import { XfaEventDispatcher } from '../../adobe/xfa-event-bubbling';
 import {
   buildDependencyGraph,
   getFieldsToRecalculate,
@@ -131,6 +133,112 @@ export function dispatchScripts(
   }
 }
 
+// ─── Interactive Events (click / change / enter / exit) ─────────────────
+
+export interface InteractiveEventOptions {
+  /** Authored event activity/name: `click`, `change`, `enter`, `exit`, … */
+  activity: string;
+  /** Target node: a SOM path (`form.content.email`) or a bare node name. */
+  ref: string;
+  /** New value applied to the target before its scripts run (change events). */
+  value?: unknown;
+  /** Script execution config (`skipScripts`, `skipEvents`, engine config). */
+  config?: ScriptDispatchConfig;
+}
+
+/**
+ * Dispatch an interactive event against a layout, simulating user interaction
+ * for API consumers (tests, batch "what-if" evaluation, preview).
+ *
+ * Adobe only fires `click`/`change`/`enter`/`exit` when a user actually
+ * interacts with a live form, so a static render never runs them. This entry
+ * point lets callers drive those handlers explicitly, with XFA propagation:
+ * the event runs on the target and — for bubbling events — on each ancestor,
+ * exactly like the Acrobat event model (see xfa-event-bubbling.ts).
+ *
+ * Mutations are reconciled onto the layout by identity, so the returned layout
+ * carries whatever the handlers changed.
+ */
+export function dispatchInteractiveEvent(
+  layout: LayoutModel,
+  data: Record<string, unknown>,
+  options: InteractiveEventOptions,
+): Result<DispatchResult> {
+  const config = options.config ?? {};
+  const emptyResult: DispatchResult = {
+    layout,
+    scriptsExecuted: 0,
+    scriptErrors: 0,
+    errorMessages: [],
+    propertyChanges: 0,
+    layoutDirty: false,
+  };
+  if (config.skipScripts) return success(emptyResult);
+
+  try {
+    const index = buildScriptIndex(layout);
+    const allNodes = index.allNodes;
+    const fieldAccessor = createFieldAccessor(allNodes, data);
+    const changeTracker = new PropertyChangeTracker();
+    for (const node of index.ordered) {
+      changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
+    }
+
+    const jsEngine = new JavaScriptEngine(fieldAccessor, config);
+    jsEngine.setNodeMap(allNodes);
+    jsEngine.setLayoutInfo({ pageCount: layout.pages.length, pageOf: new Map(), pageContent: new Map() });
+    const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
+
+    const eventName = normalizeEventName(undefined, options.activity);
+    const target = resolveEventTarget(index, options.ref);
+    if (!target) return success(emptyResult);
+
+    // A change event's new value is visible to handlers as the node value.
+    if (options.value !== undefined) {
+      target.resolvedValue = options.value;
+      const layoutNode = target.layoutNode as Record<string, unknown> | undefined;
+      if (layoutNode) layoutNode.resolvedValue = options.value;
+    }
+
+    // One handler per (node, event); the dispatcher decides propagation.
+    const dispatcher = new XfaEventDispatcher<ScriptableNode>((node) => node.parent ?? null);
+    for (const entry of collectScriptsFromIndex(index)) {
+      if (entry.eventName !== eventName) continue;
+      if (config.skipEvents?.includes(entry.eventName)) continue;
+      dispatcher.addEventListener(entry.element, entry.eventName, (event) => {
+        event.handled = true;
+        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      });
+    }
+
+    dispatcher.dispatch(target, eventName);
+
+    const applyResult = applyTrackedChanges(index, changeTracker);
+    return success({
+      layout,
+      scriptsExecuted: stats.executed,
+      scriptErrors: stats.errors,
+      errorMessages: stats.errorMessages,
+      propertyChanges:
+        applyResult.valuesChanged + applyResult.presenceChanged + applyResult.accessChanged,
+      layoutDirty: applyResult.layoutDirty,
+    });
+  } catch (e) {
+    return failure(
+      ERROR_CODES.SCRIPT_EXECUTION_FAILED?.code ?? 'SCR_6001',
+      `${ERROR_CODES.SCRIPT_EXECUTION_FAILED?.message ?? 'Script execution failed'}: ${e}`,
+    );
+  }
+}
+
+/** Resolve an event ref (SOM path or bare name) to its scriptable node. */
+function resolveEventTarget(index: ScriptIndex, ref: string): ScriptableNode | undefined {
+  const direct = index.allNodes.get(ref);
+  if (direct) return direct;
+  const stripped = ref.replace(/^\$+/, '');
+  return index.allNodes.get(stripped);
+}
+
 // ─── Core 6-Phase Lifecycle ─────────────────────────────────────────────
 
 function executeScriptLifecycle(
@@ -155,6 +263,8 @@ function executeScriptLifecycle(
   // Create script engines
   const jsEngine = new JavaScriptEngine(fieldAccessor, config);
   jsEngine.setNodeMap(allNodes);
+  // Pre-layout: only the template page count is known (G4).
+  jsEngine.setLayoutInfo({ pageCount: layout.pages.length, pageOf: new Map(), pageContent: new Map() });
 
   // Collect all scripts from the layout tree
   const scripts = collectScriptsFromIndex(index);
@@ -320,6 +430,7 @@ export function dispatchPostLayoutScripts(
     }
     const jsEngine = new JavaScriptEngine(fieldAccessor, config);
     jsEngine.setNodeMap(allNodes);
+    jsEngine.setLayoutInfo(buildLayoutInfo(index, layout));
     const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
 
     const scripts = collectScriptsFromIndex(index);
@@ -349,6 +460,47 @@ export function dispatchPostLayoutScripts(
       `${ERROR_CODES.SCRIPT_EXECUTION_FAILED?.message ?? 'Script execution failed'}: ${e}`
     );
   }
+}
+
+/**
+ * Populate `xfa.layout` facts (G4) from a paginated tree: 1-based page numbers
+ * per node (keyed by both the node object and its SOM path/key) and per-page
+ * content counts.
+ */
+function buildLayoutInfo(
+  index: ScriptIndex,
+  layout: PaginatedLayout,
+): XfaLayoutInfo {
+  const pageOf = new Map<unknown, number>();
+  const pageContent = new Map<number, number>();
+
+  const walk = (nodes: LayoutNode[], pageNumber: number): number => {
+    let count = 0;
+    for (const node of nodes) {
+      pageOf.set(node, pageNumber);
+      count++;
+      if (node.type === 'subform' || node.type === 'exclGroup') {
+        count += walk(node.children, pageNumber);
+      }
+    }
+    return count;
+  };
+
+  layout.pages.forEach((page, i) => {
+    const pageNumber = page.pageIndex >= 0 ? page.pageIndex + 1 : i + 1;
+    const count = walk(page.children, pageNumber) + walk(page.masterPageChildren, pageNumber);
+    pageContent.set(pageNumber, count);
+  });
+
+  // Alias every scriptable key/path to its layout node's page.
+  for (const scriptable of index.ordered) {
+    const page = scriptable.layoutNode ? pageOf.get(scriptable.layoutNode) : undefined;
+    if (page === undefined) continue;
+    if (scriptable.key) pageOf.set(scriptable.key, page);
+    if (scriptable.path) pageOf.set(scriptable.path, page);
+  }
+
+  return { pageCount: layout.pages.length, pageOf, pageContent };
 }
 
 /**
@@ -649,7 +801,7 @@ function sortLeafFirst<T extends { elementPath?: string; element: ScriptableNode
  * receives those *same objects*. A mutation made by a script is therefore the
  * mutation that is later applied back to the layout tree.
  */
-interface ScriptIndex {
+export interface ScriptIndex {
   /**
    * Flat lookup keyed by each node's unique `key`: `path` for the first node
    * claiming that path, `path#N` for later ones. First-wins at `path` keeps
@@ -663,7 +815,7 @@ interface ScriptIndex {
   root?: ScriptableNode;
 }
 
-function buildScriptIndex(layout: LayoutModel): ScriptIndex {
+export function buildScriptIndex(layout: LayoutModel): ScriptIndex {
   const allNodes = new Map<string, ScriptableNode>();
   const ordered: ScriptableNode[] = [];
   const pathCounts = new Map<string, number>();

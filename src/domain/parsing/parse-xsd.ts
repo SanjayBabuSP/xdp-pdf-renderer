@@ -30,10 +30,10 @@ const XSD_TYPE_MAP: Record<string, SimpleXsdType> = {
 };
 
 /** Parse an XSD XML string into the internal SchemaModel. */
-export function parseXsd(xsdXml: string): Result<SchemaModel> {
+export function parseXsd(xsdXml: string, maxInputSize?: number): Result<SchemaModel> {
   let parsed: Record<string, unknown>;
   try {
-    parsed = parseXml(xsdXml);
+    parsed = parseXml(xsdXml, maxInputSize);
   } catch (e) {
     return failure(ERROR_CODES.MALFORMED_XML.code, `${ERROR_CODES.MALFORMED_XML.message}: ${e}`);
   }
