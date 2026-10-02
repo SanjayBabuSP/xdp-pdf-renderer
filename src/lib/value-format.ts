@@ -5,10 +5,16 @@
 // accessor (`.formattedValue`), so it lives in lib/ rather than in either
 // consumer.
 //
-// Supports three picture grammars:
-//   • numeric masks          `###,###.##`, `($###.##)`
+// Supports four picture grammars:
+//   • numeric masks          `###,###.##`, `$z,zz9.99`, `$z,zz9.99|($z,zz9.99)`
 //   • simple date patterns   `DD/MM/YYYY`, `yyyy-mm-dd`
 //   • compound pictures      `date{M/D/YYYY} time{h:MM:SS A}` (G13)
+//   • text templates         `text{'('999')' 999-9999}` (G14 follow-up)
+//
+// The numeric token set (`0 # 9 z , . CR DB %` and `|` alternates) follows the
+// locale picture tables compiled into `jfutility.dll`
+// (reference/decompiled/jfutility_disasm.c:31412 `z,zz9.zzz`, `$ z,zz9.99s`, …)
+// and the Designer preset list in `LocalesList.xml`.
 // ────────────────────────────────────────────────────────────────────────────
 
 export function formatValue(value: unknown, picture?: string, locale?: string): string {
@@ -20,12 +26,14 @@ export function formatValue(value: unknown, picture?: string, locale?: string): 
   const compound = formatCompoundValue(value, pattern, locale);
   if (compound !== null) return compound;
 
-  if (looksLikeDatePattern(pattern)) {
-    return formatDateValue(value, pattern, locale);
-  }
-
+  // Numeric masks are tested before dates: a picture such as `$z,zz9.99DB`
+  // contains a `D` that would otherwise be mistaken for a day token.
   if (looksLikeNumberPattern(pattern)) {
     return formatNumberValue(value, pattern);
+  }
+
+  if (looksLikeDatePattern(pattern)) {
+    return formatDateValue(value, pattern, locale);
   }
 
   return String(value);
@@ -33,28 +41,71 @@ export function formatValue(value: unknown, picture?: string, locale?: string): 
 
 // ─── Compound pictures: date{…} / time{…} ────────────────────────────────
 
-const COMPOUND_RE = /(datetime|date|time)\{([^}]*)\}/gi;
+const COMPOUND_RE = /(datetime|date|time|text)\{([^}]*)\}/gi;
 
 /**
  * Format a value through a compound picture such as
- * `date{D-MMM}` or `date{M/D/YYYY} time{h:MM:SS A}`.
- * Evidence: ConvertWord.exe_disasm.c:92370, jfutility_disasm.c:31xxx.
+ * `date{D-MMM}`, `date{M/D/YYYY} time{h:MM:SS A}` or
+ * `text{'('999')' 999-9999}`.
+ * Evidence: ConvertWord.exe_disasm.c:92370, jfutility_disasm.c:31xxx;
+ * pattern presets in `LocalesList.xml`.
  * Returns null when the pattern has no compound directive.
  */
 function formatCompoundValue(value: unknown, pattern: string, locale?: string): string | null {
   COMPOUND_RE.lastIndex = 0;
   if (!COMPOUND_RE.test(pattern)) return null;
 
-  const date = coerceDate(value);
-  if (!date) return String(value);
-
-  COMPOUND_RE.lastIndex = 0;
   return pattern.replace(COMPOUND_RE, (_match, kind: string, body: string) => {
     const k = kind.toLowerCase();
+    if (k === 'text') return formatTextTemplate(value, body);
+    const date = coerceDate(value);
+    if (!date) return String(value);
     if (k === 'time') return formatTimeBody(date, body || 'h:MM:SS A');
-    if (k === 'datetime') return formatDateBody(date, body || 'M/D/YYYY', locale);
     return formatDateBody(date, body || 'M/D/YYYY', locale);
   });
+}
+
+/**
+ * `text{…}` template: `9` consumes a digit, `A` a letter, `O`/`X` any
+ * character, single-quoted runs are literal, everything else is literal.
+ */
+function formatTextTemplate(value: unknown, template: string): string {
+  const source = String(value);
+  let out = '';
+  let si = 0;
+  let i = 0;
+  while (i < template.length) {
+    const ch = template[i];
+    if (ch === "'") {
+      const end = template.indexOf("'", i + 1);
+      if (end < 0) {
+        out += template.slice(i + 1);
+        break;
+      }
+      out += template.slice(i + 1, end);
+      i = end + 1;
+      continue;
+    }
+    if (ch === '9') {
+      if (si < source.length) out += source[si++];
+      i++;
+      continue;
+    }
+    if (ch === 'A') {
+      while (si < source.length && !/[A-Za-z]/.test(source[si])) si++;
+      if (si < source.length) out += source[si++];
+      i++;
+      continue;
+    }
+    if (ch === 'O' || ch === 'X' || ch === 'x') {
+      if (si < source.length) out += source[si++];
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 // ─── Simple date patterns ────────────────────────────────────────────────
@@ -180,34 +231,128 @@ function coerceDate(value: unknown): Date | null {
 
 // ─── Numeric masks ───────────────────────────────────────────────────────
 
+/** A numeric picture uses at least one placeholder or the percent token. */
 function looksLikeNumberPattern(pattern: string): boolean {
-  return /[0#]/.test(pattern) && !/[a-z]/i.test(pattern);
+  if (/\{/.test(pattern)) return false;
+  return /[0#9z%]/.test(pattern);
 }
+
+const INT_PLACEHOLDER = /[0#9z]/;
 
 function formatNumberValue(value: unknown, pattern: string): string {
   const number = coerceNumber(value);
   if (number === null) return String(value);
 
-  const mask = pattern.replace(/\s+/g, '');
-  const prefix = mask.match(/^[^0-9#.,%]+/)?.[0] ?? '';
-  const suffix = mask.match(/[^0-9#.,%]+$/)?.[0] ?? '';
-  const digitsMask = mask.slice(prefix.length, mask.length - suffix.length);
-  const hasDecimal = digitsMask.includes('.');
-  const decimalPlaces = hasDecimal ? digitsMask.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0 : 0;
-  const hasGrouping = digitsMask.includes(',');
+  // `|` separates the positive and negative sub-pictures.
+  const bar = pattern.indexOf('|');
+  const positivePart = bar >= 0 ? pattern.slice(0, bar) : pattern;
+  const negativePart = bar >= 0 ? pattern.slice(bar + 1) : undefined;
 
-  const absValue = Math.abs(number);
-  const rounded = absValue.toFixed(decimalPlaces);
-  const [wholeRaw, fractionRaw = ''] = rounded.split('.');
+  const negative = number < 0;
+  const part = negative && negativePart !== undefined ? negativePart : positivePart;
+  const addSign = negative && negativePart === undefined;
 
-  let whole = wholeRaw;
-  if (hasGrouping) {
-    whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // `%` in a picture scales the value by 100 (Excel/XFA behaviour).
+  const scaled = /%/.test(part) ? Math.abs(number) * 100 : Math.abs(number);
+
+  return renderNumberTemplate(scaled, part, addSign);
+}
+
+/**
+ * Render a number through a picture template. Placeholders:
+ *   `0` always prints a digit, `#` prints nothing when absent,
+ *   `9`/`z` print a space when absent, `,` groups, `.` separates decimals.
+ * Literals (currency symbols, `CR`, `DB`, `%`) are copied verbatim.
+ */
+function renderNumberTemplate(abs: number, template: string, addSign: boolean): string {
+  const dot = template.indexOf('.');
+  const intTemplate = dot >= 0 ? template.slice(0, dot) : template;
+  const afterDot = dot >= 0 ? template.slice(dot + 1) : '';
+  const fracMatch = /^[0#9z]*/.exec(afterDot);
+  const fracTemplate = fracMatch ? fracMatch[0] : '';
+  const suffix = afterDot.slice(fracTemplate.length);
+
+  const decimals = fracTemplate.length;
+  const rounded = abs.toFixed(decimals);
+  const [intDigits, fracDigits = ''] = rounded.split('.');
+
+  const intOut = renderIntegerTemplate(intTemplate, intDigits, addSign);
+  const fracOut = decimals > 0 ? `.${fillPlaceholders(fracTemplate, fracDigits)}` : '';
+  return `${intOut}${fracOut}${suffix}`;
+}
+
+function renderIntegerTemplate(template: string, digits: string, addSign: boolean): string {
+  const chars = [...template];
+  const placeholderIdx = chars
+    .map((c, i) => (INT_PLACEHOLDER.test(c) ? i : -1))
+    .filter((i) => i >= 0);
+
+  // A picture is a minimum width: digits beyond the placeholder count are
+  // still printed (e.g. `0.00` on 12.345 → `12.35`, not `2.35`).
+  const overflowCount = Math.max(0, digits.length - placeholderIdx.length);
+  const overflow = overflowCount > 0 ? digits.slice(0, overflowCount) : '';
+  const significant = overflowCount > 0 ? digits.slice(overflowCount) : digits;
+
+  // Right-align the remaining digits into the placeholders.
+  const rendered = new Map<number, string>();
+  let d = significant.length - 1;
+  for (let k = placeholderIdx.length - 1; k >= 0; k--) {
+    const ch = chars[placeholderIdx[k]];
+    if (d >= 0) {
+      rendered.set(placeholderIdx[k], significant[d--]);
+    } else if (ch === '0') {
+      rendered.set(placeholderIdx[k], '0');
+    } else if (ch === '9' || ch === 'z') {
+      rendered.set(placeholderIdx[k], ' ');
+    } else {
+      rendered.set(placeholderIdx[k], '');
+    }
   }
 
-  const sign = number < 0 ? '-' : '';
-  const numeric = hasDecimal ? `${whole}.${fractionRaw}` : whole;
-  return `${prefix}${sign}${numeric}${suffix}`;
+  let out = '';
+  let signPlaced = !addSign;
+  let overflowPlaced = overflow === '';
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (INT_PLACEHOLDER.test(ch)) {
+      const value = rendered.get(i) ?? '';
+      if (!signPlaced) {
+        out += '-';
+        signPlaced = true;
+      }
+      if (!overflowPlaced) {
+        out += overflow;
+        overflowPlaced = true;
+      }
+      out += value;
+      continue;
+    }
+    if (ch === ',') {
+      // Emit the separator only when significant output remains to its left.
+      const leftHasContent = placeholderIdx.some(
+        (idx) => idx < i && (rendered.get(idx) ?? '') !== '' && (rendered.get(idx) ?? '') !== ' '
+      );
+      if (leftHasContent || !overflowPlaced) out += ',';
+      continue;
+    }
+    out += ch;
+  }
+  if (!overflowPlaced) out += overflow;
+  if (!signPlaced) out = `-${out}`;
+  return out;
+}
+
+function fillPlaceholders(template: string, digits: string): string {
+  let out = '';
+  let d = 0;
+  for (const ch of template) {
+    if (INT_PLACEHOLDER.test(ch)) {
+      out += d < digits.length ? digits[d++] : ch === '0' ? '0' : ' ';
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 function coerceNumber(value: unknown): number | null {

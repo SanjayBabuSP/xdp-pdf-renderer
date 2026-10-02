@@ -344,3 +344,39 @@ npm install fabric           # Interactive canvas
 
 # Script Editor (replaces FormDesigner's script panel)
 npm install @monaco-editor/react  # VS Code's editor component
+
+---
+
+## COMPLETENESS AUDIT (XDP/XSD → PDF pipeline)
+
+A full comparison of the Designer 11.0 installation (`/home/sanjay/Designer 11.0`,
+5,023 files) against this reference folder was performed.
+
+**Binaries.** 113 distinct Designer binaries (`.dll`/`.exe`); 112 have a Ghidra
+decompilation in `decompiled/`. The only missing one is `icudt40.dll` — large,
+machine-generated ICU locale **data tables** with no functions to decompile.
+Localized duplicates (`DE/ ES/ FR/ …/Convert*.dll`) are intentionally omitted.
+
+**Config.** Every top-level `.xdc`/`.xci`/`.ini`/`.xml` converter config is
+present, including the authoritative `Designer.xdc` `<medium>` stock catalog.
+
+**Data files added** (were missing; copied verbatim from the install into
+`Adobe-LiveCycle-Designer-11.0/EN/`, mirroring Adobe's layout):
+
+| File | Why it matters |
+|------|----------------|
+| `EN/LocalesList.xml` | Locale → LCID catalog and the custom picture presets (`text{'('999')' 999-9999}`, `$z,zz9.99`, …) |
+| `EN/MediumStockList.xml` | Canonical media-stock names (dimensions live in `Designer.xdc`) |
+| `EN/Objects/LocalLibrary.xml`, `EN/Objects/ObjLibLayout.xml` | Object-library palette metadata (authoring) |
+| `EN/Templates/LocalTemplates.xml` | Local template palette metadata (authoring) |
+
+These are XML data files (no code to decompile). The conversion-relevant parts
+have been **recreated in the npm project**:
+
+- `src/config/xfa-locales.json` — generated from `LocalesList.xml` by
+  `npm run locales:import` (`scripts/import-xfa-locale.mjs`).
+- `src/lib/locale-data.ts` — `getLocaleInfo` / `listLocales` / `getCustomPatterns`.
+- `src/lib/value-format.ts` — now implements the Adobe numeric picture token set
+  (`0 # 9 z , . CR DB %` and `|` alternates) and `text{…}` templates, matching
+  the locale picture tables compiled into `jfutility.dll`
+  (`decompiled/jfutility_disasm.c:31412`).

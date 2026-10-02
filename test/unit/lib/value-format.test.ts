@@ -60,3 +60,52 @@ describe('numeric masks (regression)', () => {
     expect(formatValue(-1234.5, '$###,###.00')).toBe('$-1,234.50');
   });
 });
+
+describe('Adobe numeric picture tokens (jfutility locale tables)', () => {
+  it('supports 9/z zero-suppressed placeholders', () => {
+    expect(formatValue(1234.5, '$z,zz9.99')).toBe('$1,234.50');
+    expect(formatValue(0, '$z,zz9.99')).toBe('$   0.00');
+    expect(formatValue(1234.5, '$ z,zz9.99')).toBe('$ 1,234.50');
+  });
+
+  it('supports | alternates for negative values', () => {
+    expect(formatValue(-1234.5, '$z,zz9.99|($z,zz9.99)')).toBe('($1,234.50)');
+    expect(formatValue(1234.5, '$z,zz9.99|($z,zz9.99)')).toBe('$1,234.50');
+  });
+
+  it('treats CR / DB as literal credit-debit suffixes', () => {
+    expect(formatValue(1234.5, '$z,zz9.99CR')).toBe('$1,234.50CR');
+    expect(formatValue(1234.5, '$z,zz9.99DB')).toBe('$1,234.50DB');
+  });
+
+  it('scales percent pictures by 100', () => {
+    expect(formatValue(0.25, 'z,zz9%')).toBe('  25%');
+  });
+
+  it('keeps the #/0 masks working', () => {
+    expect(formatValue(1234.5, '###,###.##')).toBe('1,234.50');
+    expect(formatValue(-1234.5, '$###,###.00')).toBe('$-1,234.50');
+  });
+});
+
+describe('text{…} templates (LocalesList.xml presets)', () => {
+  it('formats phone numbers', () => {
+    expect(formatValue('5551234567', "text{'('999')' 999-9999}")).toBe('(555) 123-4567');
+  });
+
+  it('formats zip / zip+4', () => {
+    expect(formatValue('123456789', 'text{99999-9999}')).toBe('12345-6789');
+  });
+
+  it('consumes letters with A', () => {
+    expect(formatValue('ABC123', 'text{AAA-999}')).toBe('ABC-123');
+  });
+});
+
+describe('numeric pictures are minimum width, not maximum', () => {
+  it('prints digits wider than the mask', () => {
+    expect(formatValue(12.345, '0.00')).toBe('12.35');
+    expect(formatValue(12345, '#,##0')).toBe('12,345');
+    expect(formatValue(1234567.5, '$0.00')).toBe('$1234567.50');
+  });
+});

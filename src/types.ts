@@ -432,6 +432,20 @@ export interface FontEquateRule {
   force: boolean;
 }
 
+/**
+ * Document metadata Adobe surfaces into the PDF: XMP (`xmp:CreatorTool`,
+ * `pdf:Producer`, `xmpMM:DocumentID`, `dc:title`) and the Info dict.
+ * Titles come from the XDP's `x:xmpmeta` (`dc:title/rdf:Alt/rdf:li`) or the
+ * template `<desc>` — evidence: FormDesigner.exe_disasm.c:58290 parses
+ * `<dc:title` and pdfdocument_disasm.c:154831 reads `$template.#subform.#desc`.
+ */
+export interface DocumentMetadata {
+  title?: string;
+  description?: string;
+  author?: string;
+  language?: string;
+}
+
 export interface ConfigSpec {
   pdfVersion?: string;
   adobeExtensionLevel?: number;
@@ -456,6 +470,8 @@ export interface LayoutModel {
   config?: ConfigSpec;
   xsdUri?: string;
   xsdRootElement?: string;
+  /** Document metadata surfaced from the XDP for the output PDF (G18). */
+  metadata?: DocumentMetadata;
   /** Detected XFA template version (e.g. `3.3`), from the template namespace. */
   version?: string;
   /** Namespace/version compatibility warnings surfaced during parsing (G16). */
@@ -594,6 +610,11 @@ export interface AdobeOptions {
   tagged?: boolean | { language?: string; title?: string };
   /** Embed the source XDP packets into the AcroForm `/XFA` entry. */
   embedXfa?: boolean;
+  /** Override the XMP/Info metadata Adobe derives from the XDP. */
+  metadata?: {
+    producer?: string;
+    creatorTool?: string;
+  };
 }
 
 // ─── Positioned / Paginated Layout ───────────────────────────────────────────

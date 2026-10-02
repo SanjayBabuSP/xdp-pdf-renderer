@@ -22,6 +22,9 @@ import {
   applyAdobeExtensionLevel,
   createAcroFormFields,
   markDocumentTagged,
+  applyDocumentMetadata,
+  setNeedsRendering,
+  preserveInfoOverrides,
   embedXfaPackage,
   addBookmarks,
   addAnnotations,
@@ -139,9 +142,25 @@ export async function renderFormToPdf(
       fontEquateRules
     );
 
+    // ── Phase 5a0: Adobe metadata block (G18) ───────────────────────────
+    preserveInfoOverrides(doc, {
+      producer: options.adobe?.metadata?.producer,
+      creatorTool: options.adobe?.metadata?.creatorTool,
+    });
+    applyDocumentMetadata(doc, layoutResult.data.metadata, {
+      producer: options.adobe?.metadata?.producer,
+      creatorTool: options.adobe?.metadata?.creatorTool,
+    });
+    // Adobe's createAcroFormDict sets /NeedsRendering for XFA forms
+    // (pdfldriver_disasm.c:1729) when the form is dynamic.
+    if (options.adobe?.acroForm || options.adobe?.embedXfa) {
+      setNeedsRendering(doc);
+    }
+
     // ── Phase 5a: Apply catalog metadata from <config> (G16) ─────────────
     const config = layoutResult.data.config;
-    let dirty = false;
+    // The metadata block always mutates doc (Info + XMP stream) → re-save.
+    let dirty = true;
     if (config?.pdfVersion) {
       applyPdfVersion(doc, config.pdfVersion);
       dirty = true;

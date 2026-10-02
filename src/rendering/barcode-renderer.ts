@@ -21,13 +21,30 @@
 
 import { PDFPage, rgb } from 'pdf-lib';
 import { pushGraphicsState, popGraphicsState } from 'pdf-lib';
+import {
+  encodePdf417,
+  modulesPerRow,
+  PDF417_DEFAULT_EC_LEVEL,
+  rowToModules,
+} from './pdf417';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-export type BarType = 'narrow-bar' | 'wide-bar' | 'narrow-space' | 'wide-space';
+export type BarType =
+  | 'narrow-bar'
+  | 'wide-bar'
+  | 'narrow-space'
+  | 'wide-space'
+  | /** POSTNET/PLANET ascender bar (full height). */ 'tall-bar'
+  | /** POSTNET/PLANET short bar (bottom-aligned, 40% height). */ 'short-bar'
+  | 'module-row';
 
 export interface Bar {
   type: BarType;
+  /** For 2D symbologies: the run-length pattern of one stacked row. */
+  rowPattern?: string;
+  /** For 2D symbologies: total modules the row occupies (quiet-zone excluded). */
+  rowWidth?: number;
 }
 
 /** Rendered barcode bar specification: alternating bars and spaces. */
@@ -519,6 +536,56 @@ function encodeMsi(data: string): Bar[] {
   return bars;
 }
 
+// ─── POSTNET / PLANET (USPS 2-height) ────────────────────────────────────────
+
+/**
+ * USPS 5-bar digit encoding (USPS PUB 25). Weights are 7,4,2,1,0 across the
+ * five bars; each digit carries exactly two talls whose weights sum to the
+ * digit (mod 11 — 7+4=11 encodes 0). PLANET is the inverse image: the same
+ * two-of-five pattern marks the SHORT bars (3 talls).
+ */
+const POSTNET_TALL: Record<string, string> = {
+  '0': '11000', '1': '00011', '2': '00101', '3': '00110', '4': '01001',
+  '5': '01010', '6': '01100', '7': '10001', '8': '10010', '9': '10100',
+};
+
+function checkDigit(digits: string): number {
+  const sum = [...digits].reduce((n, c) => n + Number(c), 0);
+  return (10 - (sum % 10)) % 10;
+}
+
+function barsForDigit(digit: string, planet: boolean): Bar[] {
+  const pattern = POSTNET_TALL[digit] ?? POSTNET_TALL['0'];
+  const bars: Bar[] = [];
+  for (const bit of pattern) {
+    const tall = planet ? bit === '0' : bit === '1';
+    bars.push({ type: tall ? 'tall-bar' : 'short-bar' });
+    bars.push({ type: 'narrow-space' });
+  }
+  return bars;
+}
+
+function encodeUsps(data: string, planet: boolean): Bar[] {
+  const digits = data.replace(/\D/g, '');
+  const payload = digits.length > 0 ? digits : '0';
+  const full = payload + String(checkDigit(payload));
+  // Frame bars at both ends.
+  const bars: Bar[] = [{ type: 'tall-bar' }, { type: 'narrow-space' }];
+  for (const digit of full) bars.push(...barsForDigit(digit, planet));
+  bars.push({ type: 'tall-bar' });
+  return bars;
+}
+
+/** `postUS5Zip` / `postUSStandard` (ZIP+4) / `postUSDPBC` (ZIP+4+2). */
+function encodePostnet(data: string): Bar[] {
+  return encodeUsps(data, false);
+}
+
+/** `planetCode` — Confirm/Trace barcode; POSTNET's inverse. */
+function encodePlanet(data: string): Bar[] {
+  return encodeUsps(data, true);
+}
+
 // ─── Symbology normalization ─────────────────────────────────────────────────
 
 /**
@@ -545,6 +612,10 @@ export function normalizeSymbology(symbology: string): string {
   if (s.includes('upce')) return 'upce';
   if (s.includes('codabar')) return 'codabar';
   if (s.includes('2of5interleaved') || s === '2of5i') return '2of5interleaved';
+  if (s.includes('postus5zip') || s === 'postnet5') return 'postus5zip';
+  if (s.includes('postusdpbc')) return 'postusdpbc';
+  if (s.includes('postusstandard') || s.includes('postus')) return 'postusstandard';
+  if (s.includes('planet')) return 'planet';
   if (s.includes('2of5matrix')) return '2of5matrix';
   if (s.includes('2of5standard')) return '2of5standard';
   if (s.includes('2of5industrial')) return '2of5industrial';
@@ -571,20 +642,46 @@ export const SUPPORTED_SYMBOLOGIES = [
   'code128a', 'code128b', 'code128c', 'code128sscc',
   'ean13', 'ean8', 'upca', 'upce', 'codabar',
   '2of5interleaved', '2of5matrix', '2of5industrial', '2of5standard',
+  'pdf417', 'postus5zip', 'postusstandard', 'postusdpbc', 'planet',
 ] as const;
 
 /** Adobe `barcodeDefinition` names that are recognized but not yet encoded. */
 export const PENDING_SYMBOLOGIES = [
   'code11', 'logmars', 'code49',
-  'pdf417', 'qrcode', 'datamatrix', 'aztec',
+  'qrcode', 'datamatrix', 'aztec',
   'postAUSStandard', 'postAUSCust2', 'postAUSCust3', 'postAUSReplyPaid',
-  'postUSStandard', 'postUS5Zip', 'postUSDPBC', 'postUSImb',
-  'postUKRM4SCC', 'postJapan',
+  'postUSImb', 'postUKRM4SCC', 'postJapan',
 ] as const;
+
+/**
+ * PDF417 is a stacked (2D) symbology: each encoded row is a run-length string
+ * of modules. The 1D `Bar[]` painter draws full-height bars, so each PDF417
+ * row is carried as one `module-row` Bar and painted by `renderBarcode2D`.
+ */
+function encodePdf417ToBars(data: string, options: EncodeBarsOptions): Bar[] {
+  const symbol = encodePdf417(data, {
+    errorCorrectionLevel: options.errorCorrectionLevel ?? PDF417_DEFAULT_EC_LEVEL,
+    columns: options.columns,
+    rows: options.rows,
+    aspectRatio: options.aspectRatio,
+  });
+  return symbol.rowPatterns.map((rowPattern) => ({
+    type: 'module-row' as const,
+    rowPattern,
+    rowWidth: modulesPerRow(symbol.columns),
+  }));
+}
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-function encodeBars(symbology: string, data: string): Bar[] {
+interface EncodeBarsOptions {
+  errorCorrectionLevel?: number;
+  columns?: number;
+  rows?: number;
+  aspectRatio?: number;
+}
+
+function encodeBars(symbology: string, data: string, options: EncodeBarsOptions = {}): Bar[] {
   switch (normalizeSymbology(symbology)) {
     case 'ean13': return encodeEan13(data);
     case 'ean8': return encodeEan8(data);
@@ -601,13 +698,23 @@ function encodeBars(symbology: string, data: string): Bar[] {
     case 'msi': return encodeMsi(data);
     case 'upce': return encodeUpcE(data);
     case '2of5standard': return encode2of5(data, 'industrial');
+    case 'pdf417': return encodePdf417ToBars(data, options);
+    case 'postus5zip':
+    case 'postusstandard':
+    case 'postusdpbc':
+      return encodePostnet(data);
+    case 'planet': return encodePlanet(data);
     default: return encodeCode39(data);
 }
 }
 
 /** Public entry point — returns the raw bar/space list for a symbology. */
-export function encodeBarcode(symbology: string, data: string): Bar[] {
-  return encodeBars(symbology, data);
+export function encodeBarcode(
+  symbology: string,
+  data: string,
+  options: EncodeBarsOptions = {},
+): Bar[] {
+  return encodeBars(symbology, data, options);
 }
 
 // ─── PDF rendering ────────────────────────────────────────────────────────────
@@ -627,6 +734,15 @@ export function encodeBarcode(symbology: string, data: string): Bar[] {
  * @param h          Available height
  * @param moduleW    Module width in points (default 2pt)
  */
+export interface RenderBarcodeOptions {
+  /** Symbology-specific encode options (e.g. PDF417 EC level 0-8). */
+  errorCorrectionLevel?: number;
+  columns?: number;
+  rows?: number;
+  /** Target box width/height — drives PDF417's aspect-based dimensioning. */
+  aspectRatio?: number;
+}
+
 export function renderBarcode(
   pdfPage: PDFPage,
   symbology: string,
@@ -638,11 +754,17 @@ export function renderBarcode(
   moduleW = 2,
   align: 'left' | 'center' | 'right' = 'center',
   wideNarrowRatio = 2.5,
+  options: RenderBarcodeOptions = {},
 ): void {
   if (!data || w <= 0 || h <= 0) return;
 
-  const bars = encodeBars(symbology, data);
+  const bars = encodeBars(symbology, data, { ...options, aspectRatio: w / h });
   if (bars.length === 0) return;
+  // 2D symbologies stack rows — painted by the module renderer below.
+  if (bars[0]?.type === 'module-row') {
+    renderBarcode2D(pdfPage, bars, x, y, w, h);
+    return;
+  }
 
   // Calculate total width to auto-scale if needed.
   const narrowW = moduleW;
@@ -678,9 +800,75 @@ export function renderBarcode(
         color: rgb(0, 0, 0),
         borderWidth: 0,
       });
+    } else if (bar.type === 'tall-bar' || bar.type === 'short-bar') {
+      // USPS 2-height symbologies: tall bars span the full symbol height,
+      // short bars are 40% and sit on the baseline (USPS PUB 25 geometry).
+      pdfPage.drawRectangle({
+        x: curX,
+        y,
+        width: barW,
+        height: bar.type === 'tall-bar' ? h : h * 0.4,
+        color: rgb(0, 0, 0),
+        borderWidth: 0,
+      });
     }
     curX += barW;
   }
 
   pdfPage.pushOperators(popGraphicsState());
 }
+
+/**
+ * Stacked (2D) barcode painter: each `module-row` Bar is one encoded row drawn
+ * as alternating dark/light runs across the full module width. Rows are fitted
+ * into the box; each row's height is the box height divided by the row count.
+ */
+function renderBarcode2D(
+  pdfPage: PDFPage,
+  bars: Bar[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  const rows = bars.length;
+  if (rows === 0) return;
+  const rowHeight = h / rows;
+
+  pdfPage.pushOperators(pushGraphicsState());
+
+  // Rows paint top-down (PDF y grows upward from the box bottom edge).
+  bars.forEach((bar, rowIndex) => {
+    const pattern = bar.rowPattern ?? '';
+    const modules = rowToModulesLocal(pattern, bar.rowWidth ?? 0);
+    if (modules.length === 0) return;
+    const moduleW = w / modules.length;
+    const rowY = y + h - (rowIndex + 1) * rowHeight;
+    let i = 0;
+    while (i < modules.length) {
+      if (!modules[i]) {
+        i++;
+        continue;
+      }
+      let run = 1;
+      while (i + run < modules.length && modules[i + run]) run++;
+      pdfPage.drawRectangle({
+        x: x + i * moduleW,
+        y: rowY,
+        width: run * moduleW,
+        height: rowHeight,
+        color: rgb(0, 0, 0),
+        borderWidth: 0,
+      });
+      i += run;
+    }
+  });
+
+  pdfPage.pushOperators(popGraphicsState());
+}
+
+/** Local wrapper so the 2D painter does not depend on the encoder import order. */
+function rowToModulesLocal(pattern: string, width: number): boolean[] {
+  return rowToModules(pattern, width);
+}
+

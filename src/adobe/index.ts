@@ -51,6 +51,10 @@ export type { XfaEvent, EventPhase, EventHandler } from './xfa-event-bubbling';
 export { validateXfaNamespaces, validateNamespacePrefixes, getVersionFeatures } from './xfa-namespace-validation';
 export type { NamespaceValidationResult } from './xfa-namespace-validation';
 
+// Document metadata (XMP / Info / ViewerPreferences)
+export { applyDocumentMetadata, setNeedsRendering, preserveInfoOverrides } from './pdf-metadata';
+export type { MetadataOptions } from './pdf-metadata';
+
 // /XFA package embedding
 export { embedXfaPackage, extractXfaPackets } from './pdf-xfa';
 export type { XfaPacket } from './pdf-xfa';

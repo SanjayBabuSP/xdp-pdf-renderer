@@ -1,0 +1,575 @@
+{
+  "locales": {
+    "ar_DZ": {
+      "language": "Arabic",
+      "region": "Algeria"
+    },
+    "ar_BH": {
+      "language": "Arabic",
+      "region": "Bahrain"
+    },
+    "ar_EG": {
+      "language": "Arabic",
+      "region": "Egypt"
+    },
+    "ar_IQ": {
+      "language": "Arabic",
+      "region": "Iraq"
+    },
+    "ar_JO": {
+      "language": "Arabic",
+      "region": "Jordan"
+    },
+    "ar_KW": {
+      "language": "Arabic",
+      "region": "Kuwait"
+    },
+    "ar_LB": {
+      "language": "Arabic",
+      "region": "Lebanon"
+    },
+    "ar_LY": {
+      "language": "Arabic",
+      "region": "Libya"
+    },
+    "ar_MA": {
+      "language": "Arabic",
+      "region": "Morocco"
+    },
+    "ar_OM": {
+      "language": "Arabic",
+      "region": "Oman"
+    },
+    "ar_QA": {
+      "language": "Arabic",
+      "region": "Qatar"
+    },
+    "ar_SA": {
+      "language": "Arabic",
+      "region": "Saudi Arabia"
+    },
+    "ar_SD": {
+      "language": "Arabic",
+      "region": "Sudan"
+    },
+    "ar_SY": {
+      "language": "Arabic",
+      "region": "Syria"
+    },
+    "ar_TN": {
+      "language": "Arabic",
+      "region": "Tunisia"
+    },
+    "ar_AE": {
+      "language": "Arabic",
+      "region": "United Arab Emirates"
+    },
+    "ar_YE": {
+      "language": "Arabic",
+      "region": "Yemen"
+    },
+    "hy_AM": {
+      "language": "Armenian",
+      "region": "Armenia"
+    },
+    "az_Cyrl_AZ": {
+      "language": "Azerbaijani-Cyrillic",
+      "region": "Azerbaijan"
+    },
+    "az_Latn_AZ": {
+      "language": "Azerbaijani-Latin",
+      "region": "Azerbaijan"
+    },
+    "eu_ES": {
+      "language": "Basque",
+      "region": "Spain"
+    },
+    "bs_BA": {
+      "language": "Bosnian",
+      "region": "Bosnia and Herzegovina"
+    },
+    "bg_BG": {
+      "language": "Bulgarian",
+      "region": "Bulgaria"
+    },
+    "ca_ES": {
+      "language": "Catalan",
+      "region": "Spain"
+    },
+    "zh_CN": {
+      "language": "Chinese",
+      "region": "China"
+    },
+    "zh_HK": {
+      "language": "Chinese",
+      "region": "Hong Kong"
+    },
+    "zh_TW": {
+      "language": "Chinese",
+      "region": "Taiwan"
+    },
+    "hr_HR": {
+      "language": "Croatian",
+      "region": "Croatia"
+    },
+    "cs_CZ": {
+      "language": "Czech",
+      "region": "Czech Republic"
+    },
+    "da_DK": {
+      "language": "Danish",
+      "region": "Denmark"
+    },
+    "nl_BE": {
+      "language": "Dutch",
+      "region": "Belgium"
+    },
+    "nl_NL": {
+      "language": "Dutch",
+      "region": "Netherlands"
+    },
+    "en_AU": {
+      "language": "English",
+      "region": "Australia"
+    },
+    "en_BE": {
+      "language": "English",
+      "region": "Belgium"
+    },
+    "en_CA": {
+      "language": "English",
+      "region": "Canada"
+    },
+    "en_HK": {
+      "language": "English",
+      "region": "Hong Kong"
+    },
+    "en_IN": {
+      "language": "English",
+      "region": "India"
+    },
+    "en_IN_RUPEE": {
+      "language": "English",
+      "region": "India Rupee"
+    },
+    "en_IE": {
+      "language": "English",
+      "region": "Ireland"
+    },
+    "en_NZ": {
+      "language": "English",
+      "region": "New Zealand"
+    },
+    "en_PH": {
+      "language": "English",
+      "region": "Philippines"
+    },
+    "en_SG": {
+      "language": "English",
+      "region": "Singapore"
+    },
+    "en_ZA": {
+      "language": "English",
+      "region": "South Africa"
+    },
+    "en_GB": {
+      "language": "English",
+      "region": "United Kingdom"
+    },
+    "en_GB_EURO": {
+      "language": "English",
+      "region": "United Kingdom Euro"
+    },
+    "en_US": {
+      "language": "English",
+      "region": "USA"
+    },
+    "en_VI": {
+      "language": "English",
+      "region": "U.S. Virgin Islands"
+    },
+    "et_EE": {
+      "language": "Estonian",
+      "region": "Estonia"
+    },
+    "fi_FI": {
+      "language": "Finnish",
+      "region": "Finland"
+    },
+    "fr_BE": {
+      "language": "French",
+      "region": "Belgium"
+    },
+    "fr_CA": {
+      "language": "French",
+      "region": "Canada"
+    },
+    "fr_FR": {
+      "language": "French",
+      "region": "France"
+    },
+    "fr_LU": {
+      "language": "French",
+      "region": "Luxembourg"
+    },
+    "fr_CH": {
+      "language": "French",
+      "region": "Switzerland"
+    },
+    "de_AT": {
+      "language": "German",
+      "region": "Austria"
+    },
+    "de_DE": {
+      "language": "German",
+      "region": "Germany"
+    },
+    "de_LU": {
+      "language": "German",
+      "region": "Luxembourg"
+    },
+    "de_CH": {
+      "language": "German",
+      "region": "Switzerland"
+    },
+    "el_GR": {
+      "language": "Greek",
+      "region": "Greece"
+    },
+    "he_IL": {
+      "language": "Hebrew",
+      "region": "Israel"
+    },
+    "hi_IN": {
+      "language": "Hindi",
+      "region": "India"
+    },
+    "hu_HU": {
+      "language": "Hungarian",
+      "region": "Hungary"
+    },
+    "id_ID": {
+      "language": "Indonesian",
+      "region": "Indonesia"
+    },
+    "it_IT": {
+      "language": "Italian",
+      "region": "Italy"
+    },
+    "it_CH": {
+      "language": "Italian",
+      "region": "Switzerland"
+    },
+    "ja_JP": {
+      "language": "Japanese",
+      "region": "Japan"
+    },
+    "kk_KZ": {
+      "language": "Kazakh",
+      "region": "Kazakhstan"
+    },
+    "km_KH": {
+      "language": "Khmer",
+      "region": "Cambodia"
+    },
+    "ko_KR": {
+      "language": "Korean",
+      "region": "Korea"
+    },
+    "ko_KR_HANI": {
+      "language": "Korean",
+      "region": "Korea Hanja"
+    },
+    "lo_LA": {
+      "language": "Lao",
+      "region": "Laos"
+    },
+    "lv_LV": {
+      "language": "Latvian",
+      "region": "Latvia"
+    },
+    "lt_LT": {
+      "language": "Lithuanian",
+      "region": "Lithuania"
+    },
+    "ms_MY": {
+      "language": "Malay",
+      "region": "Malaysia"
+    },
+    "nb_NO": {
+      "language": "Norwegian-Bokmal",
+      "region": "Norway"
+    },
+    "nn_NO": {
+      "language": "Norwegian-Nynorsk",
+      "region": "Norway"
+    },
+    "fa_IR": {
+      "language": "Persian",
+      "region": "Iran"
+    },
+    "pl_PL": {
+      "language": "Polish",
+      "region": "Poland"
+    },
+    "pt_BR": {
+      "language": "Portuguese",
+      "region": "Brazil"
+    },
+    "pt_PT": {
+      "language": "Portuguese",
+      "region": "Portugal"
+    },
+    "ro_RO": {
+      "language": "Romanian",
+      "region": "Romania"
+    },
+    "ru_RU": {
+      "language": "Russian",
+      "region": "Russia"
+    },
+    "sr_Cyrl_CS": {
+      "language": "Serbian-Cyrillic",
+      "region": "Serbia and Montenegro"
+    },
+    "sr_Latn_CS": {
+      "language": "Serbian-Latin",
+      "region": "Serbia and Montenegro"
+    },
+    "sk_SK": {
+      "language": "Slovak",
+      "region": "Slovakia"
+    },
+    "sl_SI": {
+      "language": "Slovenian",
+      "region": "Slovenia"
+    },
+    "es_AR": {
+      "language": "Spanish",
+      "region": "Argentina"
+    },
+    "es_BO": {
+      "language": "Spanish",
+      "region": "Bolivia"
+    },
+    "es_CL": {
+      "language": "Spanish",
+      "region": "Chile"
+    },
+    "es_CO": {
+      "language": "Spanish",
+      "region": "Colombia"
+    },
+    "es_CR": {
+      "language": "Spanish",
+      "region": "Costa Rica"
+    },
+    "es_DO": {
+      "language": "Spanish",
+      "region": "Dominican Republic"
+    },
+    "es_EC": {
+      "language": "Spanish",
+      "region": "Ecuador"
+    },
+    "es_SV": {
+      "language": "Spanish",
+      "region": "El Salvador"
+    },
+    "es_GT": {
+      "language": "Spanish",
+      "region": "Guatemala"
+    },
+    "es_HN": {
+      "language": "Spanish",
+      "region": "Honduras"
+    },
+    "es_MX": {
+      "language": "Spanish",
+      "region": "Mexico"
+    },
+    "es_NI": {
+      "language": "Spanish",
+      "region": "Nicaragua"
+    },
+    "es_PA": {
+      "language": "Spanish",
+      "region": "Panama"
+    },
+    "es_PY": {
+      "language": "Spanish",
+      "region": "Paraguay"
+    },
+    "es_PE": {
+      "language": "Spanish",
+      "region": "Peru"
+    },
+    "es_PR": {
+      "language": "Spanish",
+      "region": "Puerto Rico"
+    },
+    "es_ES": {
+      "language": "Spanish",
+      "region": "Spain"
+    },
+    "es_US": {
+      "language": "Spanish",
+      "region": "USA"
+    },
+    "es_UY": {
+      "language": "Spanish",
+      "region": "Uruguay"
+    },
+    "es_VE": {
+      "language": "Spanish",
+      "region": "Venezuela"
+    },
+    "sv_SE": {
+      "language": "Swedish",
+      "region": "Sweden"
+    },
+    "tl_PH": {
+      "language": "Tagalog",
+      "region": "Philippines"
+    },
+    "th_TH": {
+      "language": "Thai",
+      "region": "Thailand"
+    },
+    "th_TH_TH": {
+      "language": "Thai",
+      "region": "Thailand Traditional"
+    },
+    "tr_TR": {
+      "language": "Turkish",
+      "region": "Turkey"
+    },
+    "tr_TR_LIRA": {
+      "language": "Turkish",
+      "region": "Turkey Lira"
+    },
+    "uk_UA": {
+      "language": "Ukrainian",
+      "region": "Ukraine"
+    },
+    "vi_VN": {
+      "language": "Vietnamese",
+      "region": "Vietnam"
+    }
+  },
+  "patterns": {
+    "en_CA": [
+      {
+        "type": "text",
+        "desc": "Postal Code",
+        "pattern": "A9A 9A9"
+      },
+      {
+        "type": "text",
+        "desc": "Phone Number",
+        "pattern": "text{'('999')' 999-9999}"
+      },
+      {
+        "type": "text",
+        "desc": "Social Insurance Number",
+        "pattern": "999 999 999"
+      }
+    ],
+    "en_GB": [
+      {
+        "type": "text",
+        "desc": "Postal Code",
+        "pattern": "A9A 9A9|AA9A 9A9"
+      },
+      {
+        "type": "text",
+        "desc": "Phone Number",
+        "pattern": "9999 999 999"
+      }
+    ],
+    "en_US": [
+      {
+        "type": "text",
+        "desc": "Zip Code",
+        "pattern": "99999"
+      },
+      {
+        "type": "text",
+        "desc": "Zip Code + 4",
+        "pattern": "99999-9999"
+      },
+      {
+        "type": "text",
+        "desc": "Phone Number",
+        "pattern": "text{'('999')' 999-9999}"
+      },
+      {
+        "type": "text",
+        "desc": "Social Security Number",
+        "pattern": "999-99-9999"
+      }
+    ]
+  },
+  "globalPatterns": [
+    {
+      "type": "text",
+      "desc": "Postal Code (Canada)",
+      "pattern": "A9A 9A9"
+    },
+    {
+      "type": "text",
+      "desc": "Postal Code (United Kingdom)",
+      "pattern": "A9 9AA|A99 9AA|AA9 9AA|AA99 9AA|A9A 9AA|AA9A 9AA"
+    },
+    {
+      "type": "text",
+      "desc": "Zip Code (USA)",
+      "pattern": "text{99999-9999}|text{99999}"
+    },
+    {
+      "type": "text",
+      "desc": "Telephone (USA - Canada)",
+      "pattern": "text{'('999')' 999-9999}"
+    },
+    {
+      "type": "text",
+      "desc": "Email - alphanumeric",
+      "pattern": "text{OOOOOOOO'@example.com'}"
+    },
+    {
+      "type": "text",
+      "desc": "EIN",
+      "pattern": "text{99-9999999}"
+    },
+    {
+      "type": "num",
+      "desc": "",
+      "pattern": "$z,zz9.99"
+    },
+    {
+      "type": "num",
+      "desc": "",
+      "pattern": "$z,zz9.99CR"
+    },
+    {
+      "type": "num",
+      "desc": "",
+      "pattern": "$z,zz9.99DB"
+    },
+    {
+      "type": "num",
+      "desc": "",
+      "pattern": "($z,zz9.99)"
+    },
+    {
+      "type": "pwd",
+      "desc": "Password 8-character",
+      "pattern": "XXXXXXXX"
+    },
+    {
+      "type": "pwd",
+      "desc": "Password 8-alphanumeric",
+      "pattern": "OOOOOOOO"
+    }
+  ]
+}

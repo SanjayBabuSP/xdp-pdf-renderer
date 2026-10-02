@@ -380,3 +380,86 @@ encoders.
 - G11: emit marked-content operators so structure elements bind to MCIDs.
 - G14: implement CCITT Group 4 decompression for non-pass-through TIFFs.
 - G15: PDF417 and postal symbologies.
+
+---
+
+# G17 — reference-completeness audit (locale picture engine)
+
+A comparison of the full Designer 11.0 install against `reference/` found the
+locale/stock data files were not copied in. See
+[reference/README.md](../reference/README.md#completeness-audit-xdpxsd--pdf-pipeline).
+
+Findings and remediation:
+
+| Item | Status |
+|------|--------|
+| All 113 Designer binaries | ✅ 112 decompiled; `icudt40.dll` is ICU data tables only |
+| `EN/LocalesList.xml` | ✅ added to reference; recreated as `src/config/xfa-locales.json` + `src/lib/locale-data.ts` |
+| `EN/MediumStockList.xml` | ✅ added (stock dimensions already sourced from `Designer.xdc`) |
+| Object/template palette XMLs | ✅ added for completeness |
+| Numeric picture tokens `9 z CR DB % \|` | ✅ implemented in `value-format.ts` (evidence: `jfutility_disasm.c:31412`) |
+| `text{…}` templates | ✅ implemented in `value-format.ts` |
+
+This closes the formatting gap left after G13 (which covered only
+`date{…}`/`time{…}`). Tests: `test/unit/lib/value-format.test.ts`,
+`test/unit/lib/locale-data.test.ts`.
+
+---
+
+# G18–G19 — decompiled-source implementation round 2
+
+Implementation driven by the decompiled sources and shipped binaries.
+
+## G18 — PDF document structure parity (Adobe driver behaviour)
+
+Sourced from `pdfldriver_disasm.c`, `pdfdocument_disasm.c` and
+`FormDesigner.exe_disasm.c` (see the metadata survey in this repo's history):
+
+| Adobe behaviour | Evidence | Our implementation |
+|---|---|---|
+| XMP packet: `xmp:MetadataDate`, `xmp:CreatorTool`, `pdf:Producer`, `xmpMM:DocumentID` (uuid:), `dc:title`/`dc:creator`/`dc:description` | pdfldriver:70670-70760, pdfdocument:157678-158340 | `src/adobe/pdf-metadata.ts` `applyDocumentMetadata` → `/Metadata` Flate stream |
+| Info dict Title/Author/Producer/Creator | FormDesigner:465177 (key list) | pdf-lib Info API, with `preserveInfoOverrides` (pdf-lib restamps Producer on save) |
+| `/ViewerPreferences << /DisplayDocTitle true >>` | pdfldriver:63510, pdfdocument:154831 | written when the XDP yields a title |
+| Title source = XDP `x:xmpmeta` (`dc:title/rdf:Alt/rdf:li`) or `$template.#subform.#desc` | FormDesigner:58290, pdfdocument:154831 | `parseDocumentMetadata` in parse-xdp |
+| `/NeedsRendering` for dynamic XFA forms | pdfldriver:1723-1729 | written when `adobe.acroForm`/`adobe.embedXfa` is on |
+
+## G19 — PDF417 from Adobe's own tables
+
+The encoder is built on the **actual constant tables dumped from Adobe's
+`pdf417pmp.dll`** (`scripts/pdf417-dump-tables.py` → `src/config/pdf417-tables.json`),
+using the addresses referenced in `reference/decompiled/pdf417pmp_disasm.c`:
+
+- cluster 0/3/6 pattern tables (929 × 9-byte run-length strings, stride 9 per
+  the decompile's `+ iVar3 * 9`) — dumped at `0x12b13088/15138/171e8`
+- Reed-Solomon generator coefficients for EC levels 0-8 (`0x12b0f668…0x12b0fe60`)
+
+Algorithm layer mirrors the decompile: GF(929) remainder (`FUN_12b0ba90`),
+EC counts 2…512 (`FUN_12b0bd80`), pad-900 + symbol-length descriptor
+(`FUN_12b0ac60`), row indicators ×30/×10 (`FUN_12b0cc50/cce0`), start/stop
+`81111113`/`711311121` + terminator, limits cols ≤ 30 / rows ≤ 90 / capacity ≤ 928
+(`FUN_12b09b30`), aspect-driven dimensioning, Adobe defaults EC 5 +
+height/width ratio 2 (`BarcodeData.xml` pdf417 preset). Text/numeric/byte
+compaction per ISO 15438 (the decompile's submode tables are runtime-built, not
+static data).
+
+The 2D painter (`renderBarcode2D`) stacks the encoded rows; `<barcode
+type="pdf417" errorCorrectionLevel="5">` renders end-to-end.
+
+## G19b — POSTNET/PLANET (USPS 2-height)
+
+`postUS5Zip` / `postUSStandard` / `postUSDPBC` (POSTNET) and `planetCode`
+(PLANET) — all `support="software"` in `adobepdf.xdc`. The decompiled
+`planetcodepmp.dll` is CRT/registration boilerplate with no encode tables, so
+the encoders follow USPS PUB 25 rules, which are fully derivable and are
+verified arithmetically in tests (each digit = exactly 2 talls whose weights
+7/4/2/1/0 sum to the digit mod 11; PLANET is the inverse image with 2 short
+bars; mod-10 check digit; tall frame bars). Renderer gained 2-height bars
+(tall = full height, short = 40 % baseline-aligned).
+
+## Still pending (with reasons)
+
+- 4-state postal (`postAUS*`, `postUKRM4SCC`, `postJapan`, `postUSImb`): need
+  three-position bars (ascender/tracker/descender) plus per-symbology state
+  tables; none are present in the decompiled modules (dispatch goes through
+  Acrobat's host vtables), so they stay pending behind `PENDING_SYMBOLOGIES`.
+- Structure-tree MCIDs (G11) and CCITT G4 decompression (G14) — unchanged.

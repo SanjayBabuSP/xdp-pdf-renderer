@@ -1117,6 +1117,7 @@ async function renderBarcodeValue(
     moduleW,
     opts.align,
     ratio,
+    { errorCorrectionLevel: parseErrorCorrectionLevel(ui.errorCorrectionLevel) },
   );
 
   if (hasHri && data) {
@@ -1136,6 +1137,17 @@ async function renderBarcodeValue(
       color: opts.fontColor ?? rgb(0, 0, 0),
     });
   }
+}
+
+/**
+ * `<barcode errorCorrectionLevel="0-8">` (Adobe `BarcodeData.xml` ecc range).
+ * Unauthored or malformed levels fall back to the encoder's Adobe default (5).
+ */
+function parseErrorCorrectionLevel(raw?: string): number | undefined {
+  if (raw == null || raw === '') return undefined;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0 || n > 8) return undefined;
+  return n;
 }
 
 /** `wideNarrowRatio` is authored either as a plain number or as a `.xdc` range. */

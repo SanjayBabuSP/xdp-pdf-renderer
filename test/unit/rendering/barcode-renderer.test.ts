@@ -74,7 +74,13 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
   it.each([...SUPPORTED_SYMBOLOGIES])('%s emits a substantial bar run', (sym) => {
     const bars = encodeBarcode(sym, '1234567890');
     expect(bars.length).toBeGreaterThan(10);
-    expect(bars[0].type).toMatch(/-bar$/);
+    // 2D symbologies (pdf417) emit stacked rows, not 1D bars.
+    if (sym === 'pdf417') {
+      expect(bars[0].type).toBe('module-row');
+      expect(bars[0].rowPattern).toMatch(/^81111113/);
+    } else {
+      expect(bars[0].type).toMatch(/-bar$/);
+    }
   });
 
   it('Code 39 wraps the payload in start/stop asterisks', () => {
@@ -307,6 +313,83 @@ describe('G15 — additional symbologies', () => {
     for (const name of ['code93', 'msi', 'upce', '2of5standard']) {
       expect((SUPPORTED_SYMBOLOGIES as readonly string[]).includes(name)).toBe(true);
       expect((PENDING_SYMBOLOGIES as readonly string[]).includes(name)).toBe(false);
+    }
+  });
+});
+
+describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
+  const POSTNET_WEIGHTS = [7, 4, 2, 1, 0];
+  const isTall = (b: { type: string }) => b.type === 'tall-bar';
+  const isBar = (b: { type: string }) => b.type.endsWith('-bar');
+
+  /** Digit = sum of tall-bar weights (7,4,2,1,0) mod 11 (11 → 0). */
+  const digitOf = (bars: { type: string }[]): number => {
+    const talls = bars.map((b) => (isTall(b) ? 1 : 0));
+    const sum = POSTNET_WEIGHTS.reduce((n, w, i) => n + (talls[i] ? w : 0), 0);
+    return sum % 11;
+  };
+
+  it('POSTNET encodes each digit with exactly two tall bars', () => {
+    const bars = encodeBarcode('postUS5Zip', '95051');
+    // frame bars + 5 digits + check digit = 6 × 5 bars
+    expect(bars.filter(isBar)).toHaveLength(6 * 5 + 2);
+    const digitBars = bars.filter(isBar).slice(1, -1);
+    for (let i = 0; i < digitBars.length; i += 5) {
+      const group = digitBars.slice(i, i + 5);
+      expect(group.filter(isTall)).toHaveLength(2);
+      expect(group.every(isBar)).toBe(true);
+    }
+  });
+
+  it('decodes back to the payload via the weight rule', () => {
+    const bars = encodeBarcode('postUS5Zip', '95051');
+    const groups: { type: string }[][] = [];
+    const digitBars = bars.filter(isBar).slice(1, -1);
+    for (let i = 0; i < digitBars.length; i += 5) groups.push(digitBars.slice(i, i + 5));
+    // 95051 + check (0) → digits 9,5,0,5,1,0
+    expect(groups.map(digitOf)).toEqual([9, 5, 0, 5, 1, 0]);
+  });
+
+  it('appends a mod-10 check digit and frame bars', () => {
+    const bars = encodeBarcode('postUSStandard', '950511234');
+    expect(bars[0].type).toBe('tall-bar');
+    expect(bars[bars.length - 1].type).toBe('tall-bar');
+    // 9 payload + check digit
+    const digitBars = bars.filter(isBar).slice(1, -1);
+    expect(digitBars).toHaveLength(10 * 5);
+  });
+
+  it('DPBC carries 11 digits + check', () => {
+    const bars = encodeBarcode('postUSDPBC', '95051123456');
+    const digitBars = bars.filter(isBar).slice(1, -1);
+    expect(digitBars).toHaveLength(12 * 5);
+  });
+
+  it('PLANET is the inverse image: two short bars encode each digit', () => {
+    const planet = encodeBarcode('planetCode', '12345');
+    const digitBars = planet.filter(isBar).slice(1, -1);
+    for (let i = 0; i < digitBars.length; i += 5) {
+      expect(digitBars.slice(i, i + 5).filter((b) => b.type === 'short-bar')).toHaveLength(2);
+    }
+    // Inverse image: planet tall pattern == postnet short pattern.
+    const postnet = encodeBarcode('postUS5Zip', '12345');
+    // Digit bars only — frame bars are tall in both symbologies.
+    const planetOnes = planet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '1' : '0')).join('');
+    const postnetZeros = postnet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '0' : '1')).join('');
+    expect(planetOnes).toBe(postnetZeros);
+  });
+
+  it('normalizes the Adobe .xdc postal names', () => {
+    expect(normalizeSymbology('postUS5Zip')).toBe('postus5zip');
+    expect(normalizeSymbology('postUSDPBC')).toBe('postusdpbc');
+    expect(normalizeSymbology('postUSStandard')).toBe('postusstandard');
+    expect(normalizeSymbology('planetCode')).toBe('planet');
+  });
+
+  it('keeps the 4-state postal symbologies pending', () => {
+    expect((SUPPORTED_SYMBOLOGIES as readonly string[]).includes('postus5zip')).toBe(true);
+    for (const name of ['postAUSStandard', 'postUKRM4SCC', 'postJapan', 'postUSImb']) {
+      expect((PENDING_SYMBOLOGIES as readonly string[]).includes(name)).toBe(true);
     }
   });
 });

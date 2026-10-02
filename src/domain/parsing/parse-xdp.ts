@@ -30,6 +30,7 @@ import {
   AssistSpec,
   ExtrasSpec,
   TraversalSpec,
+  DocumentMetadata,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment } from '../../lib/xml-utils';
@@ -114,6 +115,10 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   // dispatcher can fire them. evidence: XFAModelImpl::ready dispatches
   // 'ready' on the model alias node (xfa_disasm.c:49230-49275).
   const rootEvents = parseEvents(getChild(rootSubform, 'event'));
+  // Adobe sources the output PDF's title/description from the XDP's own
+  // `x:xmpmeta` (dc:title) and `$template.#subform.#desc`
+  // (pdfdocument_disasm.c:157678-158340; pdfldriver_disasm.c:70670-70760).
+  const metadata = parseDocumentMetadata(root as Record<string, unknown>, rootSubform);
 
   // Every node needs a unique identity so script results can be reconciled
   // back onto the exact node they were produced against.
@@ -127,9 +132,70 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
     rootEvents,
     config,
     ...connection,
+    metadata,
     version: namespaceResult.detectedVersion ?? undefined,
     warnings: namespaceResult.warnings.length > 0 ? namespaceResult.warnings : undefined,
   } as LayoutModel);
+}
+
+/**
+ * Pull document metadata out of the XDP: `<x:xmpmeta><rdf:RDF><dc:title>` /
+ * `dc:description` / `dc:creator` when the metadata packet is present, with
+ * the template `<desc><text>` (or `<toolTip>`) as the fallback Adobe uses.
+ */
+function parseDocumentMetadata(
+  root: Record<string, unknown>,
+  rootSubform: unknown,
+): DocumentMetadata | undefined {
+  const title = readXmpLiteral(root, 'dc:title') ?? readDescText(rootSubform);
+  const description = readXmpLiteral(root, 'dc:description');
+  const author = readXmpCreator(root);
+  const out: DocumentMetadata = {};
+  if (title) out.title = title;
+  if (description) out.description = description;
+  if (author) out.author = author;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** `<rdf:li>` text of a simple `dc:<property>` element in the XDP's XMP packet. */
+function readXmpLiteral(root: Record<string, unknown>, property: string): string | undefined {
+  const packet = getChild(root, 'x:xmpmeta') ?? getChild(root, 'xmpmeta');
+  if (!packet) return undefined;
+  const element = findNestedKey(packet, property);
+  if (!element) return undefined;
+  // dc:title / dc:description wrap their text in `<rdf:Alt><rdf:li>…`.
+  const text = textContent(element) ?? textContent(findNestedKey(element, 'li'));
+  return text && text.trim() !== '' ? text.trim() : undefined;
+}
+
+/** Depth-first search for the first object property with `name` (or namespaced). */
+function findNestedKey(node: unknown, name: string, depth = 0): unknown {
+  if (!node || typeof node !== 'object' || depth > 6) return undefined;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === name || key.endsWith(`:${name}`) || key.endsWith(`_${name}`)) return value;
+    const nested = findNestedKey(value, name, depth + 1);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+function readXmpCreator(root: Record<string, unknown>): string | undefined {
+  const packet = getChild(root, 'x:xmpmeta') ?? getChild(root, 'xmpmeta');
+  if (!packet) return undefined;
+  const creator = findNestedKey(packet, 'creator');
+  if (!creator) return undefined;
+  // dc:creator is an rdf:Seq; the first li carries the author.
+  const list = findNestedKey(creator, 'li');
+  const text = textContent(list ?? creator);
+  return text && text.trim() !== '' ? text.trim() : undefined;
+}
+
+/** `$template.#subform.#desc` — `<desc><text>…</text></desc>` on the root subform. */
+function readDescText(rootSubform: unknown): string | undefined {
+  const desc = getChild(rootSubform, 'desc');
+  if (!desc) return undefined;
+  const text = textContent(getChild(desc, 'text'));
+  return text && text.trim() !== '' ? text.trim() : undefined;
 }
 
 /** Collect `xmlns` / `xmlns:*` declarations from the XDP root and template. */
