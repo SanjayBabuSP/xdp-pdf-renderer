@@ -4,49 +4,342 @@
 
 import { XfaNode, XfaEventObject, ScriptableNode } from './script-types';
 import { FieldAccessor } from './formcalc/evaluator';
+import { formatValue } from '../../lib/value-format';
+
+/**
+ * Node-level attributes addressed as `<node>.<attr>` (e.g. `txtWatermark.rotate`,
+ * `Field.presence`). They live on the node, not on a child element — resolving
+ * them as a child path would silently write into the bound data instead.
+ */
+const NODE_ATTRS = ['presence', 'access', 'rotate', 'x', 'y', 'w', 'h', 'name'] as const;
+
+function splitNodeAttribute(path: string): { base: string; attribute?: (typeof NODE_ATTRS)[number] } {
+  const dot = path.lastIndexOf('.');
+  if (dot < 0) return { base: path };
+  const attr = path.slice(dot + 1);
+  if ((NODE_ATTRS as readonly string[]).includes(attr)) {
+    return { base: path.slice(0, dot), attribute: attr as (typeof NODE_ATTRS)[number] };
+  }
+  return { base: path };
+}
+
+/**
+ * Property suffixes FormCalc/XFA expose on nodes rather than child elements.
+ * `node.rawValue` / `node.formattedValue` must resolve the *node* first and
+ * then format it — never be looked up as a child named "rawValue".
+ */
+const VALUE_PROPERTIES = ['rawValue', 'formattedValue'] as const;
+type ValueProperty = (typeof VALUE_PROPERTIES)[number];
+
+/**
+ * FormCalc hands the accessor paths like `$.rawValue` / `$$foo.bar`: `$` is
+ * lexed as an ordinary identifier, so the prefix survives into `FieldRef.path`.
+ * Strip it so everything downstream sees a plain SOM path.
+ */
+function normalizeSomPath(path: string): string {
+  if (path.startsWith('$$')) return path.slice(2);
+  if (path.startsWith('$')) return path.slice(1);
+  return path;
+}
+
+function splitValueProperty(path: string): { base: string; property?: ValueProperty } {
+  for (const property of VALUE_PROPERTIES) {
+    if (path === property) return { base: '', property };
+    if (path.endsWith(`.${property}`)) {
+      return { base: path.slice(0, -(property.length + 1)), property };
+    }
+  }
+  return { base: path };
+}
 
 /**
  * Creates a FieldAccessor that bridges XFA SOM paths to the layout tree.
  * This is how scripts access field values: $field.rawValue, $form.table.col, etc.
+ *
+ * Resolution order for a read:
+ *   1. `$` / `.rest` — the node whose script is currently executing
+ *   2. `x.rawValue` / `x.formattedValue` — resolve `x` first, then format
+ *   3. exact SOM path in the node map
+ *   4. scoped resolution walking up from the current node (FormCalc SOM
+ *      scoping: sibling references like `OEM.TechnicalSalesDocumentation_OEM`
+ *      are relative to the scripting object's ancestors)
+ *   5. the bound data record (empty elements resolve to '' — never a throw)
  */
 export function createFieldAccessor(
   allNodes: Map<string, ScriptableNode>,
   data: Record<string, unknown>
 ): FieldAccessor {
-  return {
-    getField(path: string, prefix: '$' | '$$'): unknown {
-      // $$ = form-level reference (absolute path from form root)
-      // $ = current node context (relative path)
-      const node = allNodes.get(path);
-      if (node && node.resolvedValue !== undefined) {
-        return node.resolvedValue;
+  let currentKey: string | null = null;
+
+  const currentNode = (): ScriptableNode | undefined =>
+    currentKey != null ? allNodes.get(currentKey) : undefined;
+
+  const readValue = (node: ScriptableNode): unknown => {
+    if (node.resolvedValue !== undefined) return node.resolvedValue;
+    if (node.path) {
+      const fromData = resolvePathFromData(node.path, data);
+      if (fromData !== undefined) return fromData;
+    }
+    return undefined;
+  };
+
+  const rawOf = (node: ScriptableNode | undefined): string | null => {
+    if (!node) return null;
+    const v = readValue(node);
+    return v == null ? '' : String(v);
+  };
+
+  const formattedOf = (node: ScriptableNode | undefined): string => {
+    if (!node) return '';
+    const v = readValue(node);
+    if (v == null) return '';
+    return formatValue(v, node.formatPicture);
+  };
+
+  /** Walk up from the current node trying `ancestor.path + '.' + ref`. */
+  const resolveScoped = (ref: string): ScriptableNode | undefined => {
+    let node = currentNode();
+    while (node) {
+      if (node.path) {
+        const candidate = allNodes.get(`${node.path}.${ref}`);
+        if (candidate) return candidate;
       }
-      // Fall back to the data backing store (also covers nodes that have no
-      // bound/resolved value yet)
+      node = node.parent;
+    }
+    return allNodes.get(ref);
+  };
+
+  const resolveNodeRef = (ref: string): ScriptableNode | undefined => {
+    if (!ref) return currentNode();
+    if (ref.startsWith('.')) {
+      const rest = ref.slice(1);
+      const self = currentNode();
+      if (!self) return undefined;
+      const prop = splitValueProperty(rest);
+      if (prop.property) return self;
+      if (prop.base && !prop.base.includes('.')) {
+        return self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
+      }
+      return self.path ? allNodes.get(`${self.path}.${rest}`) : undefined;
+    }
+    return allNodes.get(ref) ?? resolveScoped(ref);
+  };
+
+  /** Attribute reads on the scripting object itself (`$.presence`, `$.x` …). */
+  const readAttribute = (self: ScriptableNode, name: string): unknown => {
+    switch (name) {
+      case 'presence':
+        return self.presence ?? 'visible';
+      case 'access':
+        return self.access ?? 'open';
+      case 'name':
+        return self.name ?? '';
+      case 'id':
+        return self.uid ?? '';
+      case 'x':
+      case 'y':
+      case 'w':
+      case 'h':
+      case 'rotate':
+        return self.position?.[name] ?? null;
+      case 'value':
+        return readValue(self);
+      default:
+        return undefined;
+    }
+  };
+
+  /** Write a value onto a scripting node *and* its concrete layout node. */
+  const assignValue = (node: ScriptableNode | undefined, value: unknown): void => {
+    if (!node) return;
+    node.resolvedValue = value;
+    const ln = node.layoutNode as Record<string, unknown> | undefined;
+    if (ln) ln.resolvedValue = value;
+  };
+
+  const writeAttribute = (self: ScriptableNode, name: string, value: unknown): void => {
+    // Mirror onto the concrete layout node as well: the scriptable is the
+    // mutation surface, `layoutNode` is what the renderer reads.
+    const layout = self.layoutNode as Record<string, unknown> | undefined;
+    switch (name) {
+      case 'presence':
+        self.presence = String(value);
+        if (layout) layout.presence = String(value);
+        return;
+      case 'access':
+        self.access = String(value);
+        if (layout) layout.access = String(value);
+        return;
+      case 'name':
+        self.name = String(value);
+        if (layout) layout.name = String(value);
+        return;
+      case 'rotate':
+      case 'x':
+      case 'y':
+      case 'w':
+      case 'h': {
+        const num = Number(value);
+        const next = Number.isFinite(num) ? num : 0;
+        const layoutNode = self.layoutNode as
+          | { position?: Record<string, number | undefined> }
+          | undefined;
+        const position =
+          layoutNode && 'position' in layoutNode
+            ? layoutNode.position ?? (layoutNode.position = {})
+            : (self.position as Record<string, number | undefined> | undefined);
+        if (position) position[name] = next;
+        if (self.position && self.position !== position) {
+          (self.position as Record<string, number | undefined>)[name] = next;
+        } else if (!self.position && position) {
+          self.position = position as ScriptableNode['position'];
+        }
+        return;
+      }
+      default:
+        assignValue(self, value);
+    }
+  };
+
+  const accessor: FieldAccessor & { setCurrentKey(key: string | null): void; getCurrentKey(): string | null } = {
+    getField(rawPath: string): unknown {
+      const path = normalizeSomPath(rawPath);
+      const { base, property } = splitValueProperty(path);
+
+      // `$` alone and relative `.rest` — the scripting object itself
+      if (path === '' || path === '$' || path.startsWith('.')) {
+        const self = currentNode();
+        if (!self) return null;
+        if (path === '' || path === '$') return readValue(self) ?? null;
+        const rest = path.slice(1);
+        const prop = splitValueProperty(rest);
+        if (prop.property === 'rawValue') return rawOf(self);
+        if (prop.property === 'formattedValue') return formattedOf(self);
+        if (prop.base.includes('.')) {
+          const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
+          if (child) return readValue(child) ?? null;
+          return resolvePathFromData(rest, data);
+        }
+        if (prop.base) {
+          const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
+          if (child) return readValue(child) ?? null;
+          const attr = readAttribute(self, prop.base);
+          return attr === undefined ? resolvePathFromData(rest, data) : attr;
+        }
+        return readValue(self) ?? null;
+      }
+
+      // `.rawValue` / `.formattedValue`: resolve the owner as a template node
+      // first, then fall back to the bound data — designers write both
+      // `SomeField.rawValue` and `record.path.rawValue`, and an unqualified
+      // sibling reference normally addresses the *data* instance.
+      if (property === 'rawValue') {
+        const owner = resolveNodeRef(base);
+        if (owner) return rawOf(owner);
+        const fromData = resolvePathFromData(base, data);
+        return fromData == null ? null : String(fromData);
+      }
+      if (property === 'formattedValue') {
+        const owner = resolveNodeRef(base);
+        if (owner) return formattedOf(owner);
+        const fromData = resolvePathFromData(base, data);
+        if (fromData == null) return '';
+        return formatValue(fromData);
+      }
+
+      const withAttr = splitNodeAttribute(path);
+      if (withAttr.attribute) {
+        const owner = allNodes.get(withAttr.base) ?? resolveScoped(withAttr.base);
+        if (owner) {
+          const attr = readAttribute(owner, withAttr.attribute);
+          if (attr !== undefined) return attr;
+        }
+      }
+
+      const node = allNodes.get(path) ?? resolveScoped(path);
+      if (node) {
+        const value = readValue(node);
+        if (value !== undefined) return value;
+      }
       return resolvePathFromData(path, data);
     },
 
-    setField(path: string, prefix: '$' | '$$', value: unknown): void {
-      const node = allNodes.get(path);
-      if (node) {
-        node.resolvedValue = value;
+    setField(rawPath: string, _prefix: '$' | '$$', value: unknown): void {
+      const path = normalizeSomPath(rawPath);
+      const { base, property } = splitValueProperty(path);
+
+      // `$` alone and relative `.rest` — write to the scripting object itself
+      if (path === '' || path === '$' || path.startsWith('.')) {
+        const self = currentNode();
+        if (!self) return;
+        if (path === '' || path === '$') {
+          assignValue(self, value);
+          return;
+        }
+        const rest = path.slice(1);
+        const prop = splitValueProperty(rest);
+        if (prop.property) {
+          assignValue(self, value);
+          return;
+        }
+        if (prop.base && !prop.base.includes('.')) {
+          const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
+          if (child) {
+            assignValue(child, value);
+            return;
+          }
+          writeAttribute(self, prop.base, value);
+          return;
+        }
+        const child = self.path ? allNodes.get(`${self.path}.${rest}`) : undefined;
+        assignValue(child, value);
+        return;
       }
-      // Also update data backing store
-      setPathInData(path, data, value);
+
+      if (!property) {
+        const withAttr = splitNodeAttribute(path);
+        if (withAttr.attribute) {
+          const owner = allNodes.get(withAttr.base) ?? resolveScoped(withAttr.base);
+          if (owner) {
+            writeAttribute(owner, withAttr.attribute, value);
+            return;
+          }
+        }
+      }
+
+      const target = property ? resolveNodeRef(base) : resolveNodeRef(path);
+      if (target) {
+        assignValue(target, value);
+        return;
+      }
+      setPathInData(property ? base : path, data, value);
     },
 
-    hasField(path: string): boolean {
-      return allNodes.has(path);
+    hasField(rawPath: string): boolean {
+      const path = normalizeSomPath(rawPath);
+      if (path === '' || path.startsWith('.')) return currentNode() !== undefined;
+      return allNodes.has(path) || resolveScoped(path) !== undefined;
     },
 
     getCurrentNode(): XfaNode | null {
-      return null; // Set by dispatcher per-event
+      const node = currentNode();
+      return node ? scriptableToXfaNode(node, node.path ?? node.key ?? '') : null;
     },
 
     getFormData(): unknown {
       return data;
     },
+
+    setCurrentKey(key: string | null): void {
+      currentKey = key;
+    },
+
+    getCurrentKey(): string | null {
+      return currentKey;
+    },
   };
+
+  return accessor;
 }
 
 /**

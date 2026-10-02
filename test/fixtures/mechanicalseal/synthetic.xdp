@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xfa generator="AdobeLiveCycleDesigner_V11.0.9" APIVersion="3.6.0.0"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/" timeStamp="2026-01-01T00:00:00Z">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="MechanicalSeal" bind="dataRef" ref="$" layout="tb" locale="en_US">
+
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="19.05mm" y="19.05mm" w="171.45mm" h="257.35mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+
+      <!-- Issue 4: DRAFT watermark. presence="invisible" keeps it in layout
+           but unpainted; the initialize script flips it visible only when the
+           data carries the preview flag (matching the reference export). -->
+      <subform name="txtWatermarkSubform" presence="invisible">
+        <event activity="initialize">
+          <script contentType="application/x-javascript"><![CDATA[
+            var IsPreview = xfa.resolveNode("xfa.record.IsPreview").value;
+            if (IsPreview == "true") { $.presence = "visible"; }
+          ]]></script>
+        </event>
+        <draw name="txtWatermark" id="txtWatermark" x="19.05mm" y="120mm" w="171.45mm" h="30mm">
+          <event activity="initialize">
+            <script contentType="application/x-javascript"><![CDATA[
+              $.rotate = "30";
+            ]]></script>
+          </event>
+          <value><text>DRAFT</text></value>
+          <font typeface="Helvetica" size="72pt">
+            <fill><color value="153,153,153"/></fill>
+          </font>
+          <para hAlign="center"/>
+        </draw>
+      </subform>
+
+      <!-- Issue 5: header logo subtitle (text draw on the master page area). -->
+      <draw name="logoSubtitle" id="logoSubtitle" x="19.05mm" y="19.05mm" w="90mm" h="5mm">
+        <value><text>a member of EKK and FREUDENBERG</text></value>
+        <font typeface="Helvetica" size="6pt"/>
+      </draw>
+
+      <subform name="content" layout="tb">
+
+        <!-- Issue 2: value assigned by an initialize script. The empty
+             OEMDescription element must select the else branch, so the field
+             shows the OEM data value. -->
+        <field name="oemDisplay" w="150mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="40mm">
+            <font typeface="Helvetica" size="10pt" weight="bold"/>
+            <value><text>OEM</text></value>
+          </caption>
+          <event activity="initialize">
+            <script contentType="application/x-formcalc"><![CDATA[
+              if (OEMDescription.rawValue <> null) then
+                $.rawValue = OEMDescription.formattedValue
+              else
+                $.rawValue = OEM.formattedValue
+              endif
+            ]]></script>
+          </event>
+        </field>
+
+        <!-- Issue 1: -Black / -White pair. Only one of the two may be visible,
+             and the presence change must land on the exact sibling that ran the
+             script — never on the other one. -->
+        <field name="MachineLocation-Black" w="150mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="40mm">
+            <value><text>Machine location (black)</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.MachineLocation"/>
+          <event activity="initialize">
+            <script contentType="application/x-formcalc"><![CDATA[
+              if (MachineLocationIsAssumption.rawValue == "true") then
+                $.presence = "visible"
+              else
+                $.presence = "hidden"
+              endif
+            ]]></script>
+          </event>
+        </field>
+
+        <field name="MachineLocation-White" w="150mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="40mm">
+            <value><text>Machine location (white)</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.MachineLocation"/>
+        </field>
+
+        <!-- Issue 3: unit label. The unit lives on a hidden floatingField and
+             is pulled into this draw through an exData xfa:embed reference. -->
+        <field name="densityLabel" w="60mm" minH="6mm">
+          <ui><textEdit/></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <caption reserve="40mm">
+            <value><text>Density</text></value>
+          </caption>
+          <bind match="dataRef" ref="$.MachineLocation"/>
+        </field>
+      </subform>
+
+      <draw name="unitHost" id="unitHost" x="19.05mm" y="90mm" w="60mm" h="6mm">
+        <value>
+          <exData contentType="text/html">
+            <body>
+              <p>
+                <span xfa:embedType="uri" xfa:embedMode="raw" xfa:embed="#unitDensity"></span>
+              </p>
+            </body>
+          </exData>
+        </value>
+        <font typeface="Helvetica" size="8pt"/>
+      </draw>
+
+      <field name="unitDensity" id="unitDensity" presence="hidden"
+             x="19.05mm" y="90mm" w="20mm" h="6mm">
+        <ui><textEdit/></ui>
+        <font typeface="Helvetica" size="8pt"/>
+        <bind match="dataRef" ref="$.DensityUnit"/>
+      </field>
+
+    </subform>
+  </template>
+  <config xmlns="http://ns.adobe.com/xdp/xci/3.0/">
+    <present>
+      <pdf>
+        <version>1.7</version>
+      </pdf>
+    </present>
+  </config>
+  <connectionSet xmlns="http://ns.adobe.com/xdp/xfa-connection-set/2.8/">
+    <dataConnection name="DataConnection" dataDescription="MechanicalSeal"/>
+  </connectionSet>
+</xdp:xdp>

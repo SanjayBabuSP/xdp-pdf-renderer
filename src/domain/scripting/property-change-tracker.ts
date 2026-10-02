@@ -83,10 +83,14 @@ export class PropertyChangeTracker {
   }
 
   /**
-   * Apply all tracked changes back to the LayoutModel.
-   * This is called after script execution to update the rendering tree.
+   * Apply all tracked changes back onto the layout tree.
+   *
+   * Identity-based: every ScriptableNode carries a reference to the exact
+   * LayoutNode it mirrors (`layoutNode`), so a `presence`/`resolvedValue`
+   * change made against one scriptable can never leak onto a same-named
+   * sibling. Only the properties that actually changed are written.
    */
-  applyChangesToLayout(layout: LayoutModel): ApplyResult {
+  applyByIdentity(nodes: ScriptableNode[]): ApplyResult {
     const result: ApplyResult = {
       valuesChanged: 0,
       presenceChanged: 0,
@@ -94,56 +98,37 @@ export class PropertyChangeTracker {
       layoutDirty: false,
     };
 
-    if (this.changes.length === 0) return result;
+    for (const scriptable of nodes) {
+      const snapshot = this.nodeSnapshots.get(this.keyOf(scriptable));
+      if (!snapshot) continue;
+      const layoutNode = scriptable.layoutNode as LayoutNode | undefined;
+      if (!layoutNode) continue;
 
-    // Group changes by node path
-    const changesByPath = new Map<string, PropertyChange[]>();
-    for (const change of this.changes) {
-      if (!changesByPath.has(change.nodePath)) {
-        changesByPath.set(change.nodePath, []);
+      // Deliberately NOT guarded by `prop in layoutNode`: the parser only
+      // creates optional keys it actually saw in the XDP, so a field with no
+      // declared `presence` has no `presence` key at all — and that is exactly
+      // the case a `$.presence = "hidden"` script needs to write.
+      if (scriptable.resolvedValue !== snapshot.get('resolvedValue')) {
+        (layoutNode as { resolvedValue?: unknown }).resolvedValue = scriptable.resolvedValue;
+        result.valuesChanged++;
       }
-      changesByPath.get(change.nodePath)!.push(change);
-    }
-
-    // Walk the layout tree and apply changes
-    function walkNodes(nodes: LayoutNode[], parentPath: string) {
-      for (const node of nodes) {
-        const name = node.name ?? '';
-        const path = parentPath ? `${parentPath}.${name}` : name;
-
-        const nodeChanges = changesByPath.get(path);
-        if (nodeChanges) {
-          for (const change of nodeChanges) {
-            applyChangeToNode(node, change, result);
-          }
-        }
-
-        // Also try matching by terminal name (for path mismatches)
-        if (!nodeChanges && name) {
-          for (const [changePath, changes] of changesByPath) {
-            if (changePath.endsWith(`.${name}`) || changePath === name) {
-              for (const change of changes) {
-                applyChangeToNode(node, change, result);
-              }
-              break;
-            }
-          }
-        }
-
-        if (node.type === 'subform') {
-          walkNodes(node.children, path);
-        } else if (node.type === 'exclGroup') {
-          walkNodes(node.children, path);
-        }
+      if (scriptable.presence !== snapshot.get('presence')) {
+        (layoutNode as { presence?: PresenceValue }).presence =
+          scriptable.presence as PresenceValue;
+        result.presenceChanged++;
+        result.layoutDirty = true; // Presence changes affect layout
       }
-    }
-
-    walkNodes(layout.children, '');
-    for (const page of layout.pages) {
-      walkNodes(page.masterPageChildren, '');
+      if (scriptable.access !== snapshot.get('access')) {
+        (layoutNode as { access?: string }).access = scriptable.access;
+        result.accessChanged++;
+      }
     }
 
     return result;
+  }
+
+  private keyOf(scriptable: ScriptableNode): string {
+    return scriptable.key ?? scriptable.path ?? scriptable.name ?? '';
   }
 
   /**
@@ -194,36 +179,4 @@ export interface ApplyResult {
   accessChanged: number;
   /** Whether layout needs recalculation (presence or position changes) */
   layoutDirty: boolean;
-}
-
-// ─── Internal Helpers ───────────────────────────────────────────────────
-
-function applyChangeToNode(
-  node: LayoutNode,
-  change: PropertyChange,
-  result: ApplyResult
-): void {
-  switch (change.property) {
-    case 'resolvedValue':
-      if ('resolvedValue' in node) {
-        (node as { resolvedValue?: unknown }).resolvedValue = change.newValue;
-        result.valuesChanged++;
-      }
-      break;
-
-    case 'presence':
-      if ('presence' in node) {
-        (node as { presence?: PresenceValue }).presence = change.newValue as PresenceValue;
-        result.presenceChanged++;
-        result.layoutDirty = true; // Presence changes affect layout
-      }
-      break;
-
-    case 'access':
-      if ('access' in node) {
-        (node as { access?: string }).access = change.newValue as string;
-        result.accessChanged++;
-      }
-      break;
-  }
 }

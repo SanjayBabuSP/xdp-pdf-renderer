@@ -67,6 +67,13 @@ export function createXfaFormProxy(
         case 'type':
           return node?.type ?? 'unknown';
 
+        case 'x':
+        case 'y':
+        case 'w':
+        case 'h':
+        case 'rotate':
+          return getNodeAttribute(node, propName);
+
         case 'somExpression':
           return currentPath;
 
@@ -253,31 +260,26 @@ export function createXfaFormProxy(
       switch (prop) {
         case 'rawValue':
         case 'value':
-          if (node) {
-            node.resolvedValue = val;
-            modifiedFields.push(currentPath);
-          }
-          return true;
-
         case 'presence':
-          if (node) {
-            node.presence = val as string;
-            modifiedFields.push(currentPath);
-          }
-          return true;
-
         case 'access':
           if (node) {
-            node.access = val as string;
+            setNodeAttributeBase(node, prop, val);
+            mirrorToLayout(node, prop, val);
             modifiedFields.push(currentPath);
           }
           return true;
 
         default:
-          // Try setting on child nodes
-          if (node) {
-            (node as unknown as Record<string, unknown>)[prop] = val;
+          if (!node) return true;
+          // Geometry (`x`/`y`/`w`/`h`/`rotate`) lives on `position` — writing it
+          // as a plain property on the ScriptableNode would be invisible to
+          // the renderer (`txtWatermark.rotate = "30"`).
+          if (isGeometryAttr(prop)) {
+            setGeometryAttr(node, prop, val);
+            modifiedFields.push(currentPath);
+            return true;
           }
+          setNodeAttribute(node, prop, val, currentPath, modifiedFields);
           return true;
       }
     },
@@ -462,8 +464,48 @@ function getChildPaths(nodeMap: Map<string, ScriptableNode>, parentPath: string)
   return children;
 }
 
+/** Geometry attributes that live on `node.position`, not on the node itself. */
+const GEOMETRY_ATTRS = new Set(['x', 'y', 'w', 'h', 'rotate']);
+
+export function isGeometryAttr(attrName: string): boolean {
+  return GEOMETRY_ATTRS.has(attrName);
+}
+
+/**
+ * Write a geometry attribute back onto the layout node the scriptable mirrors.
+ * Scripts assign these directly (`txtWatermark.rotate = "30"`), so the value
+ * must reach `position.rotate` — writing it on the ScriptableNode would be
+ * invisible to the renderer.
+ */
+export function setGeometryAttr(
+  node: ScriptableNode | undefined,
+  attrName: string,
+  val: unknown
+): void {
+  if (!node || !isGeometryAttr(attrName)) return;
+  const num = Number(val);
+  const value = Number.isFinite(num) ? num : 0;
+
+  const layoutNode = node.layoutNode as
+    | { position?: Record<string, number | undefined> }
+    | undefined;
+  const position =
+    layoutNode && 'position' in layoutNode
+      ? layoutNode.position ?? (layoutNode.position = {})
+      : (node.position as Record<string, number | undefined> | undefined);
+
+  if (position) position[attrName] = value;
+  // Keep the scriptable's view in sync when it does not share the same object.
+  if (node.position && node.position !== position) {
+    (node.position as Record<string, number | undefined>)[attrName] = value;
+  } else if (!node.position && position) {
+    node.position = position as ScriptableNode['position'];
+  }
+}
+
 function getNodeAttribute(node: ScriptableNode | undefined, attrName: string): unknown {
   if (!node) return null;
+  if (GEOMETRY_ATTRS.has(attrName)) return node.position?.[attrName as 'x'] ?? null;
   switch (attrName) {
     case 'name': return node.name;
     case 'type': return node.type;
@@ -479,6 +521,28 @@ function getNodeAttribute(node: ScriptableNode | undefined, attrName: string): u
   }
 }
 
+function setNodeAttributeBase(
+  node: import('../script-types').ScriptableNode,
+  attrName: string,
+  val: unknown
+): void {
+  if (attrName === 'presence') node.presence = val as string;
+  else if (attrName === 'access') node.access = val as string;
+  else node.resolvedValue = val;
+}
+
+function mirrorToLayout(
+  node: import('../script-types').ScriptableNode,
+  attrName: string,
+  val: unknown
+): void {
+  const layout = node.layoutNode as Record<string, unknown> | undefined;
+  if (!layout) return;
+  if (attrName === 'rawValue' || attrName === 'value') layout.resolvedValue = val;
+  else if (attrName === 'presence') layout.presence = val;
+  else if (attrName === 'access') layout.access = val;
+}
+
 function setNodeAttribute(
   node: ScriptableNode | undefined,
   attrName: string,
@@ -487,12 +551,18 @@ function setNodeAttribute(
   modifiedFields: string[]
 ): void {
   if (!node) return;
+  if (GEOMETRY_ATTRS.has(attrName)) {
+    setGeometryAttr(node, attrName, val);
+    modifiedFields.push(path);
+    return;
+  }
   switch (attrName) {
-    case 'presence': node.presence = val as string; break;
-    case 'access': node.access = val as string; break;
+    case 'presence':
+    case 'access':
     case 'rawValue':
     case 'value':
-      node.resolvedValue = val;
+      setNodeAttributeBase(node, attrName, val);
+      mirrorToLayout(node, attrName, val);
       break;
     default:
       (node as unknown as Record<string, unknown>)[attrName] = val;

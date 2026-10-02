@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MechanicalSeal>
+  <OEM>ITT Bornemann GmbH</OEM>
+  <OEMDescription/>
+  <MachineLocation>Hamburg</MachineLocation>
+  <MachineLocationIsAssumption/>
+  <DensityUnit>kg/m3</DensityUnit>
+  <IsPreview>true</IsPreview>
+</MechanicalSeal>

@@ -182,12 +182,29 @@ export interface ScriptEngineConfig {
 export interface ScriptableNode {
   type: string;
   name?: string;
+  /**
+   * Stable unique key for this node within the current node map.
+   * Equals `path` for the first node claiming that path and `path#N` for
+   * later ones. Scripts mutate *this* object; reconciliation writes the
+   * result back onto `layoutNode` — never by name/path string matching.
+   */
+  key?: string;
+  /** The SOM path (dot-delimited, document order) of this node. */
+  path?: string;
+  /** The XDP-assigned identity of the node (parse-time `id`/`name`). */
+  uid?: string;
+  /** The concrete layout node this scriptable mirrors — the identity anchor. */
+  layoutNode?: unknown;
+  /** Parent scriptable node (undefined for roots). */
+  parent?: ScriptableNode;
   bindRef?: string;
   bindMatch?: string;
   presence?: string;
   access?: string;
   resolvedValue?: unknown;
-  position?: { x?: number; y?: number; w?: number; h?: number };
+  /** `<bind><picture>` format picture, used for `.formattedValue`. */
+  formatPicture?: string;
+  position?: { x?: number; y?: number; w?: number; h?: number; rotate?: number };
   events?: Array<{
     name?: string;
     activity?: string;

@@ -138,21 +138,26 @@ function executeScriptLifecycle(
   data: Record<string, unknown>,
   config: ScriptDispatchConfig
 ): DispatchResult {
-  // Build the flat node map and field accessor
-  const allNodes = buildNodeMapFromLayout(layout);
+  // Build the scriptable index: exactly one ScriptableNode per layout node,
+  // carrying the node's unique key and a back-reference to the concrete
+  // LayoutNode it mirrors. Script collection shares these same objects, so a
+  // mutation made by a script is the mutation we later reconcile.
+  const index = buildScriptIndex(layout);
+  const allNodes = index.allNodes;
   const fieldAccessor = createFieldAccessor(allNodes, data);
   const changeTracker = new PropertyChangeTracker();
 
   // Snapshot all nodes before scripts run
-  for (const [path, node] of allNodes) {
-    changeTracker.snapshot(path, node);
+  for (const node of index.ordered) {
+    changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
   }
 
   // Create script engines
   const jsEngine = new JavaScriptEngine(fieldAccessor, config);
+  jsEngine.setNodeMap(allNodes);
 
   // Collect all scripts from the layout tree
-  const scripts = collectScriptsFromLayout(layout);
+  const scripts = collectScriptsFromIndex(index);
   const stats = {
     executed: 0,
     errors: 0,
@@ -248,7 +253,7 @@ function executeScriptLifecycle(
   // ═══════════════════════════════════════════════════════════════════════
   // POST-EXECUTION: Detect and apply all property changes
   // ═══════════════════════════════════════════════════════════════════════
-  const applyResult = applyTrackedChanges(allNodes, changeTracker, layout);
+  const applyResult = applyTrackedChanges(index, changeTracker);
 
   return {
     layout,
@@ -306,16 +311,18 @@ export function dispatchPostLayoutScripts(
     // (node map, script collection, change application) can be reused. The
     // view references the SAME node objects the renderer will walk.
     const view = paginatedToLayoutView(layout);
-    const allNodes = buildNodeMapFromLayout(view);
+    const index = buildScriptIndex(view);
+    const allNodes = index.allNodes;
     const fieldAccessor = createFieldAccessor(allNodes, data);
     const changeTracker = new PropertyChangeTracker();
-    for (const [path, node] of allNodes) {
-      changeTracker.snapshot(path, node);
+    for (const node of index.ordered) {
+      changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
     }
     const jsEngine = new JavaScriptEngine(fieldAccessor, config);
+    jsEngine.setNodeMap(allNodes);
     const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
 
-    const scripts = collectScriptsFromLayout(view);
+    const scripts = collectScriptsFromIndex(index);
     if (!config.skipEvents?.includes('docReady')) {
       const docReadyScripts = scripts.filter(
         (s) => s.eventName === 'docReady' || s.runAt === 'docReady'
@@ -325,7 +332,7 @@ export function dispatchPostLayoutScripts(
       }
     }
 
-    const applyResult = applyTrackedChanges(allNodes, changeTracker, view);
+    const applyResult = applyTrackedChanges(index, changeTracker);
 
     return success({
       layout,
@@ -403,27 +410,28 @@ function executeInitializePhase(
   );
   if (relevant.length === 0) return;
 
-  // Group per element so initialize and indexChange fire as a pair.
-  const grouped = new Map<string, { init: ScriptEntry[]; index: ScriptEntry[] }>();
+  // Group per element so initialize and indexChange fire as a pair. Grouping
+  // is by scriptable identity — several fields can share a name (or even a
+  // full SOM path), and each must keep its own script pair.
+  const grouped = new Map<ScriptableNode, { init: ScriptEntry[]; index: ScriptEntry[] }>();
   for (const entry of relevant) {
-    const group = grouped.get(entry.elementPath) ?? { init: [], index: [] };
+    const group = grouped.get(entry.element) ?? { init: [], index: [] };
     if (entry.eventName === 'indexChange') {
       group.index.push(entry);
     } else {
       group.init.push(entry);
     }
-    grouped.set(entry.elementPath, group);
+    grouped.set(entry.element, group);
   }
 
-  const perPath = [...grouped.entries()].map(([elementPath, group]) => ({
-    elementPath,
+  const perElement = [...grouped.values()].map((group) => ({
     element: group.init[0]?.element ?? group.index[0].element,
     init: group.init,
     index: group.index,
   }));
 
   // Leaf-first: fields/draws before containers, deeper before shallower.
-  for (const item of sortLeafFirst(perPath)) {
+  for (const item of sortLeafFirst(perElement)) {
     if (!config.skipEvents?.includes('initialize')) {
       for (const entry of item.init) {
         executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
@@ -440,21 +448,21 @@ function executeInitializePhase(
 // ─── Shared post-phase change application ───────────────────────────────
 
 /**
- * Detect snapshot diffs, apply them to the layout tree, and mirror values via
- * the legacy path. Shared by the pre-layout lifecycle and docReady.
+ * Detect snapshot diffs and reconcile them back onto the layout tree.
+ * Shared by the pre-layout lifecycle and docReady.
+ *
+ * Reconciliation is identity-based: `applyModifiedValues` writes each
+ * scriptable's results onto the exact LayoutNode that scriptable mirrors,
+ * never by matching terminal names or path suffixes.
  */
 function applyTrackedChanges(
-  allNodes: Map<string, ScriptableNode>,
-  changeTracker: PropertyChangeTracker,
-  layout: LayoutModel
+  index: ScriptIndex,
+  changeTracker: PropertyChangeTracker
 ): ApplyResult {
-  for (const [path, node] of allNodes) {
-    changeTracker.detectChanges(path, node);
+  for (const node of index.ordered) {
+    changeTracker.detectChanges(node.key ?? node.path ?? node.name ?? '', node);
   }
-  const applyResult = changeTracker.applyChangesToLayout(layout);
-  // Also apply via the legacy path for backwards compatibility
-  applyModifiedValues(allNodes, layout);
-  return applyResult;
+  return applyModifiedValues(index, changeTracker);
 }
 
 // ─── Phase 3: Calculate with Dependency-Aware Cascading ─────────────────
@@ -553,30 +561,32 @@ function executeSingleScript(
   data: Record<string, unknown>,
   stats: { executed: number; errors: number; errorMessages: string[] }
 ): void {
+  // Anchor `$` / `this` on the exact node that owns this script before it runs.
+  // Without this, `$.rawValue = …` has no current node and silently no-ops.
+  const scriptKey = entry.element.key ?? entry.elementPath;
+  fieldAccessor.setCurrentKey?.(scriptKey);
   try {
     const xfaNode = scriptableToXfaNode(entry.element, entry.elementPath);
 
     if (entry.language === 'javascript') {
-      const result = jsEngine.execute(entry.scriptContent, xfaNode, entry.eventName, data);
+      const result = jsEngine.execute(
+        entry.scriptContent,
+        xfaNode,
+        entry.eventName,
+        data,
+        scriptKey
+      );
 
       // For calculate events, the return value becomes the field's value
       if (entry.eventName === 'calculate' && result.value !== undefined) {
         entry.element.resolvedValue = result.value;
         // Also update via field accessor so other scripts see the new value
-        fieldAccessor.setField(entry.elementPath, '$', result.value);
+        fieldAccessor.setField(scriptKey, '$', result.value);
       }
 
-      // Apply any modifications made via the JS engine
-      for (const modifiedField of result.modifiedFields) {
-        // The JS engine tracks modifications by field name, not path.
-        // Try to find the full path and update the node.
-        for (const [path, node] of allNodes) {
-          if (path.endsWith(`.${modifiedField}`) || path === modifiedField) {
-            // Node already modified in-place by the JS engine's proxy
-            break;
-          }
-        }
-      }
+      // Modifications made through the JS engine's `$` proxy already landed on
+      // the ScriptableNode itself (`resolvedValue` / `presence` / `access`), so
+      // reconciliation below picks them up by identity — no name matching.
     } else {
       // FormCalc
       const parser = new FormCalcParser(entry.scriptContent);
@@ -587,7 +597,7 @@ function executeSingleScript(
       // For calculate events, apply the last expression value
       if (entry.eventName === 'calculate' && result.value !== undefined) {
         entry.element.resolvedValue = result.value;
-        fieldAccessor.setField(entry.elementPath, '$', result.value);
+        fieldAccessor.setField(scriptKey, '$', result.value);
       }
     }
     stats.executed++;
@@ -596,6 +606,8 @@ function executeSingleScript(
     const msg = e instanceof Error ? e.message : String(e);
     stats.errorMessages.push(`[${entry.eventName}] ${entry.elementPath}: ${msg}`);
     // Non-fatal: continue with other scripts (matching Adobe behavior)
+  } finally {
+    fieldAccessor.setCurrentKey?.(null);
   }
 }
 
@@ -606,12 +618,12 @@ function executeSingleScript(
  * Within the same depth, maintain document order.
  * This matches Adobe's initialize event firing order.
  */
-function sortLeafFirst<T extends { elementPath: string; element: ScriptableNode }>(
+function sortLeafFirst<T extends { elementPath?: string; element: ScriptableNode }>(
   scripts: T[]
 ): T[] {
   return [...scripts].sort((a, b) => {
-    const aDepth = a.elementPath.split('.').length;
-    const bDepth = b.elementPath.split('.').length;
+    const aDepth = (a.elementPath ?? a.element.path ?? '').split('.').length;
+    const bDepth = (b.elementPath ?? b.element.path ?? '').split('.').length;
     const aIsLeaf = a.element.type === 'field' || a.element.type === 'draw';
     const bIsLeaf = b.element.type === 'field' || b.element.type === 'draw';
 
@@ -629,113 +641,117 @@ function sortLeafFirst<T extends { elementPath: string; element: ScriptableNode 
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function buildNodeMapFromLayout(layout: LayoutModel): Map<string, ScriptableNode> {
-  const map = new Map<string, ScriptableNode>();
+/**
+ * A shared index of scriptable nodes.
+ *
+ * Exactly one `ScriptableNode` exists per layout node, and every consumer —
+ * the node map, script collection, the `$` proxy, the change reconciler —
+ * receives those *same objects*. A mutation made by a script is therefore the
+ * mutation that is later applied back to the layout tree.
+ */
+interface ScriptIndex {
+  /**
+   * Flat lookup keyed by each node's unique `key`: `path` for the first node
+   * claiming that path, `path#N` for later ones. First-wins at `path` keeps
+   * SOM semantics (a script naming a field means the first one) while duplicate
+   * names stay individually addressable by `key`.
+   */
+  allNodes: Map<string, ScriptableNode>;
+  /** Every scriptable in document order — includes duplicate-path nodes. */
+  ordered: ScriptableNode[];
+  /** Root subform scriptable; its scripts live in `layout.rootEvents`. */
+  root?: ScriptableNode;
+}
+
+function buildScriptIndex(layout: LayoutModel): ScriptIndex {
+  const allNodes = new Map<string, ScriptableNode>();
+  const ordered: ScriptableNode[] = [];
+  const pathCounts = new Map<string, number>();
+  let root: ScriptableNode | undefined;
 
   // Root subform entry — the root is collapsed to rootSubformName in the
   // LayoutModel; its scripts live in layout.rootEvents (see parse-xdp.ts).
   if (layout.rootSubformName) {
-    map.set(layout.rootSubformName, {
+    root = {
       type: 'subform',
       name: layout.rootSubformName,
+      key: layout.rootSubformName,
+      path: layout.rootSubformName,
+      uid: layout.rootSubformName,
       presence: 'visible',
       events: layout.rootEvents,
       children: [],
-    });
+    };
+    allNodes.set(root.key!, root);
+    ordered.push(root);
   }
 
-  function walkNodes(nodes: LayoutNode[], parentPath: string) {
+  function walkNodes(nodes: LayoutNode[], parent: ScriptableNode | undefined) {
+    const parentPath = parent?.path ?? '';
     for (const node of nodes) {
       const name = node.name ?? '<unnamed>';
       const path = parentPath ? `${parentPath}.${name}` : name;
+      const seen = pathCounts.get(path) ?? 0;
+      pathCounts.set(path, seen + 1);
+      // Unique key: first node claims the bare path, later duplicates get #N.
+      const key = seen === 0 ? path : `${path}#${seen + 1}`;
 
       const scriptable: ScriptableNode = {
         type: node.type,
         name: node.name,
+        key,
+        path,
+        uid: 'uid' in node ? node.uid : undefined,
+        layoutNode: node,
+        parent,
         bindRef: 'bindRef' in node ? (node as { bindRef?: string }).bindRef : undefined,
         bindMatch: 'bindMatch' in node ? (node as { bindMatch?: string }).bindMatch : undefined,
         presence: node.presence,
         access: 'access' in node ? (node as { access?: string }).access : undefined,
         resolvedValue: 'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
-        position: 'position' in node ? (node as { position?: { x?: number; y?: number; w?: number; h?: number } }).position : undefined,
-        events: 'events' in node ? (node as { events?: ScriptableNode['events'] }).events : undefined,
-        calculate: 'calculate' in node ? (node as { calculate?: ScriptableNode['calculate'] }).calculate : undefined,
-      };
-
-      map.set(path, scriptable);
-      // Leaf-name fallback: XFA scripts may reference a node by its bare name
-      // when unambiguous (e.g. `stage = stage + "A"` for field content.stage).
-      // Exact SOM paths always win; first occurrence claims the short name.
-      if (scriptable.name && !map.has(scriptable.name)) {
-        map.set(scriptable.name, scriptable);
-      }
-
-      if (node.type === 'subform') {
-        walkNodes((node as { children: LayoutNode[] }).children, path);
-      } else if (node.type === 'exclGroup') {
-        walkNodes((node as { children: LayoutNode[] }).children, path);
-      }
-    }
-  }
-
-  walkNodes(layout.children, '');
-  for (const page of layout.pages) {
-    walkNodes(page.masterPageChildren, '');
-  }
-
-  return map;
-}
-
-function collectScriptsFromLayout(layout: LayoutModel): ScriptEntry[] {
-  const entries: ScriptEntry[] = [];
-
-  // Root-subform scripts — the root node itself is not in the children tree
-  // (LayoutModel keeps only rootSubformName + rootEvents).
-  if (layout.rootSubformName && layout.rootEvents?.length) {
-    const rootScriptable: ScriptableNode = {
-      type: 'subform',
-      name: layout.rootSubformName,
-      presence: 'visible',
-      events: layout.rootEvents,
-      children: [],
-    };
-    entries.push(...collectScriptsFromNode(rootScriptable, layout.rootSubformName));
-  }
-
-  function walkNodes(nodes: LayoutNode[], parentPath: string) {
-    for (const node of nodes) {
-      const name = node.name ?? '<unnamed>';
-      const path = parentPath ? `${parentPath}.${name}` : name;
-
-      const scriptable: ScriptableNode = {
-        type: node.type,
-        name: node.name,
-        presence: node.presence,
+        formatPicture: 'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined,
+        position: 'position' in node
+          ? (node as { position?: { x?: number; y?: number; w?: number; h?: number; rotate?: number } }).position
+          : undefined,
         events: 'events' in node ? (node as { events?: ScriptableNode['events'] }).events : undefined,
         calculate: 'calculate' in node ? (node as { calculate?: ScriptableNode['calculate'] }).calculate : undefined,
         // evidence: <validate> scripts are attached to fields by the template
         // parser (parse-xdp.ts:217) and must be collected for the validate
         // queue of XFAFormModel::recalculate (xfaform_disasm.c:30396-30420)
         validate: 'validate' in node ? (node as { validate?: ScriptableNode['validate'] }).validate : undefined,
-        resolvedValue: 'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
         children: [],
       };
 
-      entries.push(...collectScriptsFromNode(scriptable, path));
+      allNodes.set(key, scriptable);
+      // Leaf-name fallback: XFA scripts may reference a node by its bare name
+      // when unambiguous (e.g. `stage = stage + "A"` for field content.stage).
+      // Exact SOM paths always win; first occurrence claims the short name.
+      if (scriptable.name && !allNodes.has(scriptable.name)) {
+        allNodes.set(scriptable.name, scriptable);
+      }
 
-      if (node.type === 'subform') {
-        walkNodes((node as { children: LayoutNode[] }).children, path);
-      } else if (node.type === 'exclGroup') {
-        walkNodes((node as { children: LayoutNode[] }).children, path);
+      ordered.push(scriptable);
+      if (parent) parent.children!.push(scriptable);
+
+      if (node.type === 'subform' || node.type === 'exclGroup') {
+        walkNodes((node as { children: LayoutNode[] }).children, scriptable);
       }
     }
   }
 
-  walkNodes(layout.children, '');
+  walkNodes(layout.children, root);
   for (const page of layout.pages) {
-    walkNodes(page.masterPageChildren, '');
+    walkNodes(page.masterPageChildren, root);
   }
 
+  return { allNodes, ordered, root };
+}
+
+function collectScriptsFromIndex(index: ScriptIndex): ScriptEntry[] {
+  const entries: ScriptEntry[] = [];
+  for (const node of index.ordered) {
+    entries.push(...collectScriptsFromNode(node, node.key ?? node.path ?? node.name ?? ''));
+  }
   return entries;
 }
 
@@ -854,41 +870,22 @@ function detectScriptLanguage(contentType?: string): 'formcalc' | 'javascript' {
   return 'formcalc';
 }
 
+/**
+ * Reconcile script results back onto the layout tree — identity-based.
+ *
+ * Every `ScriptableNode` in the index carries a reference to the exact
+ * `LayoutNode` it mirrors (`layoutNode`), so a write made against one node
+ * can never land on a same-named sibling. Terminal-name matching
+ * (`path.endsWith('.' + name)`) and path-suffix matching are deliberately
+ * not used: duplicate field names are common in real XDP (repeated rows,
+ * `-Black`/`-White` pairs) and first-match-wins silently corrupted them.
+ *
+ * Only properties that actually changed since the pre-script snapshot are
+ * written, so counts reported by `PropertyChangeTracker` stay accurate.
+ */
 function applyModifiedValues(
-  allNodes: Map<string, ScriptableNode>,
-  layout: LayoutModel
-): void {
-  // Walk the layout tree and update resolvedValue/presence/access from the node map
-  function walkNodes(nodes: LayoutNode[]) {
-    for (const node of nodes) {
-      const name = node.name;
-      if (name) {
-        // Find matching scriptable node
-        for (const [path, scriptable] of allNodes) {
-          if (path.endsWith(`.${name}`) || path === name) {
-            if ('resolvedValue' in node && scriptable.resolvedValue !== undefined) {
-              (node as { resolvedValue?: unknown }).resolvedValue = scriptable.resolvedValue;
-            }
-            if (scriptable.presence !== undefined) {
-              (node as { presence?: string }).presence = scriptable.presence;
-            }
-            if (scriptable.access !== undefined && 'access' in node) {
-              (node as { access?: string }).access = scriptable.access;
-            }
-            break;
-          }
-        }
-      }
-      if (node.type === 'subform') {
-        walkNodes((node as { children: LayoutNode[] }).children);
-      } else if (node.type === 'exclGroup') {
-        walkNodes((node as { children: LayoutNode[] }).children);
-      }
-    }
-  }
-
-  walkNodes(layout.children);
-  for (const page of layout.pages) {
-    walkNodes(page.masterPageChildren);
-  }
+  index: ScriptIndex,
+  changeTracker: PropertyChangeTracker
+): ApplyResult {
+  return changeTracker.applyByIdentity(index.ordered);
 }

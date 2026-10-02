@@ -29,10 +29,11 @@ import {
   ChoiceListItem,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
-import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-utils';
+import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment } from '../../lib/xml-utils';
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { parseOpacityValue } from '../../lib/opacity';
 import { ERROR_CODES } from '../../errors/error-codes';
+import { stampUids } from '../../lib/node-uid';
 
 /**
  * Default font equate rules from Adobe LiveCycle Designer 11.0's Designer.xci.
@@ -85,6 +86,10 @@ export function parseXdp(xdpXml: string): Result<LayoutModel> {
   // dispatcher can fire them. evidence: XFAModelImpl::ready dispatches
   // 'ready' on the model alias node (xfa_disasm.c:49230-49275).
   const rootEvents = parseEvents(getChild(rootSubform, 'event'));
+
+  // Every node needs a unique identity so script results can be reconciled
+  // back onto the exact node they were produced against.
+  stampUids([children, ...pages.map((page) => page.masterPageChildren)]);
 
   return success({
     rootSubformName: attr(rootSubform, 'name') ?? 'value',
@@ -180,6 +185,7 @@ function parseSubform(subform: unknown): SubformNode {
   return {
     type: 'subform',
     name: attr(subform, 'name'),
+    uid: attr(subform, 'id') ?? undefined,
     // XFA default is absolute "position" layout when unspecified — only tb/lr/table/row opt into flow.
     layout: (attr(subform, 'layout') as SubformNode['layout']) ?? 'position',
     bindMatch: bind?.match,
@@ -213,6 +219,7 @@ function parseField(field: unknown): FieldNode {
   return {
     type: 'field',
     name: attr(field, 'name'),
+    uid: attr(field, 'id') ?? undefined,
     bindMatch: bind?.match,
     bindRef: bind?.ref,
     formatPicture: bind?.picture,
@@ -256,6 +263,7 @@ function parseExclGroup(eg: unknown): ExclGroupNode {
   return {
     type: 'exclGroup',
     name: attr(eg, 'name'),
+    uid: attr(eg, 'id') ?? undefined,
     bindMatch: bind?.match,
     bindRef: bind?.ref,
     children: fields,
@@ -270,6 +278,7 @@ function parseDraw(draw: unknown): DrawNode {
   return {
     type: 'draw',
     name: attr(draw, 'name'),
+    uid: attr(draw, 'id') ?? undefined,
     value: parseDrawValue(getChild(draw, 'value')),
     font: parseFont(getChild(draw, 'font')),
     position: parsePosition(draw),
@@ -309,10 +318,20 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
 
   const exData = getChild(value, 'exData');
   if (exData) {
+    // exData arrives in two shapes: entity-escaped markup as plain text, or
+    // real nested elements (`<body><p><span xfa:embed="#id"/></p></body>`).
+    // textContent() only sees #text, so nested markup must be re-serialized —
+    // otherwise every `xfa:embed` reference is lost before it is resolved.
+    const hasNestedMarkup =
+      typeof exData === 'object' &&
+      exData !== null &&
+      Object.keys(exData).some((k) => !k.startsWith('@_') && k !== '#text');
     return {
       type: 'richText',
       contentType: attr(exData, 'contentType') ?? 'text/html',
-      content: textContent(exData) ?? '',
+      content: hasNestedMarkup
+        ? serializeHtmlFragment(exData)
+        : textContent(exData) ?? '',
     };
   }
   const rectangle = getChild(value, 'rectangle');

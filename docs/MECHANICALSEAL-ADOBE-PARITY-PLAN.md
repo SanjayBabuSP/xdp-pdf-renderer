@@ -9,6 +9,27 @@ Goal: make the PDF produced by this npm package for
 This is an **execution plan only**. Each item below gives the observed symptom, the
 code-verified root cause (with file references), the fix direction, and how to verify.
 
+> **Status (execution round 1)**
+>
+> | # | Issue | Status |
+> |---|-------|--------|
+> | 1 | Assumption cells / presence scripts not applied | **Fixed** — identity-based reconciliation (`PropertyChangeTracker.applyByIdentity`), two-scriptable-node split removed (`buildScriptIndex` in `event-dispatcher.ts`), `this`/`$` bound to one object, CDATA scripts now parse |
+> | 2 | FormCalc `initialize` values missing | **Fixed** — `createFieldAccessor` rewritten (`$.rawValue`, `.formattedValue`, `x.rotate`, data-record fallback), `parseFieldRef` accepts `$.path` |
+> | 3 | `xfa:embed` unit labels missing | **Fixed** — new `src/domain/mapping/resolve-embeds.ts` runs after `dispatchScripts` in `render-pdf.ts`; nested exData now re-serialized by `parse-xdp.ts` |
+> | 4 | DRAFT watermark missing | **Fixed** — preview flag, `$.presence` and `$.rotate = "30"` all resolve; `previewMode` already force-shows invisible nodes |
+> | 5 | Header logo subtitle / `image/bmp` | **Already resolved** in `image-embedder.ts` (`decodeBmp`) + `image-sniff.ts`; master-page children render per page (`pdf-renderer.ts:117-118`) |
+> | 6 | Fine typography / alignment | **Deferred** — no reliable oracle until the real fixture lands |
+>
+> The real `test/final-test/MechanicalSeal_*.xdp` fixtures referenced below do **not** exist in
+> this checkout, so verification is via synthetic fixtures in
+> `test/fixtures/mechanicalseal/` plus
+> `test/integration/workflow/mechanicalseal-parity.test.ts` (10 tests) and unit tests under
+> `test/unit/domain/scripting/` (`identity-reconciliation`, `script-value-properties`,
+> `js-engine-parity`) and `test/unit/domain/mapping/resolve-embeds.test.ts`.
+> Suite status: `npm run build` clean, **398 tests / 33 suites pass**, `npm run lint`
+> reports only the 3 pre-existing errors (`fill-paint.ts:20`, `image-embedder.ts:92`,
+> `pdf-renderer.ts:64`).
+
 > Scope note: the earlier round of issues in
 > [docs/PDF-OUTPUT-ISSUES.md](./PDF-OUTPUT-ISSUES.md) (pagination dropping page 2, repeated
 > instances overlapping, borders/grid missing, vertical section labels missing, giant

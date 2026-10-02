@@ -192,6 +192,12 @@ export type PresenceValue = 'visible' | 'hidden' | 'invisible' | 'inactive';
 export interface SubformNode {
   type: 'subform';
   name?: string;
+  /**
+   * Stable unique identity assigned at parse time (XDP `id` when present,
+   * otherwise a synthetic key). Used to reconcile script-driven property
+   * changes back onto the exact node they were made against.
+   */
+  uid?: string;
   layout?: 'tb' | 'lr' | 'rl-tb' | 'table' | 'row' | 'rl-row' | 'position';
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
@@ -217,6 +223,8 @@ export interface SubformNode {
 export interface ExclGroupNode {
   type: 'exclGroup';
   name?: string;
+  /** Stable unique identity assigned at parse time (see SubformNode.uid). */
+  uid?: string;
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
   children: FieldNode[];
@@ -233,6 +241,8 @@ export interface ExclGroupNode {
 export interface FieldNode {
   type: 'field';
   name?: string;
+  /** Stable unique identity assigned at parse time (see SubformNode.uid). */
+  uid?: string;
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
   ui?: UiSpec;
@@ -264,6 +274,8 @@ export interface FieldNode {
 export interface DrawNode {
   type: 'draw';
   name?: string;
+  /** Stable unique identity assigned at parse time (see SubformNode.uid). */
+  uid?: string;
   value?: {
     type: 'text' | 'image' | 'richText' | 'rectangle' | 'line' | 'arc' | 'circle';
     contentType?: string;

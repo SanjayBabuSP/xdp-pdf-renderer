@@ -20,6 +20,12 @@ Observed symptoms in the current output:
 
 Below are the concrete, code-verified root causes, ordered by severity.
 
+> **Status update:** issues 1–4 and 6 below are fixed; issue 5 (caption collisions) is
+> mitigated by identity-based reconciliation; issue 7 (`image/bmp`) was already implemented in
+> `src/rendering/image-embedder.ts` (`decodeBmp`) + `src/rendering/image-sniff.ts`. The DRAFT
+> watermark (item 6) now renders — see
+> [docs/MECHANICALSEAL-ADOBE-PARITY-PLAN.md](./MECHANICALSEAL-ADOBE-PARITY-PLAN.md).
+
 ## 1. (Critical) Pagination drops all content on every page after the first
 
 [src/domain/layout/apply-pagination.ts](src/domain/layout/apply-pagination.ts#L10-L26)

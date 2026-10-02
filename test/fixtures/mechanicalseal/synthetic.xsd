@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="MechanicalSeal">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="OEM" type="xs:string"/>
+        <xs:element name="OEMDescription" type="xs:string" minOccurs="0"/>
+        <xs:element name="MachineLocation" type="xs:string"/>
+        <xs:element name="MachineLocationIsAssumption" type="xs:string" minOccurs="0"/>
+        <xs:element name="DensityUnit" type="xs:string" minOccurs="0"/>
+        <xs:element name="IsPreview" type="xs:string" minOccurs="0"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

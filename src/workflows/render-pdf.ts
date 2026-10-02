@@ -9,6 +9,7 @@ import { validateXdpStructure } from '../domain/validation/validate-xdp-structur
 import { resolveBindings } from '../domain/mapping/resolve-bindings';
 import { expandRepeats } from '../domain/mapping/expand-repeats';
 import { evaluateConditions } from '../domain/mapping/evaluate-conditions';
+import { resolveXfaEmbeds } from '../domain/mapping/resolve-embeds';
 import { applyTableLayouts } from '../domain/layout/calculate-table-layout';
 import { calculatePositions } from '../domain/layout/calculate-positions';
 import { applyPagination } from '../domain/layout/apply-pagination';
@@ -83,6 +84,14 @@ export async function renderFormToPdf(
     }
   );
   if (!scriptResult.success) return scriptResult;
+
+  // ── Phase 3a2: Inline `xfa:embed` resolution ───────────────────────────
+  // Unit labels and other text live on presence="hidden" floatingFields that
+  // are pulled into a visible <draw> through exData `xfa:embed="#id"`.
+  // Resolve them here — after scripts (so hidden fields already hold their
+  // data/script values) and before evaluateConditions (which drops hidden
+  // nodes and would otherwise take the references with them).
+  resolveXfaEmbeds(scriptResult.data.layout);
 
   // ── Phase 3b: Layout ────────────────────────────────────────────────────
   const computedResult = computeLayout(scriptResult.data.layout, options.pageHeight);

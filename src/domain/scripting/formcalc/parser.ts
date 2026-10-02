@@ -521,13 +521,16 @@ export class FormCalcParser {
     const prefix = prefixTok.value as '$' | '$$';
 
     // Read the SOM path: $field.subfield or $form.table.row[0].col
+    // `$.rawValue` / `$.presence` — the scripting object itself — leaves the
+    // path empty; the dotted continuation below then yields ".rawValue",
+    // which the field accessor resolves against the current node.
     let path = '';
     if (this.check(TokenType.IDENT)) {
       path = this.advance().value;
     } else if (this.check(TokenType.STRING)) {
       // $ "path.to.field" — quoted SOM expression
       path = this.advance().value;
-    } else {
+    } else if (!this.check(TokenType.DOT)) {
       throw new FormCalcParseError(
         `Expected field path after '${prefix}'`,
         prefixTok.line,

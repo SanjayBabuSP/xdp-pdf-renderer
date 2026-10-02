@@ -2,6 +2,7 @@ import { Result, LayoutModel, LayoutNode, SubformNode, DataObject, DataValue } f
 import { success, failure } from '../../lib/result-type';
 import { resolveXPath } from '../../lib/xpath-resolver';
 import { ERROR_CODES } from '../../errors/error-codes';
+import { stampUids } from '../../lib/node-uid';
 
 const MAX_OCCURRENCES = 10000;
 
@@ -25,6 +26,8 @@ export function expandRepeats(layout: LayoutModel, data: DataObject): Result<Lay
         masterPageChildren: expandNodes(page.masterPageChildren, data),
       })),
     };
+    // Expansion clones subtrees, which would otherwise leave duplicate ids.
+    stampUids([expanded.children, ...expanded.pages.map((p) => p.masterPageChildren)]);
     return success(expanded);
   } catch (e) {
     return failure(ERROR_CODES.BINDING_FAILED.code, `Expand repeats failed: ${e}`);

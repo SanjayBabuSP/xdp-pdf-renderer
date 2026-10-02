@@ -127,6 +127,12 @@ export interface FieldAccessor {
   getCurrentNode(): XfaNode | null;
   /** Get form-level data */
   getFormData(): unknown;
+  /**
+   * Set the node key that `$` / `this` resolve against for the script about
+   * to run. Called by the dispatcher before each script execution so
+   * `$.rawValue = …` writes to the exact node that owns the script.
+   */
+  setCurrentKey?(key: string | null): void;
 }
 
 export interface FormCalcResult {

@@ -6,6 +6,7 @@ import * as vm from 'vm';
 import { XfaNode, ScriptEngineConfig, ScriptableNode } from '../script-types';
 import { FieldAccessor } from '../formcalc/evaluator';
 import { createXfaFormProxy } from './xfa-form-proxy';
+import { createRecordProxy } from './xfa-record-proxy';
 
 export class JavaScriptEngineError extends Error {
   constructor(message: string) {
@@ -48,6 +49,7 @@ export class JavaScriptEngine {
   private config: Required<ScriptEngineConfig>;
   private modifiedFields: string[] = [];
   private nodeMap: Map<string, ScriptableNode> = new Map();
+  private formDataForRecord: unknown = {};
 
   constructor(fieldAccessor: FieldAccessor, config: ScriptEngineConfig = {}) {
     this.fieldAccessor = fieldAccessor;
@@ -67,16 +69,29 @@ export class JavaScriptEngine {
     this.nodeMap = nodeMap;
   }
 
+  /** The bound data instance backing `xfa.record` / `xfa.resolveNode`. */
+  setFormData(formData: unknown): void {
+    this.formDataForRecord = formData ?? {};
+  }
+
   execute(
     script: string,
     currentNode: XfaNode | null,
     eventName: string,
-    formData: unknown
+    formData: unknown,
+    currentKey?: string
   ): JsExecutionResult {
     this.modifiedFields = [];
+    this.formDataForRecord = formData ?? {};
     const logs: string[] = [];
 
-    const context = this.createSandboxContext(currentNode, eventName, formData, logs);
+    const context = this.createSandboxContext(
+      currentNode,
+      eventName,
+      formData,
+      logs,
+      currentKey
+    );
 
     try {
       const wrappedScript = this.wrapScript(script, eventName);
@@ -105,12 +120,21 @@ export class JavaScriptEngine {
     currentNode: XfaNode | null,
     eventName: string,
     formData: unknown,
-    logs: string[]
+    logs: string[],
+    currentKey?: string
   ): Record<string, unknown> {
     const self = this;
 
-    const dollarSign = currentNode ? this.createNodeProxy(currentNode) : createNullProxy();
-    const xfaObj = this.createXfaObject(formData);
+    // `$` must be the *scriptable* for the node that owns this script — that
+    // proxy writes through to the same LayoutNode the dispatcher reconciles.
+    // Fall back to the (detached) XfaNode copy only when no key is known.
+    const dollarSign =
+      currentKey !== undefined && this.nodeMap.has(currentKey)
+        ? createXfaFormProxy(this.nodeMap, currentKey, this.modifiedFields)
+        : currentNode
+          ? this.createNodeProxy(currentNode)
+          : createNullProxy();
+    const xfaObj = this.createXfaObject(formData, currentKey);
     const eventObj = this.createEventObject(currentNode, eventName);
     const hostObj = this.createHostObject();
 
@@ -247,11 +271,14 @@ export class JavaScriptEngine {
     });
   }
 
-  private createXfaObject(formData: unknown): Record<string, unknown> {
+  private createXfaObject(formData: unknown, currentKey?: string): Record<string, unknown> {
     // Use deep xfa.form proxy if nodeMap is available (Component 3 enhancement)
-    const formProxy = this.nodeMap.size > 0
-      ? createXfaFormProxy(this.nodeMap, '', this.modifiedFields)
-      : this.createFallbackFormProxy(formData);
+    // Anchored at the current script's node so `xfa.form.$...` scoped paths
+    // start from the right place; falls back to the form root.
+    const formProxy =
+      this.nodeMap.size > 0
+        ? createXfaFormProxy(this.nodeMap, currentKey ?? '', this.modifiedFields)
+        : this.createFallbackFormProxy(formData);
 
     // Create template proxy from nodeMap (access to layout structure)
     const templateProxy = this.nodeMap.size > 0
@@ -280,6 +307,10 @@ export class JavaScriptEngine {
         }
         return results;
       },
+      // `xfa.record` — the bound data instance seen through XFA's node view.
+      // Present even when the node map is empty so `initialize` scripts that
+      // read flags from the data never abort.
+      record: createRecordProxy(formData),
       template: templateProxy,
       datasets: datasetsProxy,
       host: this.createHostObject(),
@@ -584,6 +615,27 @@ export class JavaScriptEngine {
   }
 
   private resolveSomExpression(somExpr: string, contextNode: XfaNode | null): Record<string, unknown> | null {
+    // `xfa.record.…` / `record.…` addresses the data instance, not the form.
+    // Misses resolve to a null-safe node rather than null so that
+    // `xfa.resolveNode("xfa.record.X").value === ""` is a benign comparison
+    // instead of a TypeError that aborts the script.
+    const recordPrefix = somExpr.match(/^(?:xfa\.)?record\.(.*)$/);
+    if (recordPrefix) {
+      const rest = recordPrefix[1];
+      let current: unknown = this.formDataForRecord;
+      for (const part of rest.split('.').filter(Boolean)) {
+        if (current == null) break;
+        current = Array.isArray(current)
+          ? current[Number(part)] ??
+            (typeof current[0] === 'object' ? (current[0] as Record<string, unknown>)[part] : undefined)
+          : (current as Record<string, unknown>)[part];
+        if (current === undefined) break;
+      }
+      return current === undefined || current === null
+        ? (createRecordProxy({}) as Record<string, unknown>)
+        : (createRecordProxy(current) as Record<string, unknown>);
+    }
+
     // Try the nodeMap first (deep proxy with full navigation)
     if (this.nodeMap.size > 0) {
       // Try direct path
@@ -619,11 +671,14 @@ export class JavaScriptEngine {
   }
 
   private wrapScript(script: string, _eventName: string): string {
+    // `.call($, …)` so `this` inside the script is the scripting object —
+    // Designer emits `this.rawValue = …` far more often than `$.rawValue = …`.
+    // `returnValue` is deliberately NOT declared here: scripts assign to it to
+    // return a value, and a local `var` would swallow that from `execute()`.
     return `
       (function($, xfa, event, host) {
-        var returnValue;
         ${script}
-      })($, xfa, event, host);
+      }).call($, $, xfa, event, host);
     `;
   }
 }
