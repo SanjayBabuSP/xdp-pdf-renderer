@@ -1,7 +1,7 @@
 import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent } from './sizing';
-import { lineAdvanceFactor } from '../../rendering/text/font-metrics';
+import { paraMetrics } from '../../rendering/text/line-metrics';
 
 // ─── Position engine ──────────────────────────────────────────────────────
 // evidence: XFAPositionLayout is the fallback engine for nodes whose layout
@@ -9,16 +9,9 @@ import { lineAdvanceFactor } from '../../rendering/text/font-metrics';
 // — xfalayout_disasm.c:15853-15926 (dispatcher default branch) and :49800-49900
 // (coercion: invalid layout value → position, warn 0x72a6).
 
-/**
- * Line advance factor for a font — Adobe's XDC `<metrics lineHeight>`
- * (adobepdf.xdc:265-333) when the family is a base-14 face, else the 1.2
- * fallback (font_disasm.c:10517 `jfFontItem::getDefaultSpacing`).
- */
+/** Default line advance for a font size — evidence: font_disasm.c:10517 (1.2×). */
+const LINE_ADVANCE = 1.2;
 const DEFAULT_FONT_SIZE = 10;
-
-function lineAdvanceFor(size: number, family?: string, weight?: string, posture?: string): number {
-  return size * lineAdvanceFactor(family, weight, posture);
-}
 
 function getChildX(node: LayoutNode): number {
   if (node.type === 'subform' || node.type === 'field' || node.type === 'draw' || node.type === 'exclGroup') {
@@ -145,26 +138,19 @@ function captionHeight(node: FieldNode): number {
   if (!caption || !caption.text) return 0;
   const placement = caption.placement ?? 'left';
   if (placement === 'top' || placement === 'bottom') {
-    return (
-      caption.reserve ??
-      lineAdvanceFor(
-        caption.font?.size ?? node.font?.size ?? DEFAULT_FONT_SIZE,
-        caption.font?.family ?? node.font?.family,
-        caption.font?.weight ?? node.font?.weight,
-        caption.font?.posture ?? node.font?.posture
-      )
-    );
+    return caption.reserve ?? (caption.font?.size ?? node.font?.size ?? DEFAULT_FONT_SIZE) * LINE_ADVANCE;
   }
   return 0;
 }
 
+/**
+ * Height of a field's value block: the paragraph line advance plus any
+ * `spaceAbove`/`spaceBelow` (`<para>` metrics). evidence: jfTextAttr
+ * Spacing/SpaceBefore/SpaceAfter (jftext_disasm.c:3920/3852/3782).
+ */
 function valueLineHeight(node: FieldNode): number {
-  return lineAdvanceFor(
-    node.font?.size ?? DEFAULT_FONT_SIZE,
-    node.font?.family,
-    node.font?.weight,
-    node.font?.posture
-  );
+  const pm = paraMetrics(node.para, node.font?.size ?? DEFAULT_FONT_SIZE);
+  return pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
 /** Leaf field: resolve x/y/w/h with min/max clamping (plan Phase 2 task 4). */

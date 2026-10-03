@@ -46,7 +46,7 @@ import { embedBase64Image } from './image-embedder';
 import { computeImageRect } from './image-scaler';
 import { parseRichText } from './rich-text-parser';
 import { breakLines, breakLinesInfo } from './text/line-breaker';
-import { defaultLineAdvance, fontAscent, fontDescent, layoutLines } from './text/line-metrics';
+import { defaultLineAdvance, fontAscent, fontDescent, layoutLines, paraMetrics } from './text/line-metrics';
 import { measureText } from './text/measure';
 import {
   layoutRunBaselines,
@@ -575,9 +575,6 @@ async function renderField(
       : await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
     const captionSize = node.caption.font?.size ?? fontSize;
     const captionColor = toPdfColor(node.caption.font?.color);
-    const captionFamily = node.caption.font?.family ?? node.font?.family;
-    const captionWeight = node.caption.font?.weight ?? node.font?.weight;
-    const captionPosture = node.caption.font?.posture ?? node.font?.posture;
     const placement = node.caption?.placement ?? 'left';
     let captionX = x;
     let captionY = y;
@@ -592,8 +589,8 @@ async function renderField(
         align: placement === 'right' ? 'right' : valueAlign,
         valign: verticalAlign,
         lineLen: captionLen,
-        ascent: fontAscent(captionFont, captionSize, captionFamily, captionWeight, captionPosture),
-        descent: fontDescent(captionFont, captionSize, captionFamily, captionWeight, captionPosture),
+        ascent: fontAscent(captionFont, captionSize),
+        descent: fontDescent(captionFont, captionSize),
       });
       if (anchor) {
         captionX = anchor.x;
@@ -637,25 +634,24 @@ async function renderField(
 
   // Draw field value with multi-line wrapping
   if (valueText) {
-    const valueFamily = node.font?.family ?? 'Helvetica';
-    const valueWeight = node.font?.weight;
-    const valuePosture = node.font?.posture;
     const valueFont = await fontManager.getSafeFont(
       valueText,
-      valueFamily,
-      valueWeight,
-      valuePosture
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
     );
     const valueAreaWidth = Math.max(width - reserve, 0);
+    // `<para>` block metrics: line advance, vertical space and horizontal insets.
+    const pm = paraMetrics(node.para, fontSize);
 
     if (verticalRot) {
       // Box swap: wrap along the reading axis (box height), anchor with the
       // cross-axis offset preserving the caption reserve strip.
       const valueBox = { x: x + reserve, y, w: valueAreaWidth, h: innerHeight };
       const lines = wrapText(valueText, fontSize, innerHeight, valueFont);
-      const advance = defaultLineAdvance(fontSize, valueFamily, valueWeight, valuePosture);
-      const ascent = fontAscent(valueFont, fontSize, valueFamily, valueWeight, valuePosture);
-      const descent = fontDescent(valueFont, fontSize, valueFamily, valueWeight, valuePosture);
+      const advance = pm.lineAdvance;
+      const ascent = fontAscent(valueFont, fontSize);
+      const descent = fontDescent(valueFont, fontSize);
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, valueFont)),
         0
@@ -688,30 +684,34 @@ async function renderField(
       return;
     }
 
-    // Wrap text to fit within the value area (hard \n breaks always split)
+    // Wrap text to fit within the value area (hard \n breaks always split).
+    // `<para marginLeft/Right>` inset the text block; `textIndent` narrows the
+    // first line of each paragraph.
+    const textX = x + reserve + pm.marginLeft;
+    const textW = Math.max(valueAreaWidth - pm.marginLeft - pm.marginRight, 0);
     const measure = (s: string): number => measureTextWidth(s, fontSize, valueFont);
-    const lines = breakLinesInfo(valueText, valueAreaWidth, measure);
+    const lines = breakLinesInfo(valueText, textW, measure, {
+      firstLineIndent: pm.textIndent,
+    });
 
-    // First line at the top of the block, lines step downward by the XDC advance.
+    // First line at the top of the block; `spaceAbove`/`spaceBelow` shrink the
+    // usable box and `lineHeight` overrides the per-line advance.
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
       { top: y + innerHeight, bottom: y },
       verticalAlign,
       valueFont,
-      valueFamily,
-      valueWeight,
-      valuePosture
+      { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
 
     const clipped = clipOverflow(
       pdfPage,
-      x + reserve,
+      textX,
       y,
-      valueAreaWidth,
+      textW,
       innerHeight,
-      lines.length * defaultLineAdvance(fontSize, valueFamily, valueWeight, valuePosture) >
-        innerHeight + 0.5
+      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > innerHeight + 0.5
     );
 
     // Draw each line
@@ -719,11 +719,14 @@ async function renderField(
       const { text: line, paragraphEnd } = lines[i];
       const lineY = baselines[i];
       const lineWidth = measure(line);
-      const baseX = x + reserve + horizontalOffsetX(justH, valueAreaWidth, lineWidth);
+      // First line of each paragraph carries the text indent.
+      const indent = i === 0 || lines[i - 1].paragraphEnd ? pm.textIndent : 0;
+      const lineAvail = Math.max(textW - indent, 0);
+      const baseX = textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth);
 
       // Justify/justifyAll widen the inter-word gaps (jftext:73245);
       // every other code draws the line whole at the alignment offset.
-      const segments = justifyLine(line, valueAreaWidth, lineWidth, measure, {
+      const segments = justifyLine(line, lineAvail, lineWidth, measure, {
         code: justH,
         paragraphLast: paragraphEnd,
       });
@@ -731,7 +734,7 @@ async function renderField(
       if (segments) {
         for (const segment of segments) {
           pdfPage.drawText(segment.text, {
-            x: x + reserve + segment.x,
+            x: textX + indent + segment.x,
             y: lineY,
             size: fontSize,
             font: valueFont,
@@ -874,17 +877,20 @@ async function renderDraw(
     // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
     const fontColor = toPdfColor(node.font?.color);
-    const family = node.font?.family ?? 'Helvetica';
-    const weight = node.font?.weight;
-    const posture = node.font?.posture;
-    const font = await fontManager.getSafeFont(text, family, weight, posture);
+    const font = await fontManager.getSafeFont(
+      text,
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
+    );
     const rotate = normalizeRotation(node.position?.rotate ?? 0);
     const rotation = rotate !== 0 ? degrees(rotate) : undefined;
+    const pm = paraMetrics(node.para, fontSize);
 
     if (isVerticalRotation(rotate)) {
       // Box swap: wrap along the box height, anchor via rotation remap
       const lines = wrapText(text, fontSize, height, font);
-      const advance = defaultLineAdvance(fontSize, family, weight, posture);
+      const advance = pm.lineAdvance;
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font)),
         0
@@ -895,8 +901,8 @@ async function renderDraw(
         align: 'left',
         valign: 'top',
         lineLen: longest,
-        ascent: fontAscent(font, fontSize, family, weight, posture),
-        descent: fontDescent(font, fontSize, family, weight, posture),
+        ascent: fontAscent(font, fontSize),
+        descent: fontDescent(font, fontSize),
         advance,
         lineCount: lines.length,
       });
@@ -914,32 +920,40 @@ async function renderDraw(
       return;
     }
 
-    // Multi-line text wrapping
-    const lines = wrapText(text, fontSize, width, font);
+    // Multi-line text wrapping with `<para>` insets/indent and line advance.
+    const textX = x + pm.marginLeft;
+    const textW = Math.max(width - pm.marginLeft - pm.marginRight, 0);
+    const lines = wrapText(text, fontSize, textW, font, { firstLineIndent: pm.textIndent });
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
       { top: y + height, bottom: y },
       'top',
       font,
-      family,
-      weight,
-      posture
+      { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
 
     const clipped = clipOverflow(
       pdfPage,
-      x,
+      textX,
       y,
-      width,
+      textW,
       height,
-      lines.length * defaultLineAdvance(fontSize, family, weight, posture) > height + 0.5
+      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > height + 0.5
     );
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineY = baselines[i];
-      pdfPage.drawText(line, { x, y: lineY, size: fontSize, font, color: fontColor, rotate: rotation });
+      const indent = i === 0 ? pm.textIndent : 0;
+      pdfPage.drawText(line, {
+        x: textX + indent,
+        y: lineY,
+        size: fontSize,
+        font,
+        color: fontColor,
+        rotate: rotation,
+      });
     }
     endOverflowClip(pdfPage, clipped);
   }
@@ -1010,10 +1024,12 @@ async function renderRichText(
     if (!text) return;
     // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
-    const family = node.font?.family ?? 'Helvetica';
-    const weight = node.font?.weight;
-    const posture = node.font?.posture;
-    const font = await fontManager.getSafeFont(text, family, weight, posture);
+    const font = await fontManager.getSafeFont(
+      text,
+      node.font?.family ?? 'Helvetica',
+      node.font?.weight,
+      node.font?.posture
+    );
     const wrapWidth = width ?? 500;
     const boxH = height ?? 0;
     const lines = wrapText(text, fontSize, wrapWidth, font);
@@ -1022,10 +1038,7 @@ async function renderRichText(
       fontSize,
       { top: y + boxH, bottom: y },
       'top',
-      font,
-      family,
-      weight,
-      posture
+      font
     );
 
     const clipped = clipOverflow(
@@ -1034,7 +1047,7 @@ async function renderRichText(
       y,
       wrapWidth,
       boxH,
-      lines.length * defaultLineAdvance(fontSize, family, weight, posture) > boxH + 0.5
+      lines.length * defaultLineAdvance(fontSize) > boxH + 0.5
     );
 
     for (let i = 0; i < lines.length; i++) {
@@ -1049,34 +1062,24 @@ async function renderRichText(
   // XFA default font size is 10pt (template <font> without @size).
   const baseFontSize = node.font?.size ?? 10;
   const baseFontFamily = node.font?.family ?? 'Helvetica';
-  const baseWeight = node.font?.weight;
-  const basePosture = node.font?.posture;
   const wrapWidth = width ?? 500;
   const boxH = height ?? 0;
 
   // One font per run — bold/italic/size come from the run's tags.
   const styled: StyledRun[] = [];
   for (const run of runs) {
-    const weight = run.bold ? 'bold' : baseWeight;
-    const posture = run.italic ? 'italic' : basePosture;
-    const font = await fontManager.getSafeFont(run.text, baseFontFamily, weight, posture);
-    styled.push({
-      text: run.text,
-      size: run.fontSize ?? baseFontSize,
-      font,
-      color: run.color,
-      family: baseFontFamily,
-      weight,
-      posture,
-    });
+    const font = await fontManager.getSafeFont(
+      run.text,
+      baseFontFamily,
+      run.bold ? 'bold' : node.font?.weight,
+      run.italic ? 'italic' : node.font?.posture
+    );
+    styled.push({ text: run.text, size: run.fontSize ?? baseFontSize, font, color: run.color });
   }
 
   const lines = layoutRunLines(styled, {
     maxWidth: wrapWidth,
     baseSize: baseFontSize,
-    baseFamily: baseFontFamily,
-    baseWeight,
-    basePosture,
     measure: (text, run) => measureText(text, styled[run].size, styled[run].font),
   });
 
@@ -1203,10 +1206,16 @@ function measureTextWidth(text: string, fontSize: number, font?: PDFFont): numbe
 }
 
 /** Wrap text into lines that fit within the given width. */
-function wrapText(text: string, fontSize: number, maxWidth: number, font?: PDFFont): string[] {
+function wrapText(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  font?: PDFFont,
+  opts: { firstLineIndent?: number } = {}
+): string[] {
   if (!text) return [text];
   if (maxWidth <= 0) return text.split(/\r\n|\r|\n/);
-  return breakLines(text, maxWidth, (s) => measureTextWidth(s, fontSize, font));
+  return breakLines(text, maxWidth, (s) => measureTextWidth(s, fontSize, font), opts);
 }
 
 /**

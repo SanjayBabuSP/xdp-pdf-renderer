@@ -1,11 +1,13 @@
 {
   "version": "1.0",
   "supported": {
-    "layouts": ["tb", "lr", "table", "row", "position"],
+    "layouts": ["tb", "lr-tb", "rl-tb", "table", "row", "position"],
     "fieldTypes": ["textEdit", "numericEdit", "dateTimeEdit", "imageEdit", "checkButton", "choiceList", "barcode", "button", "signature"],
     "presenceValues": ["visible", "hidden", "invisible", "inactive"],
+    "paraMetrics": ["lineHeight", "spaceAbove", "spaceBelow", "textIndent", "marginLeft", "marginRight"],
     "xsdTypes": ["string", "int", "byte", "short", "integer", "decimal", "float", "date", "dateTime", "anyURI"],
     "drawTypes": ["text", "image", "richText", "rectangle", "line", "arc", "circle"],
+    "imageFormats": ["png", "jpeg", "gif", "bmp", "tiff", "jpx"],
     "templateNamespaces": [
       "http://www.xfa.org/schema/xfa-template/2.8/",
       "http://www.xfa.org/schema/xfa-template/3.3/",
@@ -40,8 +42,16 @@
     "maxInputSizeBytes": 10485760
   },
   "unsupported": {
-    "features": ["acroForms", "barcodeRendering", "iccColorManagement"],
-    "partialSupport": ["richTextFormatting"],
-    "imageFormats": ["image/bmp", "image/gif", "image/tiff"]
+    "features": ["iccColorManagement"],
+    "partialSupport": ["richTextFormatting", "xfaScripting", "formCalcBuiltins", "ccittGroup4Decompression", "postal4StateBarcodes"]
+  },
+  "optIn": {
+    "acroFormWidgets": true,
+    "embedXfaPackage": true,
+    "taggedPdf": true
+  },
+  "lineMetrics": {
+    "defaultAdvanceFactor": 1.2,
+    "source": "font_disasm.c:10522 (jfFontItem::getDefaultSpacing = 1.2)"
   }
 }

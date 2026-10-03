@@ -136,6 +136,22 @@ export interface CaptionSpec {
 export interface ParaSpec {
   vAlign?: string;
   hAlign?: string;
+  /**
+   * `<para lineHeight>` — line advance override, in points.
+   * evidence: `xfa.dll` property atom `lineHeight`; `jfTextAttr::Spacing`
+   * (jftext_disasm.c:3920) is the paragraph line-spacing UnitSpan.
+   */
+  lineHeight?: number;
+  /** `<para spaceAbove>` — extra space above the text block, points. */
+  spaceAbove?: number;
+  /** `<para spaceBelow>` — extra space below the text block, points. */
+  spaceBelow?: number;
+  /** `<para textIndent>` — first-line indent, points. */
+  textIndent?: number;
+  /** `<para marginLeft>` — left inset of the text block, points. */
+  marginLeft?: number;
+  /** `<para marginRight>` — right inset of the text block, points. */
+  marginRight?: number;
 }
 
 export interface EventSpec {
@@ -387,6 +403,8 @@ export interface DrawNode {
   ui?: UiSpec;
   margin?: MarginSpec;
   border?: BorderSpec;
+  /** `<para>` paragraph metrics (lineHeight/spaceAbove/spaceBelow/textIndent/…). */
+  para?: ParaSpec;
   events?: EventSpec[];
   /** XFA relevant attribute for conditional visibility (G2). */
   relevant?: string;

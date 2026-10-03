@@ -10,28 +10,45 @@
  */
 
 import type { PDFFont } from 'pdf-lib';
-import { lineAdvanceFactor, lookupXdcMetrics } from './font-metrics';
+import type { ParaSpec } from '../../types';
 
-/** Default line advance factor (font:10517) for families without XDC metrics. */
+/** Default line advance factor (font:10517). */
 export const DEFAULT_LINE_ADVANCE_FACTOR = 1.2;
+
+/** Resolved `<para>` metrics applied to a text block. */
+export interface ParaMetrics {
+  /** Line advance in points (`lineHeight` override, else 1.2 × size). */
+  lineAdvance: number;
+  spaceAbove: number;
+  spaceBelow: number;
+  textIndent: number;
+  marginLeft: number;
+  marginRight: number;
+}
+
+/**
+ * Resolve `<para>` metrics for a font size. `lineHeight` (points) overrides the
+ * 1.2 × size default; the remaining values are direct point offsets.
+ * evidence: xfa.dll atoms `lineHeight`/`spaceAbove`/`spaceBelow`/`textIndent`/
+ * `marginLeft`/`marginRight`; jfTextAttr::Spacing/MarginL/MarginR/SpaceBefore/
+ * SpaceAfter (jftext_disasm.c:3920/2888/2957/3852/3782).
+ */
+export function paraMetrics(para: ParaSpec | undefined, fontSize: number): ParaMetrics {
+  return {
+    lineAdvance: para?.lineHeight ?? defaultLineAdvance(fontSize),
+    spaceAbove: para?.spaceAbove ?? 0,
+    spaceBelow: para?.spaceBelow ?? 0,
+    textIndent: para?.textIndent ?? 0,
+    marginLeft: para?.marginLeft ?? 0,
+    marginRight: para?.marginRight ?? 0,
+  };
+}
 
 /** Fallback ascent factor when the font exposes no metrics (≈ Helvetica). */
 export const DEFAULT_ASCENT_FACTOR = 0.8;
 
-/**
- * Default line advance for `fontSize`.
- *
- * When a base-14 `family` is known, Adobe's `adobepdf.xdc` `<metrics
- * lineHeight>` is used (1000 Courier, 1149 Helvetica/Times, 1200
- * Symbol/Zapf); otherwise the 1.2 fallback (font_disasm.c:10517) applies.
- */
-export function defaultLineAdvance(
-  fontSize: number,
-  family?: string,
-  weight?: string,
-  posture?: string
-): number {
-  return fontSize * lineAdvanceFactor(family, weight, posture);
+export function defaultLineAdvance(fontSize: number): number {
+  return fontSize * DEFAULT_LINE_ADVANCE_FACTOR;
 }
 
 /** Fallback ascent (0.8 × size) when no font metrics are available. */
@@ -40,22 +57,10 @@ export function defaultAscent(fontSize: number): number {
 }
 
 /**
- * Ascent for `font` at `fontSize`.
- *
- * Base-14 families use Adobe's XDC `<metrics ascent>` (adobepdf.xdc:286 etc.),
- * matching Preview-as-PDF. Embedded fonts publish `Ascender` in 1/1000 units;
- * otherwise fall back to 0.8 × size.
+ * Ascent for `font` at `fontSize`: standard (AFM) fonts publish Ascender in
+ * 1/1000 units; otherwise fall back to 0.8 × size.
  */
-export function fontAscent(
-  font: PDFFont | undefined,
-  fontSize: number,
-  family?: string,
-  weight?: string,
-  posture?: string
-): number {
-  const xdc = lookupXdcMetrics(family, weight, posture);
-  if (xdc) return (xdc.ascent / 1000) * fontSize;
-
+export function fontAscent(font: PDFFont | undefined, fontSize: number): number {
   const afm = (font as unknown as { embedder?: { font?: { Ascender?: number } } })
     ?.embedder?.font;
   if (afm && typeof afm.Ascender === 'number' && Number.isFinite(afm.Ascender)) {
@@ -65,26 +70,14 @@ export function fontAscent(
 }
 
 /**
- * Descent for `font` at `fontSize`.
- *
- * Base-14 families use Adobe's XDC `<metrics descent>` (adobepdf.xdc:266 etc.);
- * otherwise it is derived from the font's total height minus the ascent, with
- * a 0.2 × size fallback.
+ * Descent for `font` at `fontSize` — derived from the font's total height
+ * (ascender − descender) minus the ascent; fallback 0.2 × size.
  */
-export function fontDescent(
-  font: PDFFont | undefined,
-  fontSize: number,
-  family?: string,
-  weight?: string,
-  posture?: string
-): number {
-  const xdc = lookupXdcMetrics(family, weight, posture);
-  if (xdc) return (xdc.descent / 1000) * fontSize;
-
+export function fontDescent(font: PDFFont | undefined, fontSize: number): number {
   if (font && typeof font.heightAtSize === 'function') {
     try {
       const total = font.heightAtSize(fontSize);
-      const descent = total - fontAscent(font, fontSize, family, weight, posture);
+      const descent = total - fontAscent(font, fontSize);
       if (Number.isFinite(descent) && descent >= 0) return descent;
     } catch {
       // fall through to default
@@ -102,11 +95,27 @@ export interface LineLayout {
   baselines: number[];
 }
 
+export interface LineLayoutOptions {
+  /**
+   * `<para lineHeight>` override for the per-line advance, in points.
+   * evidence: xfa.dll atom `lineHeight`; jfTextAttr::Spacing (jftext:3920).
+   */
+  lineAdvance?: number;
+  /** `<para spaceAbove>` — padding above the block, points. */
+  paddingTop?: number;
+  /** `<para spaceBelow>` — padding below the block, points. */
+  paddingBottom?: number;
+}
+
 /**
  * Lay `count` lines of `fontSize` inside the vertical span
  * [box.bottom, box.top]. The block is positioned per `align` (top: block top
  * at box.top; bottom: block bottom at box.bottom; middle: centered) and
  * baselines run downward from blockTop − ascent.
+ *
+ * `opts.paddingTop`/`paddingBottom` shrink the usable box before alignment
+ * (Adobe `spaceAbove`/`spaceBelow`), and `opts.lineAdvance` replaces the
+ * default 1.2 × size advance (`<para lineHeight>`).
  */
 export function layoutLines(
   count: number,
@@ -114,22 +123,22 @@ export function layoutLines(
   box: { top: number; bottom: number },
   align: VerticalAlign = 'top',
   font?: PDFFont,
-  family?: string,
-  weight?: string,
-  posture?: string
+  opts: LineLayoutOptions = {}
 ): LineLayout {
-  const advance = defaultLineAdvance(fontSize, family, weight, posture);
-  const ascent = fontAscent(font, fontSize, family, weight, posture);
+  const advance = opts.lineAdvance ?? defaultLineAdvance(fontSize);
+  const ascent = fontAscent(font, fontSize);
   const blockHeight = count * advance;
-  const boxHeight = box.top - box.bottom;
+  const boxTop = box.top - (opts.paddingTop ?? 0);
+  const boxBottom = box.bottom + (opts.paddingBottom ?? 0);
+  const boxHeight = boxTop - boxBottom;
 
   let blockTop: number;
   if (align === 'bottom') {
-    blockTop = box.bottom + blockHeight;
+    blockTop = boxBottom + blockHeight;
   } else if (align === 'middle') {
-    blockTop = box.bottom + (boxHeight + blockHeight) / 2;
+    blockTop = boxBottom + (boxHeight + blockHeight) / 2;
   } else {
-    blockTop = box.top;
+    blockTop = boxTop;
   }
 
   const baselines: number[] = [];

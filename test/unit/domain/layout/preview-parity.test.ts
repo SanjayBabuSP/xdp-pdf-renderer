@@ -119,17 +119,7 @@ describe('Preview-as-PDF parity', () => {
 
   it('uses the XFA 10pt default font height for growable fields', () => {
     const out = run([field('a', { w: 100 })]);
-    // Single value line at 10pt × 1.2 advance (no known family).
+    // Single value line at 10pt × 1.2 advance.
     expect(out[0].position!.h).toBeCloseTo(12, 5);
-  });
-
-  it('uses Adobe XDC lineHeight for a growable base-14 field', () => {
-    // Helvetica lineHeight=1149/1000 → 11.49pt at 10pt (adobepdf.xdc:286).
-    const helv = run([{ ...field('a', { w: 100 }), font: { family: 'Helvetica', size: 10 } }]);
-    expect(helv[0].position!.h).toBeCloseTo(11.49, 5);
-
-    // Courier lineHeight=1000/1000 → 10pt at 10pt (adobepdf.xdc:266).
-    const courier = run([{ ...field('a', { w: 100 }), font: { family: 'Courier', size: 10 } }]);
-    expect(courier[0].position!.h).toBeCloseTo(10, 5);
   });
 });

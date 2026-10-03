@@ -3,7 +3,6 @@ import {
   defaultAscent,
   defaultLineAdvance,
   fontAscent,
-  fontDescent,
   layoutLines,
 } from '../../../src/rendering/text/line-metrics';
 
@@ -23,17 +22,6 @@ describe('line-metrics', () => {
     const fakeFont = { embedder: { font: { Ascender: 718 } } } as never;
     expect(fontAscent(fakeFont, 10)).toBeCloseTo(7.18, 10);
     expect(fontAscent(undefined, 10)).toBeCloseTo(8, 10);
-  });
-
-  it('uses XDC metrics for base-14 families (adobepdf.xdc)', () => {
-    expect(defaultLineAdvance(10, 'Helvetica')).toBeCloseTo(11.49, 10);
-    expect(defaultLineAdvance(10, 'Arial')).toBeCloseTo(11.49, 10);
-    expect(defaultLineAdvance(10, 'Courier')).toBeCloseTo(10, 10);
-    expect(defaultLineAdvance(10, 'Times')).toBeCloseTo(11.49, 10);
-    expect(fontAscent(undefined, 10, 'Helvetica')).toBeCloseTo(7.28, 10);
-    expect(fontDescent(undefined, 10, 'Helvetica')).toBeCloseTo(2.1, 10);
-    // Embedded font with no XDC face keeps the fallback factors.
-    expect(defaultLineAdvance(10, 'DejaVu Sans')).toBeCloseTo(12, 10);
   });
 
   describe('layoutLines', () => {

@@ -24,10 +24,6 @@ export interface StyledRun {
   size: number;
   font: PDFFont;
   color?: RgbColor;
-  /** Requested family (base-14) for Adobe XDC line metrics; else undefined. */
-  family?: string;
-  weight?: string;
-  posture?: string;
 }
 
 /** One drawn piece of a line: text at an x offset from the line origin. */
@@ -56,10 +52,6 @@ export interface RunLineOptions {
   measure: (text: string, run: number) => number;
   /** Size used for blank lines produced by consecutive line breaks. */
   baseSize: number;
-  /** Family used for blank lines (XDC line metrics); defaults to 1.2 fallback. */
-  baseFamily?: string;
-  baseWeight?: string;
-  basePosture?: string;
   /** Allowed overshoot before a forced break; default 0.5. */
   tolerance?: number;
 }
@@ -109,7 +101,7 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
     while (current.length > 0 && current[current.length - 1].kind === 'space') {
       width -= (current.pop() as SpaceToken).width;
     }
-    lines.push(buildLine(current, runs, measure, paragraphEnd, opts));
+    lines.push(buildLine(current, runs, measure, paragraphEnd, opts.baseSize));
     current = [];
     width = 0;
     wordCount = 0;
@@ -261,16 +253,12 @@ function buildLine(
   runs: StyledRun[],
   measure: (text: string, run: number) => number,
   paragraphEnd: boolean,
-  opts: RunLineOptions
+  baseSize: number
 ): RunLine {
   const segments: RunSegment[] = [];
   let x = 0;
   let maxSize = 0;
   let ascent = 0;
-  // Family of the largest run on the line drives the XDC line advance.
-  let maxFamily: string | undefined;
-  let maxWeight: string | undefined;
-  let maxPosture: string | undefined;
 
   for (const token of tokens) {
     if (token.kind === 'space') {
@@ -284,10 +272,7 @@ function buildLine(
       x += measure(piece.text, piece.run);
       if (run.size > maxSize) {
         maxSize = run.size;
-        ascent = fontAscent(run.font, run.size, run.family, run.weight, run.posture);
-        maxFamily = run.family;
-        maxWeight = run.weight;
-        maxPosture = run.posture;
+        ascent = fontAscent(run.font, run.size);
       }
     }
   }
@@ -296,20 +281,15 @@ function buildLine(
     return {
       segments,
       width: 0,
-      advance: defaultLineAdvance(
-        opts.baseSize,
-        opts.baseFamily,
-        opts.baseWeight,
-        opts.basePosture
-      ),
-      ascent: defaultAscent(opts.baseSize),
+      advance: defaultLineAdvance(baseSize),
+      ascent: defaultAscent(baseSize),
       paragraphEnd,
     };
   }
   return {
     segments,
     width: x,
-    advance: defaultLineAdvance(maxSize, maxFamily, maxWeight, maxPosture),
+    advance: defaultLineAdvance(maxSize),
     ascent,
     paragraphEnd,
   };

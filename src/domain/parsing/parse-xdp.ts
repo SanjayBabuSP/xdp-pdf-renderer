@@ -659,6 +659,7 @@ function parseDraw(draw: unknown): DrawNode {
     uid: attr(draw, 'id') ?? undefined,
     value: parseDrawValue(getChild(draw, 'value')),
     font: parseFont(getChild(draw, 'font')),
+    para: parsePara(getChild(draw, 'para')),
     position: parsePosition(draw),
     presence: (attr(draw, 'presence') as PresenceValue) ?? 'visible',
     ui: parseUi(getChild(draw, 'ui')),
@@ -1030,7 +1031,30 @@ function parseCaption(caption: unknown): CaptionSpec | undefined {
 
 function parsePara(para: unknown): ParaSpec | undefined {
   if (!para) return undefined;
-  return { vAlign: attr(para, 'vAlign'), hAlign: attr(para, 'hAlign') };
+  // XFA <para> carries alignment plus paragraph metrics. Property names are the
+  // xfa.dll atoms `lineHeight`, `spaceAbove`, `spaceBelow`, `textIndent`,
+  // `marginLeft`, `marginRight`; jfTextAttr exposes them as Spacing (:3920),
+  // SpaceBefore (:3920)/SpaceAfter (:3782) and MarginL/MarginR (:2888/:2957).
+  const spec: ParaSpec = {
+    vAlign: attr(para, 'vAlign'),
+    hAlign: attr(para, 'hAlign'),
+    lineHeight: paraPoints(para, 'lineHeight'),
+    spaceAbove: paraPoints(para, 'spaceAbove'),
+    spaceBelow: paraPoints(para, 'spaceBelow'),
+    textIndent: paraPoints(para, 'textIndent'),
+    marginLeft: paraPoints(para, 'marginLeft'),
+    marginRight: paraPoints(para, 'marginRight'),
+  };
+  const hasValue = Object.values(spec).some((v) => v != null && v !== '');
+  return hasValue ? spec : undefined;
+}
+
+/** Read a `<para>` measurement attribute as points; undefined when absent/empty. */
+function paraPoints(para: unknown, name: string): number | undefined {
+  const raw = attr(para, name);
+  if (raw == null || raw.trim() === '') return undefined;
+  const pt = toPointsOrZero(raw);
+  return pt || undefined;
 }
 
 function parseEvents(eventEl: unknown): EventSpec[] | undefined {

@@ -23,6 +23,11 @@ export const NO_BREAK_AFTER = new Set(['(', '[', '{', '«', '“', '‘']);
 export interface LineBreakOptions {
   /** Allowed overshoot before a forced break; default 0.5. */
   tolerance?: number;
+  /**
+   * `<para textIndent>` — extra indent on the first line of each paragraph,
+   * points (jftext:65339 wrap limit = frame − margins − first-line indent).
+   */
+  firstLineIndent?: number;
 }
 
 /** A wrapped line plus whether it closes its source paragraph. */
@@ -47,11 +52,12 @@ export function breakLinesInfo(
   opts: LineBreakOptions = {}
 ): TextLine[] {
   const tolerance = opts.tolerance ?? LINE_BREAK_TOLERANCE;
+  const firstLineIndent = opts.firstLineIndent ?? 0;
   const info: TextLine[] = [];
 
   for (const paragraph of text.split(/\r\n|\r|\n/)) {
     const chunk: string[] = [];
-    wrapParagraph(paragraph, maxWidth, measure, tolerance, chunk);
+    wrapParagraph(paragraph, maxWidth, measure, tolerance, chunk, firstLineIndent);
     for (let i = 0; i < chunk.length; i++) {
       info.push({ text: chunk[i], paragraphEnd: i === chunk.length - 1 });
     }
@@ -79,7 +85,8 @@ function wrapParagraph(
   maxWidth: number,
   measure: (s: string) => number,
   tolerance: number,
-  lines: string[]
+  lines: string[],
+  firstLineIndent: number
 ): void {
   if (paragraph === '') {
     lines.push('');
@@ -92,10 +99,15 @@ function wrapParagraph(
 
   const tokens = paragraph.split(/(\s+)/);
   let current = '';
+  // Only the first line of the paragraph is indented (then cleared on push).
+  let lineLimit = maxWidth - Math.max(firstLineIndent, 0);
 
+  // `indent` is added as leading spaces at draw time; here it only shrinks the
+  // first line's usable width, so prepend nothing to the measured text.
   const push = (): void => {
     if (current !== '') lines.push(current.trimEnd());
     current = '';
+    lineLimit = maxWidth;
   };
 
   for (const token of tokens) {
@@ -105,7 +117,7 @@ function wrapParagraph(
       continue;
     }
     const candidate = current + token;
-    if (measure(candidate) <= maxWidth + tolerance) {
+    if (measure(candidate) <= lineLimit + tolerance) {
       current = candidate;
       continue;
     }
@@ -118,11 +130,12 @@ function wrapParagraph(
     }
     push();
     const trimmed = token.trimStart();
-    if (measure(trimmed) <= maxWidth + tolerance) {
+    if (measure(trimmed) <= lineLimit + tolerance) {
       current = trimmed;
     } else {
       // Single token wider than the limit — split by characters.
-      splitLongToken(trimmed, maxWidth, measure, tolerance, lines);
+      splitLongToken(trimmed, lineLimit, measure, tolerance, lines);
+      lineLimit = maxWidth;
       current = '';
     }
   }

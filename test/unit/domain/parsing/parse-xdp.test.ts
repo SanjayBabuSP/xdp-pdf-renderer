@@ -168,6 +168,54 @@ describe('parse-xdp', () => {
     });
   });
 
+  describe('paragraph (<para>)', () => {
+    const XDP_WITH_PARA = `<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="0" y="0" w="200mm" h="260mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <field name="f" w="100mm" minH="6mm">
+        <font typeface="Helvetica" size="10pt"/>
+        <para hAlign="center" vAlign="middle" lineHeight="20pt"
+              spaceAbove="3pt" spaceBelow="4pt" textIndent="12pt"
+              marginLeft="5pt" marginRight="6pt"/>
+        <bind match="dataRef" ref="$.f"/>
+      </field>
+    </subform>
+  </template>
+</xdp:xdp>`;
+
+    it('parses the XFA <para> paragraph metrics as points', () => {
+      const result = parseXdp(XDP_WITH_PARA);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const field = result.data.children.find((n) => n.name === 'f') as any;
+      expect(field.para).toEqual({
+        hAlign: 'center',
+        vAlign: 'middle',
+        lineHeight: 20,
+        spaceAbove: 3,
+        spaceBelow: 4,
+        textIndent: 12,
+        marginLeft: 5,
+        marginRight: 6,
+      });
+    });
+
+    it('omits para when no attributes are present', () => {
+      const result = parseXdp(MINIMAL_XDP);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const field = result.data.children.find((n) => n.name === 'Name') as any;
+      expect(field.para).toBeUndefined();
+    });
+  });
+
   describe('failure cases', () => {
     it('returns failure for missing template element', () => {
       const result = parseXdp(NO_TEMPLATE_XDP);
