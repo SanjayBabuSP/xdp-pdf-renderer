@@ -2,7 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": ".",
-    "outDir": "dist-test"
+    "outDir": "dist-test",
+    // Transpile-only for Jest: `npm run build` remains the type-check gate.
+    // Avoids a full program type-check in every worker (memory + speed).
+    "isolatedModules": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

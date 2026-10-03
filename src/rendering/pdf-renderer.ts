@@ -14,9 +14,15 @@ import {
   appendBezierCurve,
   closePath,
   fill as fillPath,
+  stroke as strokePath,
   moveTo,
   lineTo,
   setFillingRgbColor,
+  setStrokingRgbColor,
+  setLineWidth,
+  setLineCap,
+  setLineJoin,
+  setDashPattern,
 } from 'pdf-lib';
 import {
   PaginatedLayout,
@@ -28,6 +34,7 @@ import {
   ExclGroupNode,
   RenderOptions,
   BorderSpec,
+  EdgeSpec,
   RgbColor,
   FontEquateRule,
   MarginSpec,
@@ -60,7 +67,7 @@ import {
   beginOpacityScope,
   endOpacityScope,
 } from './pdf-lowlevel';
-import { dashArrayForStyle, xfaCapToPdf, clampCornerRadius } from './border-style';
+import { dashArrayForStyle, xfaCapToPdf, xfaJoinToPdf, clampCornerRadius } from './border-style';
 import { drawGradientFill, isGradientFill, isGray, grayLevel } from './fill-paint';
 import { renderBarcode } from './barcode-renderer';
 import { toPointsOrZero } from '../lib/unit-converter';
@@ -225,7 +232,93 @@ function drawBorderBox(
     endOpacityScope(pdfPage, started);
   }
 
-  drawBorderEdges(pdfPage, border, pos, pageH);
+  // Rounded borders stroke a single continuous path so `join` applies at the
+  // corners; Adobe's `cornerRadius` produces a rounded rectangle stroke, not
+  // four independent straight edges. Per-edge differences force the legacy
+  // edge-by-edge path (designrenderer:6283+ draws 0,2,1,3).
+  const uniformEdge = uniformEdgeOf(border.edges);
+  if (border.cornerRadius && border.cornerRadius > 0 && uniformEdge) {
+    strokeRoundedRectangle(pdfPage, pos.x, y, w, h, border.cornerRadius, uniformEdge);
+  } else {
+    drawBorderEdges(pdfPage, border, pos, pageH);
+  }
+}
+
+/**
+ * Return the single edge when all edges are identical (or there is one edge),
+ * otherwise undefined. Rounded borders must be uniform to stroke as one path.
+ */
+function uniformEdgeOf(edges: EdgeSpec[] | undefined): EdgeSpec | undefined {
+  if (!edges || edges.length === 0) return undefined;
+  if (edges.length === 1) return edges[0];
+  const [first, ...rest] = edges;
+  const same = rest.every((e) => edgeEquals(first, e));
+  return same ? first : undefined;
+}
+
+function edgeEquals(a: EdgeSpec | undefined, b: EdgeSpec | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.presence === b.presence &&
+    a.thickness === b.thickness &&
+    a.style === b.style &&
+    a.cap === b.cap &&
+    a.join === b.join &&
+    a.opacity === b.opacity &&
+    a.color?.r === b.color?.r &&
+    a.color?.g === b.color?.g &&
+    a.color?.b === b.color?.b
+  );
+}
+
+/**
+ * Stroke a rounded rectangle with the edge's dash/cap/join settings.
+ * Corner radius is clamped to `min(w, h) / 2` (renderer:24402).
+ */
+function strokeRoundedRectangle(
+  pdfPage: PDFPage,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number,
+  edge: EdgeSpec
+): void {
+  if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
+  const thickness = edge.thickness ?? 0.5;
+  if (thickness <= 0) return;
+
+  const r = clampCornerRadius(radius, w, h);
+  const k = 0.5523 * r;
+  // Default border colour is black, matching toPdfColor(undefined).
+  const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
+  const dashArray = dashArrayForStyle(edge.style, thickness);
+
+  const operators = [
+    pushGraphicsState(),
+    setStrokingRgbColor(red / 255, green / 255, blue / 255),
+    setLineWidth(thickness),
+    setLineCap(xfaCapToPdf(edge.cap)),
+    setLineJoin(xfaJoinToPdf(edge.join)),
+    setDashPattern(dashArray ?? [], 0),
+    moveTo(x + r, y),
+    lineTo(x + w - r, y),
+    appendBezierCurve(x + w - r + k, y, x + w, y + r - k, x + w, y + r),
+    lineTo(x + w, y + h - r),
+    appendBezierCurve(x + w, y + h - r + k, x + w - r + k, y + h, x + w - r, y + h),
+    lineTo(x + r, y + h),
+    appendBezierCurve(x + r - k, y + h, x, y + h - r + k, x, y + h - r),
+    lineTo(x, y + r),
+    appendBezierCurve(x, y + r - k, x + r - k, y, x + r, y),
+    closePath(),
+    strokePath(),
+    popGraphicsState(),
+  ];
+
+  const started = beginOpacityScope(pdfPage, { stroke: edge.opacity });
+  pdfPage.pushOperators(...operators);
+  endOpacityScope(pdfPage, started);
 }
 
 /** Draw only the border edges (not fill). Used when fill is drawn separately before children. */
@@ -260,7 +353,7 @@ function drawBorderEdges(
 
 function drawEdge(
   pdfPage: PDFPage,
-  edge: import('../types').EdgeSpec | undefined,
+  edge: EdgeSpec | undefined,
   x1: number,
   y1: number,
   x2: number,
@@ -482,6 +575,9 @@ async function renderField(
       : await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
     const captionSize = node.caption.font?.size ?? fontSize;
     const captionColor = toPdfColor(node.caption.font?.color);
+    const captionFamily = node.caption.font?.family ?? node.font?.family;
+    const captionWeight = node.caption.font?.weight ?? node.font?.weight;
+    const captionPosture = node.caption.font?.posture ?? node.font?.posture;
     const placement = node.caption?.placement ?? 'left';
     let captionX = x;
     let captionY = y;
@@ -496,8 +592,8 @@ async function renderField(
         align: placement === 'right' ? 'right' : valueAlign,
         valign: verticalAlign,
         lineLen: captionLen,
-        ascent: fontAscent(captionFont, captionSize),
-        descent: fontDescent(captionFont, captionSize),
+        ascent: fontAscent(captionFont, captionSize, captionFamily, captionWeight, captionPosture),
+        descent: fontDescent(captionFont, captionSize, captionFamily, captionWeight, captionPosture),
       });
       if (anchor) {
         captionX = anchor.x;
@@ -541,11 +637,14 @@ async function renderField(
 
   // Draw field value with multi-line wrapping
   if (valueText) {
+    const valueFamily = node.font?.family ?? 'Helvetica';
+    const valueWeight = node.font?.weight;
+    const valuePosture = node.font?.posture;
     const valueFont = await fontManager.getSafeFont(
       valueText,
-      node.font?.family ?? 'Helvetica',
-      node.font?.weight,
-      node.font?.posture
+      valueFamily,
+      valueWeight,
+      valuePosture
     );
     const valueAreaWidth = Math.max(width - reserve, 0);
 
@@ -554,9 +653,9 @@ async function renderField(
       // cross-axis offset preserving the caption reserve strip.
       const valueBox = { x: x + reserve, y, w: valueAreaWidth, h: innerHeight };
       const lines = wrapText(valueText, fontSize, innerHeight, valueFont);
-      const advance = defaultLineAdvance(fontSize);
-      const ascent = fontAscent(valueFont, fontSize);
-      const descent = fontDescent(valueFont, fontSize);
+      const advance = defaultLineAdvance(fontSize, valueFamily, valueWeight, valuePosture);
+      const ascent = fontAscent(valueFont, fontSize, valueFamily, valueWeight, valuePosture);
+      const descent = fontDescent(valueFont, fontSize, valueFamily, valueWeight, valuePosture);
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, valueFont)),
         0
@@ -593,13 +692,16 @@ async function renderField(
     const measure = (s: string): number => measureTextWidth(s, fontSize, valueFont);
     const lines = breakLinesInfo(valueText, valueAreaWidth, measure);
 
-    // First line at the top of the block, lines step downward (1.2× advance)
+    // First line at the top of the block, lines step downward by the XDC advance.
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
       { top: y + innerHeight, bottom: y },
       verticalAlign,
-      valueFont
+      valueFont,
+      valueFamily,
+      valueWeight,
+      valuePosture
     );
 
     const clipped = clipOverflow(
@@ -608,7 +710,8 @@ async function renderField(
       y,
       valueAreaWidth,
       innerHeight,
-      lines.length * defaultLineAdvance(fontSize) > innerHeight + 0.5
+      lines.length * defaultLineAdvance(fontSize, valueFamily, valueWeight, valuePosture) >
+        innerHeight + 0.5
     );
 
     // Draw each line
@@ -771,19 +874,17 @@ async function renderDraw(
     // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
     const fontColor = toPdfColor(node.font?.color);
-    const font = await fontManager.getSafeFont(
-      text,
-      node.font?.family ?? 'Helvetica',
-      node.font?.weight,
-      node.font?.posture
-    );
+    const family = node.font?.family ?? 'Helvetica';
+    const weight = node.font?.weight;
+    const posture = node.font?.posture;
+    const font = await fontManager.getSafeFont(text, family, weight, posture);
     const rotate = normalizeRotation(node.position?.rotate ?? 0);
     const rotation = rotate !== 0 ? degrees(rotate) : undefined;
 
     if (isVerticalRotation(rotate)) {
       // Box swap: wrap along the box height, anchor via rotation remap
       const lines = wrapText(text, fontSize, height, font);
-      const advance = defaultLineAdvance(fontSize);
+      const advance = defaultLineAdvance(fontSize, family, weight, posture);
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font)),
         0
@@ -794,8 +895,8 @@ async function renderDraw(
         align: 'left',
         valign: 'top',
         lineLen: longest,
-        ascent: fontAscent(font, fontSize),
-        descent: fontDescent(font, fontSize),
+        ascent: fontAscent(font, fontSize, family, weight, posture),
+        descent: fontDescent(font, fontSize, family, weight, posture),
         advance,
         lineCount: lines.length,
       });
@@ -820,7 +921,10 @@ async function renderDraw(
       fontSize,
       { top: y + height, bottom: y },
       'top',
-      font
+      font,
+      family,
+      weight,
+      posture
     );
 
     const clipped = clipOverflow(
@@ -829,7 +933,7 @@ async function renderDraw(
       y,
       width,
       height,
-      lines.length * defaultLineAdvance(fontSize) > height + 0.5
+      lines.length * defaultLineAdvance(fontSize, family, weight, posture) > height + 0.5
     );
 
     for (let i = 0; i < lines.length; i++) {
@@ -854,19 +958,38 @@ function renderArcOrCircle(
   const cx = x + rx;
   const cy = y; // already flipped
 
-  const borderColor = node.value?.shapeBorder?.edges?.[0]?.color;
+  const edge = node.value?.shapeBorder?.edges?.[0];
   const fillColor = node.value?.shapeBorder?.fill?.color;
-  const thickness = node.value?.shapeBorder?.edges?.[0]?.thickness ?? 1;
+  const thickness = edge?.thickness ?? 1;
+  // A missing edge still strokes black at 1pt (prior toPdfColor(undefined)
+  // behaviour); hidden/invisible/none suppresses only the stroke.
+  const strokeVisible =
+    !edge || (edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none');
 
-  pdfPage.drawEllipse({
+  // Ellipse/circle borders honour the edge dash pattern and line cap; the join
+  // is emitted as an operator because pdf-lib's drawEllipse has no join option
+  // (adobepdf.xdc:187-191 dash ratios; designrenderer:6182 cap/join enums).
+  const dashArray = edge && strokeVisible ? dashArrayForStyle(edge.style, thickness) : undefined;
+  const lineJoin = xfaJoinToPdf(edge?.join);
+  const lineCap = xfaCapToPdf(edge?.cap);
+
+  const drawOptions: Parameters<PDFPage['drawEllipse']>[0] = {
     x: cx,
     y: cy,
     xScale: rx,
     yScale: ry,
     color: fillColor ? toPdfColor(fillColor) : undefined,
-    borderColor: toPdfColor(borderColor),
-    borderWidth: thickness,
-  });
+    borderColor: strokeVisible ? toPdfColor(edge?.color) : undefined,
+    borderWidth: strokeVisible ? thickness : 0,
+  };
+  if (dashArray) drawOptions.borderDashArray = dashArray;
+  if (edge?.cap) drawOptions.borderLineCap = lineCap;
+
+  const started = beginOpacityScope(pdfPage, { fill: node.value?.shapeBorder?.fill?.opacity, stroke: edge?.opacity });
+  pdfPage.pushOperators(pushGraphicsState(), setLineJoin(lineJoin));
+  pdfPage.drawEllipse(drawOptions);
+  pdfPage.pushOperators(popGraphicsState());
+  endOpacityScope(pdfPage, started);
 }
 
 async function renderRichText(
@@ -887,12 +1010,10 @@ async function renderRichText(
     if (!text) return;
     // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
-    const font = await fontManager.getSafeFont(
-      text,
-      node.font?.family ?? 'Helvetica',
-      node.font?.weight,
-      node.font?.posture
-    );
+    const family = node.font?.family ?? 'Helvetica';
+    const weight = node.font?.weight;
+    const posture = node.font?.posture;
+    const font = await fontManager.getSafeFont(text, family, weight, posture);
     const wrapWidth = width ?? 500;
     const boxH = height ?? 0;
     const lines = wrapText(text, fontSize, wrapWidth, font);
@@ -901,7 +1022,10 @@ async function renderRichText(
       fontSize,
       { top: y + boxH, bottom: y },
       'top',
-      font
+      font,
+      family,
+      weight,
+      posture
     );
 
     const clipped = clipOverflow(
@@ -910,7 +1034,7 @@ async function renderRichText(
       y,
       wrapWidth,
       boxH,
-      lines.length * defaultLineAdvance(fontSize) > boxH + 0.5
+      lines.length * defaultLineAdvance(fontSize, family, weight, posture) > boxH + 0.5
     );
 
     for (let i = 0; i < lines.length; i++) {
@@ -925,24 +1049,34 @@ async function renderRichText(
   // XFA default font size is 10pt (template <font> without @size).
   const baseFontSize = node.font?.size ?? 10;
   const baseFontFamily = node.font?.family ?? 'Helvetica';
+  const baseWeight = node.font?.weight;
+  const basePosture = node.font?.posture;
   const wrapWidth = width ?? 500;
   const boxH = height ?? 0;
 
   // One font per run — bold/italic/size come from the run's tags.
   const styled: StyledRun[] = [];
   for (const run of runs) {
-    const font = await fontManager.getSafeFont(
-      run.text,
-      baseFontFamily,
-      run.bold ? 'bold' : node.font?.weight,
-      run.italic ? 'italic' : node.font?.posture
-    );
-    styled.push({ text: run.text, size: run.fontSize ?? baseFontSize, font, color: run.color });
+    const weight = run.bold ? 'bold' : baseWeight;
+    const posture = run.italic ? 'italic' : basePosture;
+    const font = await fontManager.getSafeFont(run.text, baseFontFamily, weight, posture);
+    styled.push({
+      text: run.text,
+      size: run.fontSize ?? baseFontSize,
+      font,
+      color: run.color,
+      family: baseFontFamily,
+      weight,
+      posture,
+    });
   }
 
   const lines = layoutRunLines(styled, {
     maxWidth: wrapWidth,
     baseSize: baseFontSize,
+    baseFamily: baseFontFamily,
+    baseWeight,
+    basePosture,
     measure: (text, run) => measureText(text, styled[run].size, styled[run].font),
   });
 

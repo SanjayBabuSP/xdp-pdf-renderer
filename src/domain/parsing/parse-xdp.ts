@@ -757,7 +757,11 @@ function parseColor(colorEl: unknown): RgbColor | undefined {
  */
 function parseBorder(el: unknown): BorderSpec | undefined {
   if (!el) return undefined;
-  const edgeEls = toArray<unknown>(getChild(el, 'edge'));
+  // Field/subform borders pass the <border> element directly, while draw shapes
+  // (<rectangle>/<arc>/<circle>/<line>) carry an inner <border> child. Unwrap it
+  // so both forms resolve edge/fill/corner identically.
+  const scope = getChild(el, 'border') ?? el;
+  const edgeEls = toArray<unknown>(getChild(scope, 'edge'));
   // XFA orders border sides by <edge index> (0..3); fall back to document order
   // when the attribute is absent. Rendering draws them 0,2,1,3 (designrenderer:6283+).
   const edges: EdgeSpec[] = [];
@@ -779,7 +783,7 @@ function parseBorder(el: unknown): BorderSpec | undefined {
     else edges.push(parsed);
   });
   const compacted = edges.filter((edge) => edge !== undefined);
-  const fillEl = getChild(el, 'fill');
+  const fillEl = getChild(scope, 'fill') ?? getChild(el, 'fill');
   const fill = fillEl
     ? {
         presence: attr(fillEl, 'presence'),
@@ -792,11 +796,16 @@ function parseBorder(el: unknown): BorderSpec | undefined {
         color2: parseFillColor2(fillEl),
       }
     : undefined;
-  const cornerEl = getChild(el, 'corner');
+  const cornerEl = getChild(scope, 'corner') ?? getChild(el, 'corner');
   const cornerRadius = cornerEl && attr(cornerEl, 'radius') ? toPointsOrZero(attr(cornerEl, 'radius')) : undefined;
 
   if (compacted.length === 0 && !fill && cornerRadius == null) return undefined;
-  return { presence: attr(el, 'presence'), edges: compacted.length > 0 ? edges : undefined, fill, cornerRadius };
+  return {
+    presence: attr(scope, 'presence') ?? attr(el, 'presence'),
+    edges: compacted.length > 0 ? edges : undefined,
+    fill,
+    cornerRadius,
+  };
 }
 
 /** `<fill opacity="…">` or `<fill><opacity value="…"/></fill>`. */

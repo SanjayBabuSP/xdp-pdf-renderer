@@ -10,15 +10,28 @@
  */
 
 import type { PDFFont } from 'pdf-lib';
+import { lineAdvanceFactor, lookupXdcMetrics } from './font-metrics';
 
-/** Default line advance factor (font:10517). */
+/** Default line advance factor (font:10517) for families without XDC metrics. */
 export const DEFAULT_LINE_ADVANCE_FACTOR = 1.2;
 
 /** Fallback ascent factor when the font exposes no metrics (≈ Helvetica). */
 export const DEFAULT_ASCENT_FACTOR = 0.8;
 
-export function defaultLineAdvance(fontSize: number): number {
-  return fontSize * DEFAULT_LINE_ADVANCE_FACTOR;
+/**
+ * Default line advance for `fontSize`.
+ *
+ * When a base-14 `family` is known, Adobe's `adobepdf.xdc` `<metrics
+ * lineHeight>` is used (1000 Courier, 1149 Helvetica/Times, 1200
+ * Symbol/Zapf); otherwise the 1.2 fallback (font_disasm.c:10517) applies.
+ */
+export function defaultLineAdvance(
+  fontSize: number,
+  family?: string,
+  weight?: string,
+  posture?: string
+): number {
+  return fontSize * lineAdvanceFactor(family, weight, posture);
 }
 
 /** Fallback ascent (0.8 × size) when no font metrics are available. */
@@ -27,10 +40,22 @@ export function defaultAscent(fontSize: number): number {
 }
 
 /**
- * Ascent for `font` at `fontSize`: standard (AFM) fonts publish Ascender in
- * 1/1000 units; otherwise fall back to 0.8 × size.
+ * Ascent for `font` at `fontSize`.
+ *
+ * Base-14 families use Adobe's XDC `<metrics ascent>` (adobepdf.xdc:286 etc.),
+ * matching Preview-as-PDF. Embedded fonts publish `Ascender` in 1/1000 units;
+ * otherwise fall back to 0.8 × size.
  */
-export function fontAscent(font: PDFFont | undefined, fontSize: number): number {
+export function fontAscent(
+  font: PDFFont | undefined,
+  fontSize: number,
+  family?: string,
+  weight?: string,
+  posture?: string
+): number {
+  const xdc = lookupXdcMetrics(family, weight, posture);
+  if (xdc) return (xdc.ascent / 1000) * fontSize;
+
   const afm = (font as unknown as { embedder?: { font?: { Ascender?: number } } })
     ?.embedder?.font;
   if (afm && typeof afm.Ascender === 'number' && Number.isFinite(afm.Ascender)) {
@@ -40,14 +65,26 @@ export function fontAscent(font: PDFFont | undefined, fontSize: number): number 
 }
 
 /**
- * Descent for `font` at `fontSize` — derived from the font's total height
- * (ascender − descender) minus the ascent; fallback 0.2 × size.
+ * Descent for `font` at `fontSize`.
+ *
+ * Base-14 families use Adobe's XDC `<metrics descent>` (adobepdf.xdc:266 etc.);
+ * otherwise it is derived from the font's total height minus the ascent, with
+ * a 0.2 × size fallback.
  */
-export function fontDescent(font: PDFFont | undefined, fontSize: number): number {
+export function fontDescent(
+  font: PDFFont | undefined,
+  fontSize: number,
+  family?: string,
+  weight?: string,
+  posture?: string
+): number {
+  const xdc = lookupXdcMetrics(family, weight, posture);
+  if (xdc) return (xdc.descent / 1000) * fontSize;
+
   if (font && typeof font.heightAtSize === 'function') {
     try {
       const total = font.heightAtSize(fontSize);
-      const descent = total - fontAscent(font, fontSize);
+      const descent = total - fontAscent(font, fontSize, family, weight, posture);
       if (Number.isFinite(descent) && descent >= 0) return descent;
     } catch {
       // fall through to default
@@ -76,10 +113,13 @@ export function layoutLines(
   fontSize: number,
   box: { top: number; bottom: number },
   align: VerticalAlign = 'top',
-  font?: PDFFont
+  font?: PDFFont,
+  family?: string,
+  weight?: string,
+  posture?: string
 ): LineLayout {
-  const advance = defaultLineAdvance(fontSize);
-  const ascent = fontAscent(font, fontSize);
+  const advance = defaultLineAdvance(fontSize, family, weight, posture);
+  const ascent = fontAscent(font, fontSize, family, weight, posture);
   const blockHeight = count * advance;
   const boxHeight = box.top - box.bottom;
 
