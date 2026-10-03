@@ -7,6 +7,7 @@ import {
 } from '../../../src/rendering/text/run-flow';
 import { parseRichText } from '../../../src/rendering/rich-text-parser';
 import { defaultLineAdvance } from '../../../src/rendering/text/line-metrics';
+import { JUST_H } from '../../../src/rendering/text/justifier';
 
 /** No metrics → ascent falls back to 0.8 × size. */
 const fakeFont = {} as PDFFont;
@@ -122,6 +123,90 @@ describe('run-flow — line box metrics', () => {
   it('uses the base size for blank lines', () => {
     const lines = layoutRunLines(styled('\n'), { maxWidth: 100, baseSize: 12, measure });
     expect(lines[0].advance).toBe(defaultLineAdvance(12));
+  });
+});
+
+describe('run-flow — paragraph layout', () => {
+  it('insets the paragraph, indents its first line, and uses an explicit advance', () => {
+    const lines = layoutRunLines(styled('aa bb cc cc'), {
+      maxWidth: 10,
+      baseSize: 10,
+      measure,
+      paragraph: {
+        lineAdvance: 30,
+        marginLeft: 2,
+        marginRight: 2,
+        firstLineIndent: 2,
+      },
+    });
+
+    expect(lines.map(lineText)).toEqual(['aa', 'bb cc', 'cc']);
+    expect(lines.map((line) => line.indent)).toEqual([2, 0, 0]);
+    expect(lines.map((line) => line.advance)).toEqual([30, 30, 30]);
+    expect(runBlockHeight(lines)).toBe(90);
+  });
+
+  it('indents the first line of every hard-break paragraph', () => {
+    const lines = layoutRunLines(styled('aa\nbb'), {
+      maxWidth: 100,
+      baseSize: 10,
+      measure,
+      paragraph: { firstLineIndent: 2 },
+    });
+
+    expect(lines.map((line) => line.indent)).toEqual([2, 2]);
+  });
+
+  it('applies the indent only to the first chunk of an over-wide word', () => {
+    const lines = layoutRunLines(styled('abcdefghijkl'), {
+      maxWidth: 8,
+      baseSize: 10,
+      measure,
+      paragraph: { firstLineIndent: 2 },
+    });
+
+    expect(lines.map(lineText)).toEqual(['abcdef', 'ghijkl']);
+    expect(lines.map((line) => line.indent)).toEqual([2, 0]);
+  });
+
+  it('distributes unused width across space glyphs while preserving run styles', () => {
+    const lines = layoutRunLines(
+      [
+        { text: 'aa ', size: 10, font: fakeFont },
+        { text: 'bb', size: 10, font: fakeFont },
+      ],
+      {
+        maxWidth: 100,
+        baseSize: 10,
+        measure,
+        paragraph: { justify: JUST_H.justifyAll },
+      }
+    );
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].width).toBe(5);
+    expect(lines[0].segments.map((segment) => [segment.text, segment.x, segment.run])).toEqual([
+      ['aa', 0, 0],
+      ['bb', 98, 1],
+    ]);
+  });
+
+  it('leaves a justify code’s final paragraph line at its natural position', () => {
+    const lines = layoutRunLines(
+      [
+        { text: 'aa  ', size: 10, font: fakeFont },
+        { text: 'bb', size: 10, font: fakeFont },
+      ],
+      {
+        maxWidth: 100,
+        baseSize: 10,
+        measure,
+        paragraph: { justify: JUST_H.justify },
+      }
+    );
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].segments.map((segment) => segment.x)).toEqual([0, 4]);
   });
 });
 

@@ -9,6 +9,13 @@
 
 import { LineCapStyle, LineJoinStyle } from 'pdf-lib';
 
+/**
+ * Unspecified XFA edge thickness.
+ * evidence: XFA Specification 3.3, Template Reference: “The thickness
+ * property ... Defaults to 0.5pt.”
+ */
+export const DEFAULT_EDGE_THICKNESS_PT = 0.5;
+
 // ─── Dash patterns ─────────────────────────────────────────────────────────────
 
 /**

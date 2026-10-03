@@ -716,16 +716,19 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
         : textContent(exData) ?? '',
     };
   }
+  // fast-xml-parser represents a self-closing shape such as `<circle/>` as an
+  // empty string. Test element presence rather than truthiness so geometric
+  // shapes keep their XFA default border.
   const rectangle = getChild(value, 'rectangle');
-  if (rectangle) {
+  if (rectangle !== undefined) {
     return { type: 'rectangle', shapeBorder: parseBorder(rectangle) };
   }
   const line = getChild(value, 'line');
-  if (line) {
+  if (line !== undefined) {
     return { type: 'line', shapeBorder: parseBorder(line) };
   }
   const arc = getChild(value, 'arc');
-  if (arc) {
+  if (arc !== undefined) {
     return {
       type: 'arc',
       shapeBorder: parseBorder(arc),
@@ -734,7 +737,7 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
     };
   }
   const circle = getChild(value, 'circle');
-  if (circle) {
+  if (circle !== undefined) {
     return { type: 'circle', shapeBorder: parseBorder(circle) };
   }
   const text = getChild(value, 'text');

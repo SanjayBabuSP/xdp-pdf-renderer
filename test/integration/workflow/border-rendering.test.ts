@@ -7,7 +7,8 @@ import { contentStream } from '../../helpers/pdf-content';
  *    (× thickness),
  *  - cap/join from designrenderer:6182,
  *  - rounded rectangles stroke a single path so `join` applies at the corners,
- *  - ellipse/circle borders carry dash + cap.
+ *  - ellipse/circle borders carry dash + cap,
+ *  - an omitted XFA edge thickness uses the specification-default 0.5pt stroke.
  */
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
@@ -44,6 +45,24 @@ const CIRCLE = `        <draw name="dot" x="20pt" y="100pt" w="60pt" h="60pt">
                 </edge>
               </border>
             </circle>
+          </value>
+        </draw>`;
+
+const CIRCLE_DEFAULT_THICKNESS = `        <draw name="thin" x="20pt" y="20pt" w="60pt" h="60pt">
+          <value>
+            <circle>
+              <border>
+                <edge>
+                  <color value="255,0,0"/>
+                </edge>
+              </border>
+            </circle>
+          </value>
+        </draw>`;
+
+const CIRCLE_DEFAULT_EDGE = `        <draw name="plain" x="20pt" y="20pt" w="60pt" h="60pt">
+          <value>
+            <circle/>
           </value>
         </draw>`;
 
@@ -97,5 +116,25 @@ describe('border rendering parity', () => {
     expect(content).toMatch(/(^|\n)1 j(\n|$)/);
     // blue stroking colour
     expect(content).toContain('0 0 1 RG');
+  });
+
+  it('uses the XFA default 0.5pt thickness when an ellipse edge omits thickness', async () => {
+    const result = await renderFormToPdf(xdp(CIRCLE_DEFAULT_THICKNESS), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
+    expect(content).toContain('1 0 0 RG');
+  });
+
+  it('uses the XFA default black 0.5pt edge when a circle omits its edge', async () => {
+    const result = await renderFormToPdf(xdp(CIRCLE_DEFAULT_EDGE), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
+    expect(content).toContain('0 0 0 RG');
   });
 });

@@ -46,7 +46,7 @@ import { embedBase64Image } from './image-embedder';
 import { computeImageRect } from './image-scaler';
 import { parseRichText } from './rich-text-parser';
 import { breakLines, breakLinesInfo } from './text/line-breaker';
-import { defaultLineAdvance, fontAscent, fontDescent, layoutLines, paraMetrics } from './text/line-metrics';
+import { fontAscent, fontDescent, layoutLines, paraMetrics } from './text/line-metrics';
 import { measureText } from './text/measure';
 import {
   layoutRunBaselines,
@@ -67,7 +67,7 @@ import {
   beginOpacityScope,
   endOpacityScope,
 } from './pdf-lowlevel';
-import { dashArrayForStyle, xfaCapToPdf, xfaJoinToPdf, clampCornerRadius } from './border-style';
+import { DEFAULT_EDGE_THICKNESS_PT, dashArrayForStyle, xfaCapToPdf, xfaJoinToPdf, clampCornerRadius } from './border-style';
 import { drawGradientFill, isGradientFill, isGray, grayLevel } from './fill-paint';
 import { renderBarcode } from './barcode-renderer';
 import { toPointsOrZero } from '../lib/unit-converter';
@@ -286,7 +286,7 @@ function strokeRoundedRectangle(
   edge: EdgeSpec
 ): void {
   if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = edge.thickness ?? 0.5;
+  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
   if (thickness <= 0) return;
 
   const r = clampCornerRadius(radius, w, h);
@@ -360,7 +360,7 @@ function drawEdge(
   y2: number
 ): void {
   if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = edge.thickness ?? 0.5;
+  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
   if (thickness <= 0) return;
 
   // Dash: from config-driven table (border-style.ts / adobepdf.xdc:187-191).
@@ -886,6 +886,10 @@ async function renderDraw(
     const rotate = normalizeRotation(node.position?.rotate ?? 0);
     const rotation = rotate !== 0 ? degrees(rotate) : undefined;
     const pm = paraMetrics(node.para, fontSize);
+    const justH = mapJustH(node.para?.hAlign);
+    const justV = mapJustV(node.para?.vAlign);
+    const verticalAlign: 'top' | 'middle' | 'bottom' =
+      justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
 
     if (isVerticalRotation(rotate)) {
       // Box swap: wrap along the box height, anchor via rotation remap
@@ -923,12 +927,15 @@ async function renderDraw(
     // Multi-line text wrapping with `<para>` insets/indent and line advance.
     const textX = x + pm.marginLeft;
     const textW = Math.max(width - pm.marginLeft - pm.marginRight, 0);
-    const lines = wrapText(text, fontSize, textW, font, { firstLineIndent: pm.textIndent });
+    const wrapped = breakLinesInfo(text, textW, (s) => measureTextWidth(s, fontSize, font), {
+      firstLineIndent: pm.textIndent,
+    });
+    const lines = wrapped.map((line) => line.text);
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
       { top: y + height, bottom: y },
-      'top',
+      verticalAlign,
       font,
       { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
@@ -945,9 +952,13 @@ async function renderDraw(
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineY = baselines[i];
-      const indent = i === 0 ? pm.textIndent : 0;
+      // breakLinesInfo applies the indent to the first line of every source
+      // paragraph, so draw each paragraph start with the same shift.
+      const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
+      const lineAvail = Math.max(textW - indent, 0);
+      const lineWidth = measureTextWidth(line, fontSize, font);
       pdfPage.drawText(line, {
-        x: textX + indent,
+        x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
         y: lineY,
         size: fontSize,
         font,
@@ -972,20 +983,20 @@ function renderArcOrCircle(
   const cx = x + rx;
   const cy = y; // already flipped
 
-  const edge = node.value?.shapeBorder?.edges?.[0];
+  const edge = node.value?.shapeBorder?.edges?.[0] ?? {};
   const fillColor = node.value?.shapeBorder?.fill?.color;
-  const thickness = edge?.thickness ?? 1;
-  // A missing edge still strokes black at 1pt (prior toPdfColor(undefined)
-  // behaviour); hidden/invisible/none suppresses only the stroke.
+  // An XFA arc's default edge is a black 0.5pt stroke (XFA 3.3, Template
+  // Reference, arc edge); hidden/invisible/none suppresses only the stroke.
+  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
   const strokeVisible =
-    !edge || (edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none');
+    edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none';
 
   // Ellipse/circle borders honour the edge dash pattern and line cap; the join
   // is emitted as an operator because pdf-lib's drawEllipse has no join option
   // (adobepdf.xdc:187-191 dash ratios; designrenderer:6182 cap/join enums).
-  const dashArray = edge && strokeVisible ? dashArrayForStyle(edge.style, thickness) : undefined;
-  const lineJoin = xfaJoinToPdf(edge?.join);
-  const lineCap = xfaCapToPdf(edge?.cap);
+  const dashArray = strokeVisible ? dashArrayForStyle(edge.style, thickness) : undefined;
+  const lineJoin = xfaJoinToPdf(edge.join);
+  const lineCap = xfaCapToPdf(edge.cap);
 
   const drawOptions: Parameters<PDFPage['drawEllipse']>[0] = {
     x: cx,
@@ -1032,28 +1043,48 @@ async function renderRichText(
     );
     const wrapWidth = width ?? 500;
     const boxH = height ?? 0;
-    const lines = wrapText(text, fontSize, wrapWidth, font);
+    const pm = paraMetrics(node.para, fontSize);
+    const justH = mapJustH(node.para?.hAlign);
+    const justV = mapJustV(node.para?.vAlign);
+    const verticalAlign: 'top' | 'middle' | 'bottom' =
+      justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
+    const textX = x + pm.marginLeft;
+    const textW = Math.max(wrapWidth - pm.marginLeft - pm.marginRight, 0);
+    const wrapped = breakLinesInfo(text, textW, (s) => measureTextWidth(s, fontSize, font), {
+      firstLineIndent: pm.textIndent,
+    });
+    const lines = wrapped.map((line) => line.text);
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
       { top: y + boxH, bottom: y },
-      'top',
-      font
+      verticalAlign,
+      font,
+      { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
 
     const clipped = clipOverflow(
       pdfPage,
-      x,
+      textX,
       y,
-      wrapWidth,
+      textW,
       boxH,
-      lines.length * defaultLineAdvance(fontSize) > boxH + 0.5
+      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
     );
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineY = baselines[i];
-      pdfPage.drawText(line, { x, y: lineY, size: fontSize, font, color: rgb(0, 0, 0) });
+      const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
+      const lineAvail = Math.max(textW - indent, 0);
+      const lineWidth = measureTextWidth(line, fontSize, font);
+      pdfPage.drawText(line, {
+        x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
+        y: lineY,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
     }
     endOverflowClip(pdfPage, clipped);
     return;
@@ -1064,6 +1095,13 @@ async function renderRichText(
   const baseFontFamily = node.font?.family ?? 'Helvetica';
   const wrapWidth = width ?? 500;
   const boxH = height ?? 0;
+  const pm = paraMetrics(node.para, baseFontSize);
+  const justH = mapJustH(node.para?.hAlign);
+  const justV = mapJustV(node.para?.vAlign);
+  const verticalAlign: 'top' | 'middle' | 'bottom' =
+    justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
+  const textX = x + pm.marginLeft;
+  const textW = Math.max(wrapWidth - pm.marginLeft - pm.marginRight, 0);
 
   // One font per run — bold/italic/size come from the run's tags.
   const styled: StyledRun[] = [];
@@ -1081,24 +1119,38 @@ async function renderRichText(
     maxWidth: wrapWidth,
     baseSize: baseFontSize,
     measure: (text, run) => measureText(text, styled[run].size, styled[run].font),
+    paragraph: {
+      lineAdvance: pm.lineAdvance,
+      marginLeft: pm.marginLeft,
+      marginRight: pm.marginRight,
+      firstLineIndent: pm.textIndent,
+      justify: justH,
+    },
   });
 
   const clipped = clipOverflow(
     pdfPage,
-    x,
+    textX,
     y,
-    wrapWidth,
+    textW,
     boxH,
-    runBlockHeight(lines) > boxH + 0.5
+    runBlockHeight(lines) + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
   );
-  const baselines = layoutRunBaselines(lines, { top: y + boxH, bottom: y }, 'top');
+  const baselines = layoutRunBaselines(
+    lines,
+    { top: y + boxH - pm.spaceAbove, bottom: y + pm.spaceBelow },
+    verticalAlign
+  );
 
   for (let i = 0; i < lines.length; i++) {
     const lineY = baselines[i];
+    const lineAvail = Math.max(textW - lines[i].indent, 0);
+    const lineOriginX =
+      textX + lines[i].indent + horizontalOffsetX(justH, lineAvail, lines[i].width);
     for (const segment of lines[i].segments) {
       const run = styled[segment.run];
       pdfPage.drawText(segment.text, {
-        x: x + segment.x,
+        x: lineOriginX + segment.x,
         y: lineY,
         size: run.size,
         font: run.font,

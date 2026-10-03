@@ -17,6 +17,7 @@ import {
   NO_BREAK_AFTER,
   NO_BREAK_BEFORE,
 } from './line-breaker';
+import { JUST_H, type JustHCode } from './justifier';
 
 /** A run of text sharing one font, size and colour. */
 export interface StyledRun {
@@ -34,10 +35,33 @@ export interface RunSegment {
   run: number;
 }
 
+/** Paragraph box controls for a run of styled text. */
+export interface RunParagraphOptions {
+  /** Explicit line advance, points; defaults to 1.2 × the largest run size. */
+  lineAdvance?: number;
+  /** Left inset of the paragraph text block, points. */
+  marginLeft?: number;
+  /** Right inset of the paragraph text block, points. */
+  marginRight?: number;
+  /** First-line indent, points, applied to each paragraph’s first line. */
+  firstLineIndent?: number;
+  /**
+   * Horizontal justification for the line. Codes 4/5 redistribute the line’s
+   * unused width across its space-class glyphs; the other codes only affect
+   * the caller’s line origin. evidence: jftext_disasm.c:73245.
+   */
+  justify?: JustHCode;
+}
+
 export interface RunLine {
   segments: RunSegment[];
   /** Natural width — sum of the drawn pieces (segments are drawn separately). */
   width: number;
+  /**
+   * First-line indent consumed while wrapping this line. The renderer adds it
+   * to the line origin; it is not included in `width`.
+   */
+  indent: number;
   /** Line box height: 1.2 × the largest run size on the line (font:10517). */
   advance: number;
   /** Largest run ascent on the line, box top → baseline. */
@@ -54,6 +78,8 @@ export interface RunLineOptions {
   baseSize: number;
   /** Allowed overshoot before a forced break; default 0.5. */
   tolerance?: number;
+  /** Paragraph insets, first-line indent, and explicit line advance. */
+  paragraph?: RunParagraphOptions;
 }
 
 interface Piece {
@@ -89,22 +115,32 @@ type Token = WordToken | SpaceToken | NewlineToken;
 export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine[] {
   const tolerance = opts.tolerance ?? LINE_BREAK_TOLERANCE;
   const measure = opts.measure;
+  const marginLeft = Math.max(opts.paragraph?.marginLeft ?? 0, 0);
+  const marginRight = Math.max(opts.paragraph?.marginRight ?? 0, 0);
+  const firstLineIndent = Math.max(opts.paragraph?.firstLineIndent ?? 0, 0);
+  const contentWidth = Math.max(opts.maxWidth - marginLeft - marginRight, 0);
+  const lineWidthFor = (isFirstLine: boolean): number =>
+    Math.max(contentWidth - (isFirstLine ? firstLineIndent : 0), 0);
   const tokens = tokenize(runs, measure);
   const lines: RunLine[] = [];
 
   let current: Token[] = [];
   let width = 0;
   let wordCount = 0;
+  let startsParagraph = true;
 
   const pushLine = (paragraphEnd: boolean): void => {
     // Trailing whitespace is trimmed off the end of a line (line-breaker.ts).
     while (current.length > 0 && current[current.length - 1].kind === 'space') {
       width -= (current.pop() as SpaceToken).width;
     }
-    lines.push(buildLine(current, runs, measure, paragraphEnd, opts.baseSize));
+    lines.push(
+      buildLine(current, runs, measure, paragraphEnd, opts, startsParagraph)
+    );
     current = [];
     width = 0;
     wordCount = 0;
+    startsParagraph = paragraphEnd;
   };
 
   const addWord = (pieces: Piece[], w: number): void => {
@@ -119,14 +155,20 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
     wordCount += 1;
   };
 
-  const placeWord = (token: WordToken): void => {
-    if (token.width <= opts.maxWidth + tolerance) {
+  const placeWord = (token: WordToken, isFirstLine: boolean): void => {
+    if (token.width <= lineWidthFor(isFirstLine) + tolerance) {
       addWord(token.pieces, token.width);
       return;
     }
     // A single word wider than the frame is split by characters
-    // (line-breaker.ts `splitLongToken`).
-    const chunks = hardSplit(token, opts.maxWidth, measure, tolerance);
+    // (line-breaker.ts `splitLongToken`). Only the first chunk of a
+    // paragraph’s first line is narrowed by the indent.
+    const chunks = hardSplit(
+      token,
+      (chunkIndex) => lineWidthFor(isFirstLine && chunkIndex === 0),
+      measure,
+      tolerance
+    );
     for (let i = 0; i < chunks.length - 1; i++) {
       addWord(chunks[i].pieces, chunks[i].width);
       pushLine(false);
@@ -148,13 +190,15 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
 
     // Pending spaces become interior once the word follows, so the candidate
     // width includes them; pushLine trims them if the line ends there.
-    const fits = width + token.width <= opts.maxWidth + tolerance;
+    // `startsParagraph` stays true for every token on the current first line and
+    // is cleared when that line is committed.
+    const fits = width + token.width <= lineWidthFor(startsParagraph) + tolerance;
     if (fits) {
       addWord(token.pieces, token.width);
       continue;
     }
     if (wordCount > 0) pushLine(false);
-    placeWord(token);
+    placeWord(token, startsParagraph);
   }
   pushLine(true);
 
@@ -253,27 +297,60 @@ function buildLine(
   runs: StyledRun[],
   measure: (text: string, run: number) => number,
   paragraphEnd: boolean,
-  baseSize: number
+  opts: RunLineOptions,
+  paragraphStart: boolean
 ): RunLine {
-  const segments: RunSegment[] = [];
+  const justify = opts.paragraph?.justify ?? JUST_H.unset;
+  const indent = paragraphStart
+    ? Math.max(opts.paragraph?.firstLineIndent ?? 0, 0)
+    : 0;
+  const rawSegments: Array<RunSegment & { spacesBefore: number }> = [];
   let x = 0;
   let maxSize = 0;
   let ascent = 0;
+  let pendingSpaces = 0;
+  let gapCount = 0;
 
   for (const token of tokens) {
     if (token.kind === 'space') {
+      const spaces = token.pieces.reduce((count, piece) => count + piece.text.length, 0);
       x += token.width;
+      pendingSpaces += spaces;
+      gapCount += spaces;
       continue;
     }
     if (token.kind === 'nl') continue;
     for (const piece of token.pieces) {
-      segments.push({ text: piece.text, x, run: piece.run });
+      rawSegments.push({ text: piece.text, x, run: piece.run, spacesBefore: pendingSpaces });
       const run = runs[piece.run];
       x += measure(piece.text, piece.run);
       if (run.size > maxSize) {
         maxSize = run.size;
         ascent = fontAscent(run.font, run.size);
       }
+      pendingSpaces = 0;
+    }
+  }
+
+  // jftext Justify distributes unused width across space-class glyphs while
+  // preserving each styled piece; code 4 skips a paragraph’s final line.
+  const justifyLine =
+    (justify === JUST_H.justifyAll || (justify === JUST_H.justify && !paragraphEnd)) &&
+    gapCount > 0 &&
+    rawSegments.length > 0;
+  let segments: RunSegment[] = rawSegments.map(({ text, x, run }) => ({ text, x, run }));
+  if (justifyLine) {
+    const marginLeft = Math.max(opts.paragraph?.marginLeft ?? 0, 0);
+    const marginRight = Math.max(opts.paragraph?.marginRight ?? 0, 0);
+    const availableWidth = Math.max(opts.maxWidth - marginLeft - marginRight - indent, 0);
+    const slack = availableWidth - x;
+    if (slack > 0) {
+      const extra = slack / gapCount;
+      segments = rawSegments.map(({ text, x: naturalX, run, spacesBefore: gaps }) => ({
+        text,
+        x: naturalX + gaps * extra,
+        run,
+      }));
     }
   }
 
@@ -281,15 +358,17 @@ function buildLine(
     return {
       segments,
       width: 0,
-      advance: defaultLineAdvance(baseSize),
-      ascent: defaultAscent(baseSize),
+      indent,
+      advance: opts.paragraph?.lineAdvance ?? defaultLineAdvance(opts.baseSize),
+      ascent: defaultAscent(opts.baseSize),
       paragraphEnd,
     };
   }
   return {
     segments,
     width: x,
-    advance: defaultLineAdvance(maxSize),
+    indent,
+    advance: opts.paragraph?.lineAdvance ?? defaultLineAdvance(maxSize),
     ascent,
     paragraphEnd,
   };
@@ -300,10 +379,13 @@ interface Chunk {
   width: number;
 }
 
-/** Split an over-wide word into chunks that each fit the frame. */
+/**
+ * Split an over-wide word into chunks. The width limit can vary by chunk so a
+ * paragraph’s first-line indent applies only to its first chunk.
+ */
 function hardSplit(
   token: WordToken,
-  maxWidth: number,
+  maxLineWidth: number | ((chunkIndex: number) => number),
   measure: (text: string, run: number) => number,
   tolerance: number
 ): Chunk[] {
@@ -320,6 +402,7 @@ function hardSplit(
   for (const piece of token.pieces) {
     for (const ch of piece.text) {
       const chWidth = measure(ch, piece.run);
+      const maxWidth = typeof maxLineWidth === 'function' ? maxLineWidth(chunks.length) : maxLineWidth;
       if (pieces.length > 0 && width + chWidth > maxWidth + tolerance) {
         const lastChar = pieces[pieces.length - 1].text.slice(-1);
         // Prohibited breaks let the line stretch (line-breaker.ts).
