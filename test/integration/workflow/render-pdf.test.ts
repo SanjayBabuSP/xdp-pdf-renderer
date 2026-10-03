@@ -33,7 +33,7 @@ describe('render-pdf workflow (integration)', () => {
     if (!result.success) expect(result.error.code).toBeTruthy();
   });
 
-  it('returns structured error when data missing required fields', async () => {
+  it('renders despite data missing required fields (Adobe renders partial data)', async () => {
     const xdp = fs.readFileSync(path.join(FIXTURES, 'minimal.xdp'), 'utf8');
     const xsd = fs.readFileSync(path.join(FIXTURES, 'minimal.xsd'), 'utf8');
     const invalidData = fs.readFileSync(
@@ -41,7 +41,24 @@ describe('render-pdf workflow (integration)', () => {
       'utf8'
     );
 
+    // Default: missing (even required) fields are tolerated and rendering
+    // continues (Preview-PDF parity — Adobe renders documents whose data only
+    // partially matches the schema).
     const result = await renderFormToPdf(xdp, xsd, invalidData);
+    expect(result.success).toBe(true);
+  });
+
+  it('returns structured error when data missing required fields and strictValidation is set', async () => {
+    const xdp = fs.readFileSync(path.join(FIXTURES, 'minimal.xdp'), 'utf8');
+    const xsd = fs.readFileSync(path.join(FIXTURES, 'minimal.xsd'), 'utf8');
+    const invalidData = fs.readFileSync(
+      path.join(FIXTURES, 'invalid/missing-field.xml'),
+      'utf8'
+    );
+
+    const result = await renderFormToPdf(xdp, xsd, invalidData, {
+      strictValidation: true,
+    });
     expect(result.success).toBe(false);
   });
 });

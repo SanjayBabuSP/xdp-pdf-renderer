@@ -33,6 +33,7 @@ import {
   DocumentMetadata,
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
+import { XMLParser } from 'fast-xml-parser';
 import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment } from '../../lib/xml-utils';
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { parseOpacityValue } from '../../lib/opacity';
@@ -45,6 +46,12 @@ import { validateXfaNamespaces } from '../../adobe/xfa-namespace-validation';
  * These are applied as fallbacks when the XDP's <config> section does not
  * specify its own font substitution rules. Matches the reference behavior
  * where Designer.xci is always loaded as the base configuration.
+ *
+ * This mirrors the full rule set in `src/rendering/font-substitution.ts`
+ * (both the <agent> and <present> blocks of Designer.xci, including the
+ * CJK/Adobe Kozuka/Mincho/Myriad families). Rules with `force: true` are
+ * applied unconditionally; the rest only substitute when the requested font
+ * is unavailable (decided by the font manager).
  */
 const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Helvetica Black_*_*', to: 'Arial Black_*_*', force: false },
@@ -56,6 +63,30 @@ const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Courier_*_*', to: 'Courier New_*_*', force: false },
   { from: 'Times_*_*', to: 'Times New Roman_*_*', force: false },
   { from: 'TimesNewRoman_*_*', to: 'Times New Roman_*_*', force: false },
+  // CJK and Adobe families from Designer.xci (<agent> block; the <present>
+  // block differs only in one force flag — force wins, so agent values rule).
+  { from: 'Kozuka Gothic Pro-VI B_*_*', to: 'Kozuka Gothic Pro-VI B_bold_normal', force: true },
+  { from: 'Kozuka Gothic Pro-VI H_*_*', to: 'Kozuka Gothic Pro-VI H_bold_normal', force: true },
+  { from: 'Kozuka Gothic Pro-VI M_*_*', to: 'Kozuka Gothic Pro-VI M_*_*', force: false },
+  { from: 'Kozuka Mincho Pro-VI B_*_*', to: 'Kozuka Mincho Pro-VI B_bold_normal', force: true },
+  { from: 'Kozuka Mincho Pro-VI H_*_*', to: 'Kozuka Mincho Pro-VI H_bold_normal', force: true },
+  { from: 'Kozuka Mincho Pro-VI R_*_*', to: 'Kozuka Mincho Pro-VI R_*_*', force: false },
+  { from: 'Myriad Pro Black_normal_*', to: 'Myriad Pro Black_bold_*', force: false },
+  { from: 'MyriadPro_bold_normal', to: 'Myriad Pro_bold_normal', force: true },
+  { from: 'Adobe Gothic Std B_normal_normal', to: 'Adobe Gothic Std B_bold_normal', force: true },
+  { from: 'Adobe Fan Heiti Std B_normal_normal', to: 'Adobe Fan Heiti Std B_bold_normal', force: true },
+  { from: 'Kozuka Gothic Pr6N B_*_*', to: 'Kozuka Gothic Pr6N B_bold_normal', force: true },
+  { from: 'Kozuka Gothic Pr6N EL_*_*', to: 'Kozuka Gothic Pr6N EL_*_*', force: false },
+  { from: 'Kozuka Gothic Pr6N H_*_*', to: 'Kozuka Gothic Pr6N H_bold_normal', force: true },
+  { from: 'Kozuka Gothic Pr6N L_*_*', to: 'Kozuka Gothic Pr6N L_*_*', force: false },
+  { from: 'Kozuka Gothic Pr6N M_*_*', to: 'Kozuka Gothic Pr6N M_*_*', force: false },
+  { from: 'Kozuka Gothic Pr6N R_*_*', to: 'Kozuka Gothic Pr6N R_*_*', force: false },
+  { from: 'Kozuka Mincho Pr6N B_*_*', to: 'Kozuka Mincho Pr6N B_bold_normal', force: true },
+  { from: 'Kozuka Mincho Pr6N EL_*_*', to: 'Kozuka Mincho Pr6N EL_*_*', force: false },
+  { from: 'Kozuka Mincho Pr6N H_*_*', to: 'Kozuka Mincho Pr6N H_bold_normal', force: true },
+  { from: 'Kozuka Mincho Pr6N L_*_*', to: 'Kozuka Mincho Pr6N L_*_*', force: false },
+  { from: 'Kozuka Mincho Pr6N M_*_*', to: 'Kozuka Mincho Pr6N M_*_*', force: false },
+  { from: 'Kozuka Mincho Pr6N R_*_*', to: 'Kozuka Mincho Pr6N R_*_*', force: false },
 ];
 
 const TEMPLATE_NAMESPACES = [
@@ -106,8 +137,19 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   const rootSubform = findRootSubform(template);
   if (!rootSubform) return failure(ERROR_CODES.MISSING_ROOT_SUBFORM.code, ERROR_CODES.MISSING_ROOT_SUBFORM.message);
 
-  const pages = parsePages(rootSubform);
-  const children = parseChildren(rootSubform);
+  // Document-order index: fast-xml-parser's default (grouped) parse loses the
+  // interleaved document order of mixed child types (<field/><draw/><field/>…
+  // becomes {field:[…], draw:[…]}), which scrambles flow (tb/lr) containers
+  // that must lay out children in author order — exactly what Preview PDF
+  // does (XFATemplate model preserves sibling order; xfalayout walks it in
+  // sequence). A parallel preserveOrder parse recovers the per-parent child
+  // tag sequence; parseChildren below consumes it. Falls back to grouped
+  // order when the second parse fails (fail-safe: never worse than before).
+  const orderedRootKids = orderedTemplateKids(xdpXml);
+  const orderedRootSubformKids = firstOrderedSubformKids(orderedRootKids);
+
+  const pages = parsePages(rootSubform, orderedRootSubformKids);
+  const children = parseChildren(rootSubform, orderedRootSubformKids);
   const config = parseConfig(getChild(root as Record<string, unknown>, 'config'));
   const connection = parseConnectionSet(getChild(root as Record<string, unknown>, 'connectionSet'));
   // The root subform is collapsed to rootSubformName — carry its <event>
@@ -231,20 +273,24 @@ function findRootSubform(template: unknown): unknown {
   return subforms[0] ?? null;
 }
 
-function parsePages(rootSubform: unknown): PageDefinition[] {
+function parsePages(rootSubform: unknown, orderedKids?: OrderedItem[]): PageDefinition[] {
   const pageSet = getChild(rootSubform, 'pageSet');
   if (!pageSet) return [defaultPage()];
 
   const pageAreas = toArray(getChild(pageSet, 'pageArea'));
-  return pageAreas.map(parsePageArea).filter(Boolean) as PageDefinition[];
+  // Match ordered pageArea items to normal ones by position among pageAreas.
+  const orderedAreas = (orderedKids ?? []).filter((i) => i.tag === 'pageArea');
+  return pageAreas
+    .map((pa, i) => parsePageArea(pa, orderedAreas[i]?.kids))
+    .filter(Boolean) as PageDefinition[];
 }
 
-function parsePageArea(pageArea: unknown): PageDefinition {
+function parsePageArea(pageArea: unknown, orderedKids?: OrderedItem[]): PageDefinition {
   const name = attr(pageArea, 'name') ?? 'Page1';
   const id = attr(pageArea, 'id');
   const medium = parseMedium(getChild(pageArea, 'medium'));
   const contentArea = parseContentArea(getChild(pageArea, 'contentArea'), medium);
-  const masterPageChildren = parseChildren(pageArea);
+  const masterPageChildren = parseChildren(pageArea, orderedKids);
   return { name, id, medium, contentArea, masterPageChildren };
 }
 
@@ -276,28 +322,186 @@ function defaultPage(): PageDefinition {
   };
 }
 
-function parseChildren(parent: unknown): LayoutNode[] {
-  const nodes: LayoutNode[] = [];
-  const subforms = toArray<unknown>(getChild(parent, 'subform'));
-  const subformSets = toArray<unknown>(getChild(parent, 'subformSet'));
-  const areas = toArray<unknown>(getChild(parent, 'area'));
-  const fields = toArray<unknown>(getChild(parent, 'field'));
-  const draws = toArray<unknown>(getChild(parent, 'draw'));
-  const exclGroups = toArray<unknown>(getChild(parent, 'exclGroup'));
+/**
+ * Document-order child sequence recovered from a parallel `preserveOrder`
+ * parse (see orderedTemplateKids). Each item is one child element in author
+ * order: `tag` is the local element name, `kids` its own ordered children
+ * (for containers — threaded down the recursion), `index` its position among
+ * same-tag siblings (to pair with the grouped normal-parse arrays).
+ */
+interface OrderedItem {
+  tag: string;
+  kids: OrderedItem[];
+  /** Occurrence index among same-tag siblings under the same parent. */
+  index: number;
+}
 
-  subforms.forEach((s) => nodes.push(parseSubform(s)));
+/** Child tags that become layout nodes, in XFA vocabulary (local names). */
+const ORDERED_NODE_TAGS = new Set(['subform', 'subformSet', 'area', 'field', 'draw', 'exclGroup']);
+
+/**
+ * Re-parse `xdpXml` with `preserveOrder: true` and return the ordered child
+ * items of the `<template>` element. Returns undefined on any failure —
+ * callers fall back to grouped (legacy) order.
+ */
+function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
+  try {
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      allowBooleanAttributes: true,
+      parseAttributeValue: false,
+      trimValues: true,
+      processEntities: false,
+      cdataPropName: '__cdata',
+      commentPropName: '__comment',
+      preserveOrder: true,
+    });
+    const doc = parser.parse(xdpXml) as unknown[];
+    if (!Array.isArray(doc)) return undefined;
+    const rootItems = toOrderedItems(doc);
+    const rootKids = kidsOfItems(rootItems, ['xdp:xdp', 'xdp']);
+    if (!rootKids) return undefined;
+    return kidsOfItems(rootKids, ['template']);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Find the ordered kids of the first `<subform>` (the root subform) inside
+ * ordered template kids. Undefined when unavailable (legacy order fallback).
+ */
+function firstOrderedSubformKids(templateKids: OrderedItem[] | undefined): OrderedItem[] | undefined {
+  if (!templateKids) return undefined;
+  const first = templateKids.find((i) => i.tag === 'subform');
+  return first?.kids;
+}
+
+/**
+ * Within already-converted ordered items, find the first item whose tag
+ * matches one of `names` (exact or namespace-suffixed) and return its kids.
+ */
+function kidsOfItems(items: OrderedItem[], names: string[]): OrderedItem[] | undefined {
+  for (const item of items) {
+    if (names.some((n) => item.tag === n || item.tag.endsWith(`:${n}`))) return item.kids;
+  }
+  return undefined;
+}
+
+/**
+ * Convert a raw `preserveOrder` node array into OrderedItems, numbering
+ * same-tag siblings so they pair 1:1 with the grouped normal-parse arrays.
+ * Non-element entries (#text, comments, PIs) are skipped.
+ */
+function toOrderedItems(node: unknown): OrderedItem[] {
+  if (!Array.isArray(node)) return [];
+  const counters = new Map<string, number>();
+  const out: OrderedItem[] = [];
+  for (const entry of node) {
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    for (const [key, value] of Object.entries(entry as Record<string, unknown>)) {
+      if (key === ':@' || key.startsWith('?') || key === '#text' || key === '__cdata' || key === '__comment') continue;
+      if (!Array.isArray(value)) continue;
+      // Strip namespace prefix for pairing (`xdp:xdp` → `xdp`); child tags
+      // inside <template> are unprefixed in practice.
+      const tag = key.includes(':') ? key.slice(key.lastIndexOf(':') + 1) : key;
+      const index = counters.get(tag) ?? 0;
+      counters.set(tag, index + 1);
+      out.push({ tag, kids: toOrderedItems(value), index });
+      break; // one tag per entry
+    }
+  }
+  return out;
+}
+
+function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode[] {
+  // Raw grouped arrays (normal parse) — parsed lazily in document order below.
+  const raw: Record<string, unknown[]> = {
+    subform: toArray<unknown>(getChild(parent, 'subform')),
+    subformSet: toArray<unknown>(getChild(parent, 'subformSet')),
+    area: toArray<unknown>(getChild(parent, 'area')),
+    field: toArray<unknown>(getChild(parent, 'field')),
+    draw: toArray<unknown>(getChild(parent, 'draw')),
+    exclGroup: toArray<unknown>(getChild(parent, 'exclGroup')),
+  };
+  // Group ordered items per tag; item.index pairs with the grouped array slot.
+  const orderedByTag = new Map<string, OrderedItem[]>();
+  if (orderedKids) {
+    for (const item of orderedKids) {
+      if (!ORDERED_NODE_TAGS.has(item.tag)) continue;
+      const list = orderedByTag.get(item.tag) ?? [];
+      list.push(item);
+      orderedByTag.set(item.tag, list);
+    }
+  }
+
+  const parseOne = (tag: string, rawNode: unknown, order?: OrderedItem): LayoutNode | undefined => {
+    switch (tag) {
+      case 'subform':
+        return parseSubform(rawNode, order?.kids);
+      case 'subformSet': {
+        const active = parseSubformSet(rawNode, order?.kids);
+        return active;
+      }
+      case 'area':
+        return parseArea(rawNode, order?.kids);
+      case 'field':
+        return parseField(rawNode);
+      case 'draw':
+        return parseDraw(rawNode);
+      case 'exclGroup':
+        return parseExclGroup(rawNode, order?.kids);
+      default:
+        return undefined;
+    }
+  };
+
+  const nodes: LayoutNode[] = [];
+  if (orderedKids && orderedKids.length > 0) {
+    const used = new Map<string, number>();
+    for (const item of orderedKids) {
+      if (!ORDERED_NODE_TAGS.has(item.tag)) continue;
+      const slot = used.get(item.tag) ?? 0;
+      used.set(item.tag, slot + 1);
+      // Prefer the occurrence-paired slot; fall back to sequential consume
+      // when the two parses disagree on counts.
+      const rawNode = raw[item.tag][item.index] ?? raw[item.tag][slot];
+      if (rawNode === undefined) continue;
+      const parsed = parseOne(item.tag, rawNode, item);
+      if (parsed) nodes.push(parsed);
+    }
+    // Any raw leftovers the order parse missed (parse disagreement) append
+    // in legacy group order rather than being dropped.
+    const consumed = new Set<string>();
+    for (const item of orderedKids) {
+      if (!ORDERED_NODE_TAGS.has(item.tag)) continue;
+      consumed.add(`${item.tag}:${item.index}`);
+    }
+    (Object.keys(raw) as Array<keyof typeof raw>).forEach((tag) => {
+      raw[tag].forEach((rawNode, i) => {
+        if (consumed.has(`${tag}:${i}`)) return;
+        const parsed = parseOne(tag, rawNode, undefined);
+        if (parsed) nodes.push(parsed);
+      });
+    });
+    return nodes;
+  }
+
+  // Legacy grouped order (no order index available).
+  raw.subform.forEach((s) => nodes.push(parseSubform(s)));
   // <subformSet> holds mutually-exclusive alternatives; the active one is
   // selected by @initial (default: the first child). Previously the whole
   // element was silently dropped, losing an entire branch of the template.
-  subformSets.forEach((set) => {
+  raw.subformSet.forEach((set) => {
     const active = parseSubformSet(set);
     if (active) nodes.push(active);
   });
   // <area> is a subform-shaped, data-unbound container.
-  areas.forEach((a) => nodes.push(parseArea(a)));
-  fields.forEach((f) => nodes.push(parseField(f)));
-  draws.forEach((d) => nodes.push(parseDraw(d)));
-  exclGroups.forEach((eg) => nodes.push(parseExclGroup(eg)));
+  raw.area.forEach((a) => nodes.push(parseArea(a)));
+  raw.field.forEach((f) => nodes.push(parseField(f)));
+  raw.draw.forEach((d) => nodes.push(parseDraw(d)));
+  raw.exclGroup.forEach((eg) => nodes.push(parseExclGroup(eg)));
 
   return nodes;
 }
@@ -307,12 +511,13 @@ function parseChildren(parent: unknown): LayoutNode[] {
  * instantiated. `@initial` selects the default (0-based; anything unparseable
  * falls back to the first child, which is what Designer seeds a new set with).
  */
-function parseSubformSet(set: unknown): SubformNode | undefined {
+function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode | undefined {
   const subs = toArray<unknown>(getChild(set, 'subform'));
   if (subs.length === 0) return undefined;
   const parsed = Number.parseInt(attr(set, 'initial') ?? '0', 10);
   const idx = Number.isFinite(parsed) && parsed >= 0 && parsed < subs.length ? parsed : 0;
-  const active = parseSubform(subs[idx]);
+  const orderedSubs = (orderedKids ?? []).filter((i) => i.tag === 'subform');
+  const active = parseSubform(subs[idx], orderedSubs[idx]?.kids);
   // The set is a SOM scope (`set.alt0`); the chosen alternative stays a child
   // so both names remain addressable. Without a name the set is transparent.
   const setName = attr(set, 'name');
@@ -333,11 +538,11 @@ function parseSubformSet(set: unknown): SubformNode | undefined {
 }
 
 /** `<area>` — layout container with no data binding (renders like a plain subform). */
-function parseArea(area: unknown): SubformNode {
-  return parseSubform(area);
+function parseArea(area: unknown, orderedKids?: OrderedItem[]): SubformNode {
+  return parseSubform(area, orderedKids);
 }
 
-function parseSubform(subform: unknown): SubformNode {
+function parseSubform(subform: unknown, orderedKids?: OrderedItem[]): SubformNode {
   const bind = parseBind(getChild(subform, 'bind'));
   const occur = parseOccur(getChild(subform, 'occur'));
   const colWidths = parseColumnWidths(attr(subform, 'columnWidths'));
@@ -353,7 +558,7 @@ function parseSubform(subform: unknown): SubformNode {
     bindRef: bind?.ref,
     occur,
     columnWidths: colWidths,
-    children: parseChildren(subform),
+    children: parseChildren(subform, orderedKids),
     locale: attr(subform, 'locale'),
     presence: (attr(subform, 'presence') as PresenceValue) ?? 'visible',
     margin: parseMargin(getChild(subform, 'margin')),
@@ -424,11 +629,11 @@ function findUiElement(ui: unknown): unknown {
   );
 }
 
-function parseExclGroup(eg: unknown): ExclGroupNode {
+function parseExclGroup(eg: unknown, orderedKids?: OrderedItem[]): ExclGroupNode {
   const bind = parseBind(getChild(eg, 'bind'));
   // XFA allows field/draw/subform/nested-exclGroup here; parseChildren handles
   // all of them. The old `field`-only collection dropped every other child.
-  const children = parseChildren(eg);
+  const children = parseChildren(eg, orderedKids);
   return {
     type: 'exclGroup',
     name: attr(eg, 'name'),

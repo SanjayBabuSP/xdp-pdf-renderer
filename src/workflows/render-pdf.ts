@@ -64,15 +64,25 @@ export async function renderFormToPdf(
   const structureValid = validateXdpStructure(layoutResult.data);
   if (!structureValid.success) return structureValid;
 
-  const schemaValid = validateDataAgainstSchema(dataResult.data, schemaResult.data, {
-    strict: options.strictValidation !== false,
-  });
-  if (!schemaValid.success) return schemaValid;
+  // G20: schema/binding problems are warnings by default (Adobe renders
+  // documents whose data only partially matches the schema); callers opt into
+  // hard failure with `strictValidation: true`.
+  const warn = options.onWarning ?? (() => {});
+  const strict = options.strictValidation === true;
 
-  const bindingsValid = validateBindings(layoutResult.data, schemaResult.data, {
-    strict: options.strictValidation !== false,
-  });
-  if (!bindingsValid.success) return bindingsValid;
+  const schemaValid = validateDataAgainstSchema(dataResult.data, schemaResult.data, { strict });
+  if (!schemaValid.success) {
+    if (strict) return schemaValid;
+    warn(`[${schemaValid.error.code}] ${schemaValid.error.message}`);
+    for (const detail of schemaValid.error.details ?? []) warn(`  ${detail}`);
+  }
+
+  const bindingsValid = validateBindings(layoutResult.data, schemaResult.data, { strict });
+  if (!bindingsValid.success) {
+    if (strict) return bindingsValid;
+    warn(`[${bindingsValid.error.code}] ${bindingsValid.error.message}`);
+    for (const detail of bindingsValid.error.details ?? []) warn(`  ${detail}`);
+  }
 
   // ── Phase 3: Map data to layout ─────────────────────────────────────────
   const resolvedResult = resolveBindings(layoutResult.data, dataResult.data);

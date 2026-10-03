@@ -46,6 +46,7 @@ function layoutSubform(node: SubformNode, ctx: LayoutContext): LayoutResult {
       return layoutPositionSubform(node, ctx, layoutNode);
     case 'tb':
       return layoutFlowSubform(node, ctx, 'tb', layoutNode);
+    case 'lr-tb':
     case 'lr':
       return layoutFlowSubform(node, ctx, 'lr', layoutNode);
     case 'rl-tb':

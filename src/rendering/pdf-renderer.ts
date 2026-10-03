@@ -359,7 +359,8 @@ export function computeFieldTextLayout(options: {
   const width = options.width ?? 0;
   const height = options.height ?? 18;
   const reserve = options.reserve ?? 0;
-  const fontSize = options.fontSize ?? 8;
+  // XFA default font size is 10pt (template <font> without @size).
+  const fontSize = options.fontSize ?? 10;
   const y = options.y ?? height + fontSize;
   const captionText = options.captionText ?? '';
   const valueText = options.valueText ?? '';
@@ -430,7 +431,8 @@ async function renderField(
   const height = pos.h ?? 18;
   const y = flipY(pos.y, height, pageH) + margins.bottom;
   const innerHeight = Math.max(height - margins.top - margins.bottom, 0);
-  const fontSize = node.font?.size ?? 8;
+  // XFA default font size is 10pt (matches position-engine line height).
+  const fontSize = node.font?.size ?? 10;
   const fontColor = toPdfColor(node.font?.color);
   // Choice lists display the selected item's text, not its export value (G7).
   const valueText = node.ui?.type === 'choiceList'
@@ -766,7 +768,8 @@ async function renderDraw(
   if (node.value.type === 'text') {
     const text = stripHtml(node.value.content ?? '');
     if (!text) return;
-    const fontSize = node.font?.size ?? 8;
+    // XFA default font size is 10pt (template <font> without @size).
+    const fontSize = node.font?.size ?? 10;
     const fontColor = toPdfColor(node.font?.color);
     const font = await fontManager.getSafeFont(
       text,
@@ -882,7 +885,8 @@ async function renderRichText(
     // Fallback to plain text
     const text = stripHtml(content);
     if (!text) return;
-    const fontSize = node.font?.size ?? 8;
+    // XFA default font size is 10pt (template <font> without @size).
+    const fontSize = node.font?.size ?? 10;
     const font = await fontManager.getSafeFont(
       text,
       node.font?.family ?? 'Helvetica',
@@ -918,7 +922,8 @@ async function renderRichText(
     return;
   }
 
-  const baseFontSize = node.font?.size ?? 8;
+  // XFA default font size is 10pt (template <font> without @size).
+  const baseFontSize = node.font?.size ?? 10;
   const baseFontFamily = node.font?.family ?? 'Helvetica';
   const wrapWidth = width ?? 500;
   const boxH = height ?? 0;

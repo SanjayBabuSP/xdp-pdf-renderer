@@ -252,7 +252,7 @@ export interface SubformNode {
    * changes back onto the exact node they were made against.
    */
   uid?: string;
-  layout?: 'tb' | 'lr' | 'rl-tb' | 'table' | 'row' | 'rl-row' | 'position';
+  layout?: 'tb' | 'lr-tb' | 'lr' | 'rl-tb' | 'table' | 'row' | 'rl-row' | 'position';
   bindMatch?: 'dataRef' | 'none';
   bindRef?: string;
   occur?: OccurSpec;
@@ -540,10 +540,15 @@ export interface RenderOptions {
   fontDirs?: string[];
   pageHeight?: number;
   maxInputSize?: number;
-  /** Hard-fail on missing required schema fields. Default true. Set false to tolerate real-world
-   *  XFA data instances (e.g. SAP OData exports) that commonly omit optional navigation properties
-   *  even when the XSD lacks minOccurs="0". */
+  /**
+   * Hard-fail on schema/binding validation problems. Default false (G20):
+   * validation problems are reported through `onWarning` and rendering
+   * continues — matching Adobe, which renders documents whose data only
+   * partially matches the schema. Set true to restore hard-fail behaviour.
+   */
   strictValidation?: boolean;
+  /** Receives non-fatal validation/rendering warnings (G20). */
+  onWarning?: (message: string) => void;
   /** Preview/draft mode: force-show watermark subforms (invisible presence) that would
    *  normally be hidden. Matches Adobe LiveCycle's preview rendering. */
   previewMode?: boolean;

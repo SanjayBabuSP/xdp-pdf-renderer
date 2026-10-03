@@ -13,14 +13,14 @@ const LINE_ADVANCE = 1.2;
 const DEFAULT_FONT_SIZE = 10;
 
 function getChildX(node: LayoutNode): number {
-  if (node.type === 'subform' || node.type === 'field' || node.type === 'draw') {
+  if (node.type === 'subform' || node.type === 'field' || node.type === 'draw' || node.type === 'exclGroup') {
     return node.position?.x ?? 0;
   }
   return 0;
 }
 
 function getChildY(node: LayoutNode): number {
-  if (node.type === 'subform' || node.type === 'field' || node.type === 'draw') {
+  if (node.type === 'subform' || node.type === 'field' || node.type === 'draw' || node.type === 'exclGroup') {
     return node.position?.y ?? 0;
   }
   return 0;
@@ -28,7 +28,20 @@ function getChildY(node: LayoutNode): number {
 
 function nodeWidth(node: LayoutNode): number | undefined {
   if (node.type === 'field' || node.type === 'draw') return node.position?.w;
+  if (node.type === 'subform' || node.type === 'exclGroup') return node.position?.w;
   return undefined;
+}
+
+/** Margin insets of a container (0 when absent) — content origin + width. */
+function containerInsets(node: { margin?: { topInset?: number; rightInset?: number; bottomInset?: number; leftInset?: number } }): {
+  left: number; right: number; top: number; bottom: number;
+} {
+  return {
+    left: node.margin?.leftInset ?? 0,
+    right: node.margin?.rightInset ?? 0,
+    top: node.margin?.topInset ?? 0,
+    bottom: node.margin?.bottomInset ?? 0,
+  };
 }
 
 function repeatIndexOf(node: LayoutNode): number | undefined {
@@ -61,6 +74,13 @@ export function layoutPositionSubform(
   layoutChild: ChildLayouter
 ): LayoutResult {
   const width = resolveExtent(node.position, 'width', ctx.availableWidth);
+  // Preview PDF places positioned children relative to the content origin
+  // (inside the container's margin insets), not the border-box origin
+  // (XFABoxModelLayout content-box geometry, xfalayout_disasm.c:23440-23560).
+  const insets = containerInsets(node);
+  const contentW = Math.max(width - insets.left - insets.right, 0);
+  const baseX = ctx.x + insets.left;
+  const baseY = ctx.y + insets.top;
   const children: LayoutNode[] = [];
   let maxY = 0;
 
@@ -74,15 +94,15 @@ export function layoutPositionSubform(
     if (idx != null && idx > 0 && key != null && key === runKey) {
       childY = runNextY;
     } else {
-      childY = ctx.y + getChildY(child);
+      childY = baseY + getChildY(child);
       runKey = idx === 0 ? key : null;
       runNextY = childY;
     }
 
     const childCtx: LayoutContext = {
-      x: ctx.x + getChildX(child),
+      x: baseX + getChildX(child),
       y: childY,
-      availableWidth: nodeWidth(child) ?? width,
+      availableWidth: nodeWidth(child) ?? contentW,
     };
     const result = layoutChild(child, childCtx);
     children.push(result.node);
@@ -93,7 +113,7 @@ export function layoutPositionSubform(
     if (extent > maxY) maxY = extent;
   }
 
-  const contentExtent = Math.max(0, maxY - ctx.y);
+  const contentExtent = Math.max(0, maxY - baseY) + insets.top + insets.bottom;
   const height = resolveExtent(node.position, 'height', contentExtent);
 
   return {
@@ -162,16 +182,20 @@ export function layoutExclGroup(
   layoutChild: ChildLayouter
 ): LayoutResult {
   const width = resolveExtent(node.position, 'width', ctx.availableWidth);
+  const insets = containerInsets(node);
+  const contentW = Math.max(width - insets.left - insets.right, 0);
+  const baseX = ctx.x + insets.left;
+  const baseY = ctx.y + insets.top;
   const children: LayoutNode[] = [];
   let yOffset = 0;
 
   for (const child of node.children) {
-    const result = layoutChild(child, { x: ctx.x, y: ctx.y + yOffset, availableWidth: width });
+    const result = layoutChild(child, { x: baseX, y: baseY + yOffset, availableWidth: contentW });
     children.push(result.node);
     yOffset += result.height;
   }
 
-  const height = resolveExtent(node.position, 'height', yOffset);
+  const height = resolveExtent(node.position, 'height', yOffset + insets.top + insets.bottom);
   return {
     node: {
       ...node,

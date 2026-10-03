@@ -380,3 +380,44 @@ have been **recreated in the npm project**:
   (`0 # 9 z , . CR DB %` and `|` alternates) and `text{…}` templates, matching
   the locale picture tables compiled into `jfutility.dll`
   (`decompiled/jfutility_disasm.c:31412`).
+
+---
+
+## PREVIEW-PDF PARITY NOTES (renderer implementation guide)
+
+Re-verified 2026-10-03 against `/home/sanjay/Designer 11.0`: every
+top-level `.dll`/`.exe`/`.ppi` ships in this reference under its pipeline
+role folder — **no DLL copy is outstanding**. `icudt40.dll` remains the only
+binary without a `decompiled/` entry (ICU data tables, no code — nothing to
+learn from decompiling it). `pdfplug_ins/AcroForm` (extension-less host stub)
+is mirrored under `pdf_plugins/`.
+
+Behavioural ground truth the renderer now follows (all traceable to the
+files above):
+
+1. **Sibling order is author order.** The XFA template model preserves mixed
+   child order (`<field/>`, `<draw/>`, `<subform/>` interleaved) and
+   `xfalayout` walks it in sequence. The renderer parses the template twice
+   (grouped + `preserveOrder`) and emits children in document order
+   (`src/domain/parsing/parse-xdp.ts`), falling back to grouped order only if
+   the order parse fails.
+2. **Flow values are `tb | lr-tb | rl-tb`** (there is no bare `lr` in real
+   Designer output). `lr-tb` dispatches to the lr flow engine with line
+   wrapping; `rl-tb` mirrors it (`src/domain/layout/calculate-positions.ts`,
+   `flow-engine.ts`).
+3. **Children sit inside margin insets.** Position/flow/table engines lay out
+   from the content origin (`x + leftInset`, `y + topInset`) with
+   `availableWidth − left − right`, and growable boxes include top+bottom
+   insets — matching `XFABoxModelLayout` content-box geometry
+   (`xfalayout_disasm.c:23440-23560`).
+4. **Fonts.** `Designer.xci` equate rules (incl. the CJK/Kozuka/Mincho/Myriad
+   `force="1"` set) are the base config even when the XDP embeds no
+   `<config>`; unset sizes default to the XFA **10pt** in both layout
+   (`position-engine.ts`) and rendering (`pdf-renderer.ts`), with base-14
+   metrics from `Designer.xdc`/`adobepdf.xdc` `<seq>` + `<font>` tables.
+5. **Borders/dashes.** `adobepdf.xdc:187-191` line styles scaled by
+   `strokeTypeMultiplier = 1` (`border-style.ts`); edges stroked in XFA order
+   top, bottom, right, left (`designrenderer:6283+`).
+6. **Validation never blocks Preview.** Schema/binding mismatches are
+   warnings (`onWarning`, opt-in `strictValidation`) — Adobe renders partial
+   data.

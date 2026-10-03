@@ -87,27 +87,34 @@ export function layoutTableSubform(
   layoutChild: ChildLayouter
 ): LayoutResult {
   const width = resolveExtent(node.position, 'width', ctx.availableWidth);
+  const mLeft = node.margin?.leftInset ?? 0;
+  const mRight = node.margin?.rightInset ?? 0;
+  const mTop = node.margin?.topInset ?? 0;
+  const mBottom = node.margin?.bottomInset ?? 0;
+  const contentW = Math.max(width - mLeft - mRight, 0);
+  const baseX = ctx.x + mLeft;
+  const baseY = ctx.y + mTop;
   let colWidths = node.columnWidths && node.columnWidths.length > 0 ? node.columnWidths : [];
   if (colWidths.length === 0) {
     const colCount = countColumns(node.children);
-    if (colCount > 0) colWidths = Array(colCount).fill(width / colCount);
+    if (colCount > 0) colWidths = Array(colCount).fill(contentW / colCount);
   }
   const children: LayoutNode[] = [];
   let yOffset = 0;
 
   for (const child of node.children) {
     if (isRow(child)) {
-      const r = layoutRow(child as SubformNode, ctx, yOffset, colWidths, layoutChild);
+      const r = layoutRow(child as SubformNode, { ...ctx, x: baseX, y: baseY, availableWidth: contentW }, yOffset, colWidths, layoutChild);
       children.push(r.node);
       yOffset += r.height;
     } else {
-      const r = layoutChild(child, { ...ctx, y: ctx.y + yOffset, availableWidth: width });
+      const r = layoutChild(child, { x: baseX, y: baseY + yOffset, availableWidth: contentW });
       children.push(r.node);
       yOffset += r.height;
     }
   }
 
-  const height = resolveExtent(node.position, 'height', yOffset);
+  const height = resolveExtent(node.position, 'height', yOffset + mTop + mBottom);
   return {
     node: {
       ...node,
