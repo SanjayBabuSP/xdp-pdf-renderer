@@ -23,6 +23,10 @@ import {
   setLineCap,
   setLineJoin,
   setDashPattern,
+  PDFNumber,
+  PDFOperator,
+  PDFOperatorNames,
+  type PDFPageDrawTextOptions,
 } from 'pdf-lib';
 import {
   PaginatedLayout,
@@ -48,6 +52,7 @@ import { parseRichText } from './rich-text-parser';
 import { breakLines, breakLinesInfo } from './text/line-breaker';
 import { fontAscent, fontDescent, layoutLines, paraMetrics } from './text/line-metrics';
 import { measureText } from './text/measure';
+import { isCondensedFamily, NARROW_SCALE } from './standard-fonts';
 import {
   layoutRunBaselines,
   layoutRunLines,
@@ -65,9 +70,17 @@ import { isVerticalRotation, normalizeRotation, rotatedAnchor } from './text/rot
 import {
   applyPageTransparencyGroup,
   beginOpacityScope,
+  dedupePageFontResources,
   endOpacityScope,
 } from './pdf-lowlevel';
-import { DEFAULT_EDGE_THICKNESS_PT, dashArrayForStyle, xfaCapToPdf, xfaJoinToPdf, clampCornerRadius } from './border-style';
+import {
+  DEFAULT_EDGE_THICKNESS_PT,
+  clampCornerRadius,
+  dashArrayForStyle,
+  quantizeStrokeWidth,
+  xfaCapToPdf,
+  xfaJoinToPdf,
+} from './border-style';
 import { drawGradientFill, isGradientFill, isGray, grayLevel } from './fill-paint';
 import { renderBarcode } from './barcode-renderer';
 import { toPointsOrZero } from '../lib/unit-converter';
@@ -105,6 +118,8 @@ export async function renderPdfWithDoc(
   for (let pageIndex = 0; pageIndex < layout.pages.length; pageIndex++) {
     const page = layout.pages[pageIndex];
     const pdfPage = doc.addPage([page.medium.short, page.medium.long]);
+    // Reuse one /Font resource entry per distinct font (pdf-lowlevel).
+    dedupePageFontResources(pdfPage);
     await renderPage(pdfPage, page, fontManager, options, pageIndex, totalPages);
   }
 
@@ -227,7 +242,17 @@ function drawBorderBox(
       const r = clampCornerRadius(border.cornerRadius, w, h);
       fillRoundedRectangle(pdfPage, pos.x, y, w, h, r, fill.color);
     } else {
-      pdfPage.drawRectangle({ x: pos.x, y, width: w, height: h, color: toPdfColor(fill.color) });
+      // `borderWidth` is emitted as `0 w` regardless (pdf-lib always writes it),
+      // but this path fills only — no stroke. Passing an explicit 0 documents
+      // that the operator is inert rather than an accidental hairline.
+      pdfPage.drawRectangle({
+        x: pos.x,
+        y,
+        width: w,
+        height: h,
+        color: toPdfColor(fill.color),
+        borderWidth: 0,
+      });
     }
     endOpacityScope(pdfPage, started);
   }
@@ -286,7 +311,7 @@ function strokeRoundedRectangle(
   edge: EdgeSpec
 ): void {
   if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
+  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
   if (thickness <= 0) return;
 
   const r = clampCornerRadius(radius, w, h);
@@ -360,7 +385,7 @@ function drawEdge(
   y2: number
 ): void {
   if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
+  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
   if (thickness <= 0) return;
 
   // Dash: from config-driven table (border-style.ts / adobepdf.xdc:187-191).
@@ -428,87 +453,6 @@ function fillRoundedRectangle(
   pdfPage.pushOperators(...operators);
 }
 
-export interface FieldTextLayout {
-  captionX: number;
-  captionY: number;
-  valueX: number;
-  valueY: number;
-}
-
-export function computeFieldTextLayout(options: {
-  x: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  reserve?: number;
-  captionText?: string;
-  captionPlacement?: 'left' | 'right' | 'top' | 'bottom' | 'inline';
-  valueText?: string;
-  valueAlign?: 'left' | 'center' | 'right';
-  verticalAlign?: 'top' | 'middle' | 'bottom';
-  fontSize?: number;
-}): FieldTextLayout {
-  const x = options.x;
-  const width = options.width ?? 0;
-  const height = options.height ?? 18;
-  const reserve = options.reserve ?? 0;
-  // XFA default font size is 10pt (template <font> without @size).
-  const fontSize = options.fontSize ?? 10;
-  const y = options.y ?? height + fontSize;
-  const captionText = options.captionText ?? '';
-  const valueText = options.valueText ?? '';
-  const valueAlign = options.valueAlign ?? 'left';
-  const verticalAlign = options.verticalAlign ?? 'top';
-  const placement = options.captionPlacement ?? 'left';
-  const textOffset = Math.max((height - fontSize) / 2, 0);
-  const verticalY = verticalAlign === 'middle' ? y + textOffset : y;
-
-  let captionX = x;
-  let captionYFinal = verticalY;
-  let valueAreaStart = x + reserve;
-  let valueAreaWidth = Math.max(width - reserve, 0);
-
-  if (placement === 'right') {
-    // Caption on the right, value on the left
-    valueAreaStart = x;
-    valueAreaWidth = Math.max(width - reserve, 0);
-    captionX = x + valueAreaWidth;
-  } else if (placement === 'top') {
-    // Caption above the value
-    captionX = x;
-    captionYFinal = verticalY + fontSize + 2;
-    valueAreaStart = x;
-    valueAreaWidth = width;
-  } else if (placement === 'bottom') {
-    // Caption below the value
-    captionX = x;
-    captionYFinal = verticalY - fontSize - 2;
-    valueAreaStart = x;
-    valueAreaWidth = width;
-  } else if (placement === 'inline') {
-    // Caption inline (no reserve, caption prefix)
-    captionX = x;
-    valueAreaStart = captionText ? x + captionText.length * fontSize * 0.6 : x;
-    valueAreaWidth = Math.max(width - (valueAreaStart - x), 0);
-  }
-
-  const rawTextWidth = valueText.length * fontSize;
-  const rightAlignedX = valueAreaStart + Math.max(valueAreaWidth - rawTextWidth, 0);
-  const centeredX = valueAreaStart + Math.max((valueAreaWidth - rawTextWidth) / 2, 0);
-
-  let valueX = valueAreaStart;
-  if (valueAlign === 'right') valueX = rightAlignedX;
-  if (valueAlign === 'center') valueX = centeredX;
-
-  const captionXForDraw = captionText ? captionX : x;
-  return {
-    captionX: captionXForDraw,
-    captionY: captionYFinal,
-    valueX,
-    valueY: verticalY,
-  };
-}
-
 async function renderField(
   pdfPage: PDFPage,
   node: FieldNode,
@@ -562,33 +506,47 @@ async function renderField(
   const innerBox = { x, y, w: width, h: innerHeight };
 
   const reserve = node.caption?.reserve ?? 0;
+  const valueFamily = node.font?.family ?? 'Helvetica';
+  const valueScale = scaleForFamily(valueFamily);
 
   // Draw caption if present
   if (node.caption?.text) {
+    const captionFamily = node.caption.font?.family ?? node.font?.family ?? 'Helvetica';
     const captionFont = node.caption.font
       ? await fontManager.getSafeFont(
           node.caption.text,
-          node.caption.font.family ?? 'Helvetica',
+          captionFamily,
           node.caption.font.weight,
           node.caption.font.posture
         )
-      : await fontManager.getFont(node.font?.family ?? 'Helvetica', node.font?.weight, node.font?.posture);
+      : await fontManager.getFont(captionFamily, node.font?.weight, node.font?.posture);
     const captionSize = node.caption.font?.size ?? fontSize;
     const captionColor = toPdfColor(node.caption.font?.color);
+    const captionScale = scaleForFamily(captionFamily);
     const placement = node.caption?.placement ?? 'left';
     let captionX = x;
     let captionY = y;
 
+    // Caption must not paint over the value area. `reserve` is the authored
+    // strip width, computed by Designer for its own font; if the caption
+    // measures wider in the resolved font it would otherwise silently overlap
+    // the value. Clamp the strip the caption may occupy to the authored
+    // reserve and clip the caption to it.
+    const captionWidth = measureTextWidth(node.caption.text, captionSize, captionFont, captionScale);
+    const captionStrip =
+      placement === 'left' || placement === 'right'
+        ? Math.max(Math.min(reserve || captionWidth, width), 0)
+        : width;
+
     if (verticalRot) {
       // Box swap: caption wraps along the box height (single line — the
       // reading length is the measured text length).
-      const captionLen = measureTextWidth(node.caption.text, captionSize, captionFont);
       const anchor = rotatedAnchor({
         rotate,
         box: innerBox,
         align: placement === 'right' ? 'right' : valueAlign,
         valign: verticalAlign,
-        lineLen: captionLen,
+        lineLen: captionWidth,
         ascent: fontAscent(captionFont, captionSize),
         descent: fontDescent(captionFont, captionSize),
       });
@@ -597,31 +555,59 @@ async function renderField(
         captionY = anchor.y;
       }
     } else {
-      if (placement === 'left' || placement === 'right') {
-        // Vertical centering for left/right captions
-        const textOffset = Math.max((innerHeight - captionSize) / 2, 0);
-        captionY = y + (verticalAlign === 'bottom' ? textOffset : verticalAlign === 'middle' ? textOffset : innerHeight - captionSize - textOffset);
-      } else if (placement === 'top') {
-        captionY = y + innerHeight - captionSize;
-      } else if (placement === 'bottom') {
-        captionY = y;
-      } else if (placement === 'inline') {
-        captionY = y + innerHeight - captionSize;
-      }
+      // Baseline placement via the same ascent-based model as the value text
+      // (layoutLines), so a caption and its value on the same line share one
+      // baseline instead of two independently-derived guesses.
+      const captionAdvance = paraMetrics(node.para, captionSize).lineAdvance;
+      const captionTop =
+        verticalAlign === 'bottom'
+          ? y + innerHeight
+          : verticalAlign === 'middle'
+            ? y + innerHeight / 2
+            : y + innerHeight;
+      const { baselines: captionBaselines } = layoutLines(
+        1,
+        captionSize,
+        { top: captionTop, bottom: y },
+        verticalAlign,
+        captionFont,
+        { lineAdvance: captionAdvance }
+      );
+      captionY = captionBaselines[0];
 
       if (placement === 'right') {
-        captionX = x + width - reserve;
+        captionX = x + width - captionStrip;
       }
     }
 
-    pdfPage.drawText(node.caption.text, {
-      x: captionX,
-      y: captionY,
-      size: captionSize,
-      font: captionFont,
-      color: captionColor,
-      rotate: rotation,
-    });
+    // Clip the caption to its strip so an over-wide caption can never paint
+    // into the value area (the "Pos." over "Machine location" collision).
+    const captionClip =
+      placement === 'left' || placement === 'right'
+        ? clipOverflow(
+            pdfPage,
+            placement === 'left' ? x : x + width - captionStrip,
+            y,
+            captionStrip,
+            innerHeight,
+            captionWidth > captionStrip + 0.01
+          )
+        : false;
+
+    drawScaledText(
+      pdfPage,
+      node.caption.text,
+      {
+        x: captionX,
+        y: captionY,
+        size: captionSize,
+        font: captionFont,
+        color: captionColor,
+        rotate: rotation,
+      },
+      captionScale
+    );
+    endOverflowClip(pdfPage, captionClip);
   }
 
   // Barcode fields draw bars, not glyphs (G1: `renderBarcode` had no call site).
@@ -636,7 +622,7 @@ async function renderField(
   if (valueText) {
     const valueFont = await fontManager.getSafeFont(
       valueText,
-      node.font?.family ?? 'Helvetica',
+      valueFamily,
       node.font?.weight,
       node.font?.posture
     );
@@ -653,7 +639,7 @@ async function renderField(
       const ascent = fontAscent(valueFont, fontSize);
       const descent = fontDescent(valueFont, fontSize);
       const longest = lines.reduce(
-        (m, l) => Math.max(m, measureTextWidth(l, fontSize, valueFont)),
+        (m, l) => Math.max(m, measureTextWidth(l, fontSize, valueFont, valueScale)),
         0
       );
       const anchor = rotatedAnchor({
@@ -672,14 +658,19 @@ async function renderField(
           // pdf-lib stacks joined lines in text space — correct under rotation
           pdfPage.setLineHeight(advance);
         }
-        pdfPage.drawText(lines.join('\n'), {
-          x: anchor.x,
-          y: anchor.y,
-          size: fontSize,
-          font: valueFont,
-          color: fontColor,
-          rotate: rotation,
-        });
+        drawScaledText(
+          pdfPage,
+          lines.join('\n'),
+          {
+            x: anchor.x,
+            y: anchor.y,
+            size: fontSize,
+            font: valueFont,
+            color: fontColor,
+            rotate: rotation,
+          },
+          valueScale
+        );
       }
       return;
     }
@@ -689,7 +680,8 @@ async function renderField(
     // first line of each paragraph.
     const textX = x + reserve + pm.marginLeft;
     const textW = Math.max(valueAreaWidth - pm.marginLeft - pm.marginRight, 0);
-    const measure = (s: string): number => measureTextWidth(s, fontSize, valueFont);
+    const measure = (s: string): number =>
+      measureTextWidth(s, fontSize, valueFont, valueScale);
     const lines = breakLinesInfo(valueText, textW, measure, {
       firstLineIndent: pm.textIndent,
     });
@@ -733,26 +725,36 @@ async function renderField(
 
       if (segments) {
         for (const segment of segments) {
-          pdfPage.drawText(segment.text, {
-            x: textX + indent + segment.x,
-            y: lineY,
-            size: fontSize,
-            font: valueFont,
-            color: fontColor,
-            rotate: rotation,
-          });
+          drawScaledText(
+            pdfPage,
+            segment.text,
+            {
+              x: textX + indent + segment.x,
+              y: lineY,
+              size: fontSize,
+              font: valueFont,
+              color: fontColor,
+              rotate: rotation,
+            },
+            valueScale
+          );
         }
         continue;
       }
 
-      pdfPage.drawText(line, {
-        x: baseX,
-        y: lineY,
-        size: fontSize,
-        font: valueFont,
-        color: fontColor,
-        rotate: rotation,
-      });
+      drawScaledText(
+        pdfPage,
+        line,
+        {
+          x: baseX,
+          y: lineY,
+          size: fontSize,
+          font: valueFont,
+          color: fontColor,
+          rotate: rotation,
+        },
+        valueScale
+      );
     }
     endOverflowClip(pdfPage, clipped);
   }
@@ -775,17 +777,25 @@ async function renderButton(
 
   const family = node.font?.family ?? 'Helvetica';
   const font = await fontManager.getSafeFont(label, family, node.font?.weight, node.font?.posture);
-  const textWidth = measureTextWidth(label, fontSize, font);
-  const textOffset = Math.max((height - fontSize) / 2, 0);
+  const scale = scaleForFamily(family);
+  const textWidth = measureTextWidth(label, fontSize, font, scale);
+  // Baseline from the shared ascent-based model (was `(height - fontSize)/2`,
+  // which assumed the em box equals the ascent and put every label low).
+  const { baselines } = layoutLines(1, fontSize, { top: y + height, bottom: y }, 'middle', font);
   // `highlight` describes the *press* appearance, which never shows in a
   // flattened render, so the label is simply centred horizontally.
-  pdfPage.drawText(label, {
-    x: x + Math.max((width - textWidth) / 2, 0),
-    y: y + textOffset,
-    size: fontSize,
-    font,
-    color: fontColor,
-  });
+  drawScaledText(
+    pdfPage,
+    label,
+    {
+      x: x + Math.max((width - textWidth) / 2, 0),
+      y: baselines[0],
+      size: fontSize,
+      font,
+      color: fontColor,
+    },
+    scale
+  );
 }
 
 async function renderCheckButton(
@@ -801,34 +811,32 @@ async function renderCheckButton(
 ): Promise<void> {
   const checked = String(node.resolvedValue) === (node.ui?.checkedValue ?? '1');
   const checkChar = checked ? '☑' : '☐';
-  const textOffset = Math.max((height - fontSize) / 2, 0);
   const family = node.font?.family ?? 'Helvetica';
   const weight = node.font?.weight;
   const posture = node.font?.posture;
+  const scale = scaleForFamily(family);
 
   // The checkmark glyph (U+2611/U+2610) is not WinAnsi — getSafeFont falls back
   // to the embedded Unicode font so drawing never throws.
   const font = await fontManager.getSafeFont(checkChar, family, weight, posture);
 
-  // Draw the check indicator
-  pdfPage.drawText(checkChar, {
-    x,
-    y: y + textOffset,
-    size: fontSize,
-    font,
-    color: fontColor,
-  });
+  // Baseline from the shared ascent-based model, consistent with every other
+  // text path (was `(height - fontSize)/2`).
+  const { baselines } = layoutLines(1, fontSize, { top: y + height, bottom: y }, 'middle', font);
+
+  // Draw the check indicator. The box is 1.5 em wide by design so the glyph and
+  // its following caption have room; it is not a font-metric quantity.
+  drawScaledText(pdfPage, checkChar, { x, y: baselines[0], size: fontSize, font, color: fontColor }, scale);
 
   // Draw caption next to checkbox
   if (node.caption?.text) {
     const captionFont = await fontManager.getSafeFont(node.caption.text, family, weight, posture);
-    pdfPage.drawText(node.caption.text, {
-      x: x + fontSize * 1.5,
-      y: y + textOffset,
-      size: fontSize,
-      font: captionFont,
-      color: fontColor,
-    });
+    drawScaledText(
+      pdfPage,
+      node.caption.text,
+      { x: x + fontSize * 1.5, y: baselines[0], size: fontSize, font: captionFont, color: fontColor },
+      scale
+    );
   }
 }
 
@@ -890,13 +898,15 @@ async function renderDraw(
     const justV = mapJustV(node.para?.vAlign);
     const verticalAlign: 'top' | 'middle' | 'bottom' =
       justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
+    const baseFamily = node.font?.family ?? 'Helvetica';
+    const drawScale = scaleForFamily(baseFamily);
 
     if (isVerticalRotation(rotate)) {
       // Box swap: wrap along the box height, anchor via rotation remap
       const lines = wrapText(text, fontSize, height, font);
       const advance = pm.lineAdvance;
       const longest = lines.reduce(
-        (m, l) => Math.max(m, measureTextWidth(l, fontSize, font)),
+        (m, l) => Math.max(m, measureTextWidth(l, fontSize, font, drawScale)),
         0
       );
       const anchor = rotatedAnchor({
@@ -927,9 +937,12 @@ async function renderDraw(
     // Multi-line text wrapping with `<para>` insets/indent and line advance.
     const textX = x + pm.marginLeft;
     const textW = Math.max(width - pm.marginLeft - pm.marginRight, 0);
-    const wrapped = breakLinesInfo(text, textW, (s) => measureTextWidth(s, fontSize, font), {
-      firstLineIndent: pm.textIndent,
-    });
+    const wrapped = breakLinesInfo(
+      text,
+      textW,
+      (s) => measureTextWidth(s, fontSize, font, drawScale),
+      { firstLineIndent: pm.textIndent }
+    );
     const lines = wrapped.map((line) => line.text);
     const { baselines } = layoutLines(
       lines.length,
@@ -987,7 +1000,7 @@ function renderArcOrCircle(
   const fillColor = node.value?.shapeBorder?.fill?.color;
   // An XFA arc's default edge is a black 0.5pt stroke (XFA 3.3, Template
   // Reference, arc edge); hidden/invisible/none suppresses only the stroke.
-  const thickness = edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT;
+  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
   const strokeVisible =
     edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none';
 
@@ -1035,9 +1048,11 @@ async function renderRichText(
     if (!text) return;
     // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
+    const baseFamily = node.font?.family ?? 'Helvetica';
+    const drawScale = scaleForFamily(baseFamily);
     const font = await fontManager.getSafeFont(
       text,
-      node.font?.family ?? 'Helvetica',
+      baseFamily,
       node.font?.weight,
       node.font?.posture
     );
@@ -1050,9 +1065,12 @@ async function renderRichText(
       justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
     const textX = x + pm.marginLeft;
     const textW = Math.max(wrapWidth - pm.marginLeft - pm.marginRight, 0);
-    const wrapped = breakLinesInfo(text, textW, (s) => measureTextWidth(s, fontSize, font), {
-      firstLineIndent: pm.textIndent,
-    });
+    const wrapped = breakLinesInfo(
+      text,
+      textW,
+      (s) => measureTextWidth(s, fontSize, font, drawScale),
+      { firstLineIndent: pm.textIndent }
+    );
     const lines = wrapped.map((line) => line.text);
     const { baselines } = layoutLines(
       lines.length,
@@ -1077,14 +1095,19 @@ async function renderRichText(
       const lineY = baselines[i];
       const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
       const lineAvail = Math.max(textW - indent, 0);
-      const lineWidth = measureTextWidth(line, fontSize, font);
-      pdfPage.drawText(line, {
-        x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
-        y: lineY,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-      });
+      const lineWidth = measureTextWidth(line, fontSize, font, drawScale);
+      drawScaledText(
+        pdfPage,
+        line,
+        {
+          x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
+          y: lineY,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        },
+        drawScale
+      );
     }
     endOverflowClip(pdfPage, clipped);
     return;
@@ -1103,6 +1126,8 @@ async function renderRichText(
   const textX = x + pm.marginLeft;
   const textW = Math.max(wrapWidth - pm.marginLeft - pm.marginRight, 0);
 
+  const richScale = scaleForFamily(baseFontFamily);
+
   // One font per run — bold/italic/size come from the run's tags.
   const styled: StyledRun[] = [];
   for (const run of runs) {
@@ -1118,7 +1143,8 @@ async function renderRichText(
   const lines = layoutRunLines(styled, {
     maxWidth: wrapWidth,
     baseSize: baseFontSize,
-    measure: (text, run) => measureText(text, styled[run].size, styled[run].font),
+    measure: (text, run) =>
+      measureText(text, styled[run].size, styled[run].font, { horizontalScale: richScale }),
     paragraph: {
       lineAdvance: pm.lineAdvance,
       marginLeft: pm.marginLeft,
@@ -1252,9 +1278,66 @@ function getMargins(margin?: MarginSpec): { top: number; right: number; bottom: 
   };
 }
 
-/** Measure approximate text width using font metrics (0.5 * fontSize is rough avg). */
-function measureTextWidth(text: string, fontSize: number, font?: PDFFont): number {
-  return measureText(text, fontSize, font);
+/**
+ * Measure text width in points.
+ *
+ * `horizontalScale` condenses the result for condensed faces resolved to a
+ * full-width font. Every wrap decision, alignment offset and justification
+ * split must use the same scale that the matching `drawText` applies, or the
+ * text will overflow its own box — the class of defect that made every
+ * Arial Narrow run in the MechanicalSeal/IPQT forms wrap to too many lines.
+ */
+function measureTextWidth(
+  text: string,
+  fontSize: number,
+  font?: PDFFont,
+  horizontalScale?: number
+): number {
+  return measureText(text, fontSize, font, { horizontalScale });
+}
+
+/** Horizontal scale to apply when drawing a condensed family (1 = none). */
+function scaleForFamily(family: string | undefined): number | undefined {
+  return isCondensedFamily(family) ? NARROW_SCALE : undefined;
+}
+
+/**
+ * The PDF `Tz` operator (horizontal scaling, percent). pdf-lib exposes no
+ * helper for it, so it is constructed directly.
+ */
+function setTextHorizontalScale(percent: number): PDFOperator {
+  return PDFOperator.of(PDFOperatorNames.SetTextHorizontalScaling, [PDFNumber.of(percent)]);
+}
+
+/**
+ * `drawText` with an optional horizontal scale.
+ *
+ * pdf-lib exposes no horizontal-scaling option on `drawText`, so the scale is
+ * applied with the text-state operator `Tz` (a percentage affecting glyph
+ * advances only) around a normal `drawText` call. Wrapping the delegate call
+ * rather than hand-emitting the text operators keeps pdf-lib's own string
+ * encoding, font-resource registration and rotation handling intact — those are
+ * easy to get subtly wrong and would regress every script's output.
+ *
+ * `Tz` is part of the text state, not the graphics state, so it is reset after
+ * the run to avoid leaking into whatever is drawn next.
+ */
+function drawScaledText(
+  pdfPage: PDFPage,
+  text: string,
+  options: PDFPageDrawTextOptions,
+  horizontalScale?: number
+): void {
+  if (horizontalScale === undefined || horizontalScale === 1) {
+    pdfPage.drawText(text, options);
+    return;
+  }
+  pdfPage.pushOperators(setTextHorizontalScale(Math.round(horizontalScale * 100)));
+  try {
+    pdfPage.drawText(text, options);
+  } finally {
+    pdfPage.pushOperators(setTextHorizontalScale(100));
+  }
 }
 
 /** Wrap text into lines that fit within the given width. */

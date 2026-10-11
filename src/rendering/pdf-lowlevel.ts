@@ -31,6 +31,47 @@ export interface OpacityOptions {
 const extGStateCache = new WeakMap<PDFDocument, Map<string, string>>();
 const groupPages = new WeakSet<PDFPage>();
 
+/** Pages whose `setFont` has already been wrapped. */
+const dedupedPages = new WeakSet<PDFPage>();
+
+/**
+ * Make a page register each distinct font in `/Resources /Font` exactly once.
+ *
+ * pdf-lib's `PDFPage.setFont()` unconditionally calls
+ * `PDFPageLeaf.newFontDictionary()`, which mints a **fresh random key every
+ * time** (`PDFDict.uniqueKey` → `addRandomSuffix`) and never reuses an existing
+ * entry — its source carries a standing TODO acknowledging this. Because
+ * `drawText` calls `setFont()` on every single run, a form with 550 text runs
+ * emitted 550 `/Font` entries pointing at just 3 underlying font objects:
+ * tens of KB of redundant resource names, on a file that is already larger
+ * than Designer's output.
+ *
+ * The fix is to reuse the previously assigned key whenever the font object is
+ * unchanged. `setFont` sets two fields (`font`, `fontKey`) that `drawText` only
+ * ever reads back, so overriding it is behaviour-preserving: the content stream
+ * still selects a valid font resource, it just selects the *same* one instead of
+ * an identical new one.
+ */
+export function dedupePageFontResources(pdfPage: PDFPage): void {
+  if (dedupedPages.has(pdfPage)) return;
+  dedupedPages.add(pdfPage);
+
+  const original = pdfPage.setFont.bind(pdfPage);
+  const seen = new Map<unknown, string>();
+
+  pdfPage.setFont = (font: unknown): void => {
+    const existing = seen.get(font);
+    if (existing !== undefined) {
+      (pdfPage as unknown as { font: unknown }).font = font;
+      (pdfPage as unknown as { fontKey: string }).fontKey = existing;
+      return;
+    }
+    original(font as Parameters<typeof original>[0]);
+    const key = (pdfPage as unknown as { fontKey: string }).fontKey;
+    if (key) seen.set(font, key);
+  };
+}
+
 function isTransparent(alpha: number | undefined): boolean {
   return alpha != null && alpha > 0 && alpha < 1;
 }

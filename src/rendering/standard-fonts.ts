@@ -29,14 +29,35 @@ const BASE14_NAMES: Record<string, StandardFonts> = {
   zapfdingbats: StandardFonts.ZapfDingbats,
 };
 
-/** Family-name aliases mapped to their metric-matching base-14 family. */
+/**
+ * Family-name aliases mapped to their metric-matching base-14 family.
+ *
+ * Each entry must be metrically defensible, not merely "renders as text":
+ * the alias decides the advance widths used for wrapping, alignment and
+ * justification, so a wrong alias silently re-measures every text run.
+ *
+ * - `arial` / `arialmt` / `helvetica` / `helv` → Helvetica. Arial was designed
+ *   as a metric clone of Helvetica, so this is exact.
+ * - `arial narrow` / `arialnarrow` → Helvetica **at a horizontal scale** (see
+ *   NARROW_SCALE). Arial Narrow is a *condensed* face; mapping it to
+ *   full-width Helvetica overstates every advance by ~20%.
+ * - `times` / `times new roman` / `timesnewroman` → Times-Roman (metric clone).
+ * - `courier` / `courier new` → Courier (monospaced, both 600/1000).
+ */
 const FAMILY_ALIASES: Record<string, string> = {
   courier: 'courier',
   'courier new': 'courier',
+  couriernew: 'courier',
   helvetica: 'helvetica',
   helv: 'helvetica',
   arial: 'helvetica',
+  // "ArialMT" is the PostScript-style name Designer authors frequently use for
+  // plain Arial; treating it as an unknown family sent it to the Unicode
+  // fallback font, which is ~13% wider than Arial and broke every wrap in the
+  // field. It is the same face as Arial, so it belongs here.
+  arialmt: 'helvetica',
   'arial narrow': 'helvetica',
+  arialnarrow: 'helvetica',
   times: 'times',
   'times new roman': 'times',
   timesnewroman: 'times',
@@ -46,8 +67,37 @@ const FAMILY_ALIASES: Record<string, string> = {
   'itc zapf dingbats': 'zapfdingbats',
 };
 
+/**
+ * Horizontal scale applied when a *condensed* family resolves to its
+ * full-width base-14 counterpart.
+ *
+ * Arial Narrow's advance widths are Arial's multiplied by 0.82 for every glyph
+ * in the Latin set — a published property of the face, not a tuning knob.
+ * Without it, every Arial Narrow run is measured ~22% too wide and wraps into
+ * more lines than Designer authored.
+ *
+ * evidence: Adobe treats a condensed face as a horizontal scale, not a
+ * separate base-14 slot (`Designer.xdc` `<seq>` has no Arial Narrow entry, so
+ * Designer must scale). 0.82 is the Arial Narrow / Arial advance ratio.
+ */
+export const NARROW_SCALE = 0.82;
+
+/** Families that must be drawn with {@link NARROW_SCALE} horizontally condensed. */
+const NARROW_FAMILIES = new Set(['arial narrow', 'arialnarrow']);
+
 /** Family names (all aliases) that resolve to a base-14 standard font. */
 export const BASE14_FAMILIES: readonly string[] = Object.keys(FAMILY_ALIASES);
+
+/**
+ * True when `family` is a condensed face that resolves to a full-width base-14
+ * font and therefore needs {@link NARROW_SCALE} applied at draw and measure
+ * time. The scale is a property of the *requested* family, not of the resolved
+ * font, so this must be consulted with the original XDP family name.
+ */
+export function isCondensedFamily(family: string | undefined): boolean {
+  if (!family) return false;
+  return NARROW_FAMILIES.has(family.trim().toLowerCase());
+}
 
 const BOLD_WEIGHTS = new Set(['bold', 'b', 'black', 'heavy', 'demi']);
 

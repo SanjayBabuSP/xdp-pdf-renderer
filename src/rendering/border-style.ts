@@ -16,6 +16,27 @@ import { LineCapStyle, LineJoinStyle } from 'pdf-lib';
  */
 export const DEFAULT_EDGE_THICKNESS_PT = 0.5;
 
+/**
+ * Quantise a stroke width the way Designer writes it.
+ *
+ * Authored thicknesses are frequently given in millimetres, so the point value
+ * arrives as a long binary fraction (0.3764mm → 1.06696226pt). Designer emits
+ * such widths rounded to three decimal places; we emitted the full-precision
+ * value, so `1.067` in Designer's output appeared as `1.06696226` in ours.
+ * Every observed pair matches exactly under 3-dp rounding:
+ *
+ *   0.50003226 → 0.5      1.06696226 → 1.067      1.63389226 → 1.634
+ *
+ * Rounding here rather than at each call site keeps the fill, the per-edge
+ * stroke, the rounded-corner stroke and the dash scaling all consistent — a
+ * dash array derived from the unrounded width would no longer match the width
+ * it is drawn at.
+ */
+export function quantizeStrokeWidth(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return width;
+  return Math.round(width * 1000) / 1000;
+}
+
 // ─── Dash patterns ─────────────────────────────────────────────────────────────
 
 /**
