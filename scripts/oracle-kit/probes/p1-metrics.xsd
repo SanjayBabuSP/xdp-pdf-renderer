@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="probe">
+    <xs:complexType>
+      <xs:sequence>
+    <xs:element type="xs:string" name="asc_helv_6"/>
+    <xs:element type="xs:string" name="asc_helv_8"/>
+    <xs:element type="xs:string" name="asc_helv_10"/>
+    <xs:element type="xs:string" name="asc_helv_12"/>
+    <xs:element type="xs:string" name="asc_helv_16"/>
+    <xs:element type="xs:string" name="asc_helv_24"/>
+    <xs:element type="xs:string" name="fam_Helvetica"/>
+    <xs:element type="xs:string" name="fam_Helvetica_b"/>
+    <xs:element type="xs:string" name="fam_Helvetica_i"/>
+    <xs:element type="xs:string" name="fam_Helvetica_b_i"/>
+    <xs:element type="xs:string" name="fam_Times"/>
+    <xs:element type="xs:string" name="fam_Times_b"/>
+    <xs:element type="xs:string" name="fam_Courier"/>
+    <xs:element type="xs:string" name="fam_Courier_b"/>
+    <xs:element type="xs:string" name="valign_top"/>
+    <xs:element type="xs:string" name="valign_middle"/>
+    <xs:element type="xs:string" name="valign_bottom"/>
+    <xs:element type="xs:string" name="halign_left_10"/>
+    <xs:element type="xs:string" name="halign_left_18"/>
+    <xs:element type="xs:string" name="halign_center_10"/>
+    <xs:element type="xs:string" name="halign_center_18"/>
+    <xs:element type="xs:string" name="halign_right_10"/>
+    <xs:element type="xs:string" name="halign_right_18"/>
+    <xs:element type="xs:string" name="lines_8"/>
+    <xs:element type="xs:string" name="lines_10"/>
+    <xs:element type="xs:string" name="lines_14"/>
+    <xs:element type="xs:string" name="kern_0_AV"/>
+    <xs:element type="xs:string" name="kern_1_To"/>
+    <xs:element type="xs:string" name="kern_2_LT"/>
+    <xs:element type="xs:string" name="kern_3_AT"/>
+    <xs:element type="xs:string" name="kern_4_WAVE"/>
+    <xs:element type="xs:string" name="kern_5_nnn"/>
+    <xs:element type="xs:string" name="kern_6_ooo"/>
+    <xs:element type="xs:string" name="adv_n_1"/>
+    <xs:element type="xs:string" name="adv_n_2"/>
+    <xs:element type="xs:string" name="adv_n_3"/>
+    <xs:element type="xs:string" name="adv_n_4"/>
+    <xs:element type="xs:string" name="adv_n_5"/>
+    <xs:element type="xs:string" name="adv_n_6"/>
+    <xs:element type="xs:string" name="adv_n_8"/>
+    <xs:element type="xs:string" name="adv_n_10"/>
+    <xs:element type="xs:string" name="adv_n_13"/>
+    <xs:element type="xs:string" name="adv_n_16"/>
+    <xs:element type="xs:string" name="adv_n_20"/>
+    <xs:element type="xs:string" name="adv_W_1"/>
+    <xs:element type="xs:string" name="adv_W_2"/>
+    <xs:element type="xs:string" name="adv_W_3"/>
+    <xs:element type="xs:string" name="adv_W_4"/>
+    <xs:element type="xs:string" name="adv_W_5"/>
+    <xs:element type="xs:string" name="adv_W_6"/>
+    <xs:element type="xs:string" name="adv_W_8"/>
+    <xs:element type="xs:string" name="adv_W_10"/>
+    <xs:element type="xs:string" name="adv_W_13"/>
+    <xs:element type="xs:string" name="adv_W_16"/>
+    <xs:element type="xs:string" name="adv_W_20"/>
+    <xs:element type="xs:string" name="adv_i_1"/>
+    <xs:element type="xs:string" name="adv_i_2"/>
+    <xs:element type="xs:string" name="adv_i_3"/>
+    <xs:element type="xs:string" name="adv_i_4"/>
+    <xs:element type="xs:string" name="adv_i_5"/>
+    <xs:element type="xs:string" name="adv_i_6"/>
+    <xs:element type="xs:string" name="adv_i_8"/>
+    <xs:element type="xs:string" name="adv_i_10"/>
+    <xs:element type="xs:string" name="adv_i_13"/>
+    <xs:element type="xs:string" name="adv_i_16"/>
+    <xs:element type="xs:string" name="adv_i_20"/>
+    <xs:element type="xs:string" name="lh_12"/>
+    <xs:element type="xs:string" name="lh_20"/>
+    <xs:element type="xs:string" name="lh_30"/>
+    <xs:element type="xs:string" name="uni_latin1"/>
+    <xs:element type="xs:string" name="uni_latin2"/>
+    <xs:element type="xs:string" name="uni_greek"/>
+    <xs:element type="xs:string" name="uni_cjk"/>
+    <xs:element type="xs:string" name="uni_cyrillic"/>
+    <xs:element type="xs:string" name="uni_sym"/>
+    <xs:element type="xs:string" name="subst_Myriad_Pro"/>
+    <xs:element type="xs:string" name="subst_Minion_Pro"/>
+    <xs:element type="xs:string" name="subst_Arial"/>
+    <xs:element type="xs:string" name="subst_Times_New_Roman"/>
+    <xs:element type="xs:string" name="subst_Courier_New"/>
+    <xs:element type="xs:string" name="subst_NoSuchFontXYZ"/>
+    <xs:element type="xs:string" name="bi_bold"/>
+    <xs:element type="xs:string" name="bi_n_i"/>
+    <xs:element type="xs:string" name="bi_bold_i"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

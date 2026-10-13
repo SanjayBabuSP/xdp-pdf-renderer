@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="probe">
+    <xs:complexType>
+      <xs:sequence>
+    <xs:element type="xs:string" name="s_tb_1"/>
+    <xs:element type="xs:string" name="s_tb_2"/>
+    <xs:element type="xs:string" name="s_tb_3"/>
+    <xs:element type="xs:string" name="s_tb_h_1"/>
+    <xs:element type="xs:string" name="s_tb_h_2"/>
+    <xs:element type="xs:string" name="s_tb_h_3"/>
+    <xs:element type="xs:string" name="s_tb_h_4"/>
+    <xs:element type="xs:string" name="ov_0"/>
+    <xs:element type="xs:string" name="ov_1"/>
+    <xs:element type="xs:string" name="ov_2"/>
+    <xs:element type="xs:string" name="ov_3"/>
+    <xs:element type="xs:string" name="ov_4"/>
+    <xs:element type="xs:string" name="ov_5"/>
+    <xs:element type="xs:string" name="ov_6"/>
+    <xs:element type="xs:string" name="ov_7"/>
+    <xs:element type="xs:string" name="ov_8"/>
+    <xs:element type="xs:string" name="ov_9"/>
+    <xs:element type="xs:string" name="ov_10"/>
+    <xs:element type="xs:string" name="ov_11"/>
+    <xs:element type="xs:string" name="ov_12"/>
+    <xs:element type="xs:string" name="ov_13"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

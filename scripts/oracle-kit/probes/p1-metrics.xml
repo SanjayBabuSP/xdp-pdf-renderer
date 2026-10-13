@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<probe>
+  <asc_helv_6>Hxpg</asc_helv_6>
+  <asc_helv_8>Hxpg</asc_helv_8>
+  <asc_helv_10>Hxpg</asc_helv_10>
+  <asc_helv_12>Hxpg</asc_helv_12>
+  <asc_helv_16>Hxpg</asc_helv_16>
+  <asc_helv_24>Hxpg</asc_helv_24>
+  <fam_Helvetica>Hxpg</fam_Helvetica>
+  <fam_Helvetica_b>Hxpg</fam_Helvetica_b>
+  <fam_Helvetica_i>Hxpg</fam_Helvetica_i>
+  <fam_Helvetica_b_i>Hxpg</fam_Helvetica_b_i>
+  <fam_Times>Hxpg</fam_Times>
+  <fam_Times_b>Hxpg</fam_Times_b>
+  <fam_Courier>Hxpg</fam_Courier>
+  <fam_Courier_b>Hxpg</fam_Courier_b>
+  <valign_top>V-top</valign_top>
+  <valign_middle>V-middle</valign_middle>
+  <valign_bottom>V-bottom</valign_bottom>
+  <halign_left_10>A-left-10</halign_left_10>
+  <halign_left_18>A-left-18</halign_left_18>
+  <halign_center_10>A-center-10</halign_center_10>
+  <halign_center_18>A-center-18</halign_center_18>
+  <halign_right_10>A-right-10</halign_right_10>
+  <halign_right_18>A-right-18</halign_right_18>
+  <lines_8>alpha bravo charlie delta echo foxtrot golf hotel india juliet</lines_8>
+  <lines_10>alpha bravo charlie delta echo foxtrot golf hotel india juliet</lines_10>
+  <lines_14>alpha bravo charlie delta echo foxtrot golf hotel india juliet</lines_14>
+  <kern_0_AV>AV</kern_0_AV>
+  <kern_1_To>To</kern_1_To>
+  <kern_2_LT>LT</kern_2_LT>
+  <kern_3_AT>AT</kern_3_AT>
+  <kern_4_WAVE>WAVE</kern_4_WAVE>
+  <kern_5_nnn>nnn</kern_5_nnn>
+  <kern_6_ooo>ooo</kern_6_ooo>
+  <adv_n_1>n</adv_n_1>
+  <adv_n_2>nn</adv_n_2>
+  <adv_n_3>nnn</adv_n_3>
+  <adv_n_4>nnnn</adv_n_4>
+  <adv_n_5>nnnnn</adv_n_5>
+  <adv_n_6>nnnnnn</adv_n_6>
+  <adv_n_8>nnnnnnnn</adv_n_8>
+  <adv_n_10>nnnnnnnnnn</adv_n_10>
+  <adv_n_13>nnnnnnnnnnnnn</adv_n_13>
+  <adv_n_16>nnnnnnnnnnnnnnnn</adv_n_16>
+  <adv_n_20>nnnnnnnnnnnnnnnnnnnn</adv_n_20>
+  <adv_W_1>W</adv_W_1>
+  <adv_W_2>WW</adv_W_2>
+  <adv_W_3>WWW</adv_W_3>
+  <adv_W_4>WWWW</adv_W_4>
+  <adv_W_5>WWWWW</adv_W_5>
+  <adv_W_6>WWWWWW</adv_W_6>
+  <adv_W_8>WWWWWWWW</adv_W_8>
+  <adv_W_10>WWWWWWWWWW</adv_W_10>
+  <adv_W_13>WWWWWWWWWWWWW</adv_W_13>
+  <adv_W_16>WWWWWWWWWWWWWWWW</adv_W_16>
+  <adv_W_20>WWWWWWWWWWWWWWWWWWWW</adv_W_20>
+  <adv_i_1>i</adv_i_1>
+  <adv_i_2>ii</adv_i_2>
+  <adv_i_3>iii</adv_i_3>
+  <adv_i_4>iiii</adv_i_4>
+  <adv_i_5>iiiii</adv_i_5>
+  <adv_i_6>iiiiii</adv_i_6>
+  <adv_i_8>iiiiiiii</adv_i_8>
+  <adv_i_10>iiiiiiiiii</adv_i_10>
+  <adv_i_13>iiiiiiiiiiiii</adv_i_13>
+  <adv_i_16>iiiiiiiiiiiiiiii</adv_i_16>
+  <adv_i_20>iiiiiiiiiiiiiiiiiiii</adv_i_20>
+  <lh_12>L0-a L0-b L0-c L0-d</lh_12>
+  <lh_20>L1-a L1-b L1-c L1-d</lh_20>
+  <lh_30>L2-a L2-b L2-c L2-d</lh_30>
+  <uni_latin1>café naïve</uni_latin1>
+  <uni_latin2>Grüße</uni_latin2>
+  <uni_greek>Δελτα</uni_greek>
+  <uni_cjk>日本語</uni_cjk>
+  <uni_cyrillic>Привет</uni_cyrillic>
+  <uni_sym>±×÷€</uni_sym>
+  <subst_Myriad_Pro>S-Myriad Pro</subst_Myriad_Pro>
+  <subst_Minion_Pro>S-Minion Pro</subst_Minion_Pro>
+  <subst_Arial>S-Arial</subst_Arial>
+  <subst_Times_New_Roman>S-Times New Roman</subst_Times_New_Roman>
+  <subst_Courier_New>S-Courier New</subst_Courier_New>
+  <subst_NoSuchFontXYZ>S-NoSuchFontXYZ</subst_NoSuchFontXYZ>
+  <bi_bold>Bi-bold</bi_bold>
+  <bi_n_i>Bi-ni</bi_n_i>
+  <bi_bold_i>Bi-boldi</bi_bold_i>
+</probe>

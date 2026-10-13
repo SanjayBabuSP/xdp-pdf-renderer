@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="probe">
+    <xs:complexType>
+      <xs:sequence>
+    <xs:element type="xs:string" name="b_thin"/>
+    <xs:element type="xs:string" name="b_hair"/>
+    <xs:element type="xs:string" name="b_thick"/>
+    <xs:element type="xs:string" name="b_dashed2"/>
+    <xs:element type="xs:string" name="b_dotted1"/>
+    <xs:element type="xs:string" name="b_dashdot"/>
+    <xs:element type="xs:string" name="b_dashdotdot"/>
+    <xs:element type="xs:string" name="b_solid05"/>
+    <xs:element type="xs:string" name="b_capround"/>
+    <xs:element type="xs:string" name="b_capsquare"/>
+    <xs:element type="xs:string" name="b_joinbevel"/>
+    <xs:element type="xs:string" name="b_joinmiter"/>
+    <xs:element type="xs:string" name="b_edgehidden"/>
+    <xs:element type="xs:string" name="b_peredge"/>
+    <xs:element type="xs:string" name="b_radius_2"/>
+    <xs:element type="xs:string" name="b_radius_6"/>
+    <xs:element type="xs:string" name="b_radius_14"/>
+    <xs:element type="xs:string" name="b_radius_30"/>
+    <xs:element type="xs:string" name="b_fill_gray"/>
+    <xs:element type="xs:string" name="b_fill_rgb"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

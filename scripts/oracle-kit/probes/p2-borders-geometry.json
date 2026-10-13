@@ -1,0 +1,733 @@
+{
+ "source": {
+  "probe": "p2-borders",
+  "note": "authored geometry; single page"
+ },
+ "pages": [
+  {
+   "pageIndex": 0,
+   "medium": {
+    "stock": "a4",
+    "short": 595.276,
+    "long": 841.89
+   },
+   "contentArea": {
+    "x": 36,
+    "y": 36,
+    "w": 523,
+    "h": 769
+   },
+   "masterPageChildren": [],
+   "children": [
+    {
+     "type": "subform",
+     "name": "rows",
+     "position": null,
+     "children": [
+      {
+       "type": "field",
+       "name": "b_thin",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 72,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_thin"
+      },
+      {
+       "type": "field",
+       "name": "b_hair",
+       "presence": "visible",
+       "position": {
+        "x": 197,
+        "y": 72,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_hair"
+      },
+      {
+       "type": "field",
+       "name": "b_thick",
+       "presence": "visible",
+       "position": {
+        "x": 322,
+        "y": 72,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_thick"
+      },
+      {
+       "type": "field",
+       "name": "b_dashed2",
+       "presence": "visible",
+       "position": {
+        "x": 447,
+        "y": 72,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_dashed2"
+      },
+      {
+       "type": "field",
+       "name": "b_dotted1",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 162,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_dotted1"
+      },
+      {
+       "type": "field",
+       "name": "b_dashdot",
+       "presence": "visible",
+       "position": {
+        "x": 197,
+        "y": 162,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_dashdot"
+      },
+      {
+       "type": "field",
+       "name": "b_dashdotdot",
+       "presence": "visible",
+       "position": {
+        "x": 322,
+        "y": 162,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_dashdotdot"
+      },
+      {
+       "type": "field",
+       "name": "b_solid05",
+       "presence": "visible",
+       "position": {
+        "x": 447,
+        "y": 162,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_solid05"
+      },
+      {
+       "type": "field",
+       "name": "b_capround",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 252,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_capround"
+      },
+      {
+       "type": "field",
+       "name": "b_capsquare",
+       "presence": "visible",
+       "position": {
+        "x": 197,
+        "y": 252,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_capsquare"
+      },
+      {
+       "type": "field",
+       "name": "b_joinbevel",
+       "presence": "visible",
+       "position": {
+        "x": 322,
+        "y": 252,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_joinbevel"
+      },
+      {
+       "type": "field",
+       "name": "b_joinmiter",
+       "presence": "visible",
+       "position": {
+        "x": 447,
+        "y": 252,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_joinmiter"
+      },
+      {
+       "type": "field",
+       "name": "b_edgehidden",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 342,
+        "w": 110,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_edgehidden"
+      },
+      {
+       "type": "field",
+       "name": "b_peredge",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 372,
+        "w": 200,
+        "h": 80,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_peredge"
+      },
+      {
+       "type": "field",
+       "name": "b_radius_2",
+       "presence": "visible",
+       "position": {
+        "x": 302,
+        "y": 372,
+        "w": 120,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_radius_2"
+      },
+      {
+       "type": "field",
+       "name": "b_radius_6",
+       "presence": "visible",
+       "position": {
+        "x": 302,
+        "y": 372,
+        "w": 120,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_radius_6"
+      },
+      {
+       "type": "field",
+       "name": "b_radius_14",
+       "presence": "visible",
+       "position": {
+        "x": 302,
+        "y": 462,
+        "w": 120,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_radius_14"
+      },
+      {
+       "type": "field",
+       "name": "b_radius_30",
+       "presence": "visible",
+       "position": {
+        "x": 302,
+        "y": 642,
+        "w": 120,
+        "h": 70,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_radius_30"
+      },
+      {
+       "type": "field",
+       "name": "b_fill_gray",
+       "presence": "visible",
+       "position": {
+        "x": 72,
+        "y": 472,
+        "w": 110,
+        "h": 60,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_fill_gray"
+      },
+      {
+       "type": "field",
+       "name": "b_fill_rgb",
+       "presence": "visible",
+       "position": {
+        "x": 202,
+        "y": 472,
+        "w": 110,
+        "h": 60,
+        "minH": null,
+        "maxH": null,
+        "rotate": null
+       },
+       "margin": null,
+       "layout": null,
+       "occur": null,
+       "font": {
+        "typeface": "Helvetica",
+        "size": 8,
+        "weight": null,
+        "posture": null
+       },
+       "para": {
+        "hAlign": null,
+        "vAlign": null
+       },
+       "ui": {
+        "type": "textEdit",
+        "hAlign": null,
+        "vAlign": null
+       },
+       "caption": null,
+       "border": null,
+       "resolvedValue": "b_fill_rgb"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "rootSubformName": "probe"
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<probe>
+  <b_thin>b_thin</b_thin>
+  <b_hair>b_hair</b_hair>
+  <b_thick>b_thick</b_thick>
+  <b_dashed2>b_dashed2</b_dashed2>
+  <b_dotted1>b_dotted1</b_dotted1>
+  <b_dashdot>b_dashdot</b_dashdot>
+  <b_dashdotdot>b_dashdotdot</b_dashdotdot>
+  <b_solid05>b_solid05</b_solid05>
+  <b_capround>b_capround</b_capround>
+  <b_capsquare>b_capsquare</b_capsquare>
+  <b_joinbevel>b_joinbevel</b_joinbevel>
+  <b_joinmiter>b_joinmiter</b_joinmiter>
+  <b_edgehidden>b_edgehidden</b_edgehidden>
+  <b_peredge>per-edge</b_peredge>
+  <b_radius_2>r2</b_radius_2>
+  <b_radius_6>r6</b_radius_6>
+  <b_radius_14>r14</b_radius_14>
+  <b_radius_30>r30</b_radius_30>
+  <b_fill_gray>gray fill</b_fill_gray>
+  <b_fill_rgb>rgb fill</b_fill_rgb>
+</probe>
