@@ -14,8 +14,8 @@ const KIT = path.join(__dirname, '..', '..', '..', 'scripts', 'oracle-kit');
 describe('oracle-kit probes', () => {
   const probes = ['p1-metrics', 'p2-borders', 'p3-subforms'];
 
-  it('ships the extractor, compare script and readme', () => {
-    for (const f of ['extract-facts.py', 'compare-local.mjs', 'README.md']) {
+  it('ships the extractor, redactor, compare script and docs', () => {
+    for (const f of ['extract-facts.py', 'redact-facts.py', 'compare-local.mjs', 'README.md', 'RUNBOOK.md']) {
       expect(fs.existsSync(path.join(KIT, f))).toBe(true);
     }
   });
