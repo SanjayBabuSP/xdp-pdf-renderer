@@ -86,14 +86,25 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
   {
     fromFamily: 'MS Mincho',
     sequence: ['Yu Mincho', 'Hiragino Mincho Pro', 'Noto Serif CJK JP', 'serif'],
-  },
-  {
+  },  {
     fromFamily: 'MS Gothic',
     sequence: ['Yu Gothic', 'Hiragino Kaku Gothic Pro', 'Noto Sans CJK JP', 'sans-serif'],
   },
   {
     fromFamily: 'SimSun',
-    sequence: ['NSimSun', 'Noto Serif CJK SC', 'serif'],
+    sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'NSimSun', 'Noto Serif CJK SC', 'serif'],
+  },
+  // ponytail: SimSun-ExtB needs CJK Extension B coverage no bundled face fully
+  // has; Adobe Song Std L (GB18030) is the closest available, so ExtB rarities
+  // may still fall back per-glyph. Ceiling: partial ExtB; upgrade path is a
+  // fuller CJK font (e.g. Noto Sans CJK) via options.fontDirs.
+  {
+    fromFamily: 'SimSun-ExtB',
+    sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'serif'],
+  },
+  {
+    fromFamily: 'SimHei',
+    sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Microsoft YaHei', 'Noto Sans CJK SC', 'sans-serif'],
   },
   {
     fromFamily: 'SimHei',

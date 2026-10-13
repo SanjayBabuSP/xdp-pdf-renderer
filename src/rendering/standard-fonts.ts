@@ -43,6 +43,7 @@ const BASE14_NAMES: Record<string, StandardFonts> = {
  *   full-width Helvetica overstates every advance by ~20%.
  * - `times` / `times new roman` / `timesnewroman` → Times-Roman (metric clone).
  * - `courier` / `courier new` → Courier (monospaced, both 600/1000).
+ * - `calibri` / `segoe ui` → Helvetica (nearest base-14 stand-in; see below).
  */
 const FAMILY_ALIASES: Record<string, string> = {
   courier: 'courier',
@@ -58,6 +59,14 @@ const FAMILY_ALIASES: Record<string, string> = {
   arialmt: 'helvetica',
   'arial narrow': 'helvetica',
   arialnarrow: 'helvetica',
+  // ponytail: Calibri/Segoe UI mapped to full-width Helvetica, not their real
+  // metrics (both are humanist sans ~5% narrower than Arial; DejaVu fallback
+  // measured 10-15% wider than Helvetica on prose, so this cuts the worst-case
+  // wrap error ~3x). Ceiling: advances still overstate by ~5%; upgrade path is
+  // licensed Calibri/Segoe metric tables via options.fontDirs or default-fonts.json.
+  calibri: 'helvetica',
+  'segoe ui': 'helvetica',
+  segoeui: 'helvetica',
   times: 'times',
   'times new roman': 'times',
   timesnewroman: 'times',

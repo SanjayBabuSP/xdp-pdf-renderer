@@ -155,4 +155,17 @@ describe('applyPagination (coordinate-based)', () => {
     expect(out.pages).toHaveLength(1);
     expect(out.pages[0].children).toEqual([]);
   });
+
+  it('preserves a trailing breakBefore section as its own last page', () => {
+    // IPQT shape: body filling 5 pages + a closing section forced onto page 6.
+    // Guards against dropping a trailing near-empty page (the 6→5 divergence).
+    const out = run([
+      subform('body', { x: 54, y: 54, w: 200, h: 5 * 734 }),
+      { ...subform('revision', { x: 54, y: 54 + 5 * 734, w: 200, h: 30 }), breakBefore: 'contentArea' },
+    ]);
+    expect(out.pages).toHaveLength(6);
+    const last = out.pages[5].children[0] as SubformNode;
+    expect(last.name).toBe('revision');
+    expect(last.position!.y).toBe(54);
+  });
 });

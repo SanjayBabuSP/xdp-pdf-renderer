@@ -50,8 +50,18 @@ describe('standard-fonts (Designer.xdc <seq> mapping)', () => {
       expect(mapToStandardPdfFont('ITC Zapf Dingbats')).toBe(StandardFonts.ZapfDingbats);
     });
 
+    it('maps Calibri → Helvetica (nearest base-14 stand-in, not DejaVu)', () => {
+      expect(mapToStandardPdfFont('Calibri')).toBe(StandardFonts.Helvetica);
+      expect(mapToStandardPdfFont('Calibri', 'bold')).toBe(StandardFonts.HelveticaBold);
+    });
+
+    it('maps Segoe UI → Helvetica (nearest base-14 stand-in)', () => {
+      expect(mapToStandardPdfFont('Segoe UI')).toBe(StandardFonts.Helvetica);
+      expect(mapToStandardPdfFont('segoeui')).toBe(StandardFonts.Helvetica);
+    });
+
     it('returns undefined for non base-14 families', () => {
-      expect(mapToStandardPdfFont('Calibri')).toBeUndefined();
+      expect(mapToStandardPdfFont('Verdana')).toBeUndefined();
     });
 
     it('returns undefined for missing family', () => {
