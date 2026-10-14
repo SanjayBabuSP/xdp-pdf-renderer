@@ -113,4 +113,32 @@ describe('validate-data-against-schema', () => {
       }
     });
   });
+
+  // ADS parity brief §5.6: real SAP data must validate leniently (codes kept).
+  describe('lenient mode (strict: false) — SAP real-world tolerance', () => {
+    const sapData: DataObject = {
+      Amount: 'not-a-number',
+      Revision: 200,
+      LeadID: 'ABC-123',
+      OfferDate: '2026-06-03',
+    };
+
+    it('tolerates missing required fields', () => {
+      const { Amount: _a, Revision: _r, LeadID: _l, ...partial } = sapData;
+      void _a;
+      void _r;
+      void _l;
+      expect(validateDataAgainstSchema(partial, schema, { strict: false }).success).toBe(true);
+    });
+
+    it('tolerates SAP integer ranges and non-numeric number strings', () => {
+      expect(validateDataAgainstSchema(sapData, schema, { strict: false }).success).toBe(true);
+    });
+
+    it('strict mode still fails the same data with VAL_2001', () => {
+      const result = validateDataAgainstSchema(sapData, schema, { strict: true });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('VAL_2001');
+    });
+  });
 });

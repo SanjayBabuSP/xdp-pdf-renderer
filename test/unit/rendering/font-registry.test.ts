@@ -65,8 +65,9 @@ describe('font-registry — indexing and lookup', () => {
     expect(lookupVariants(manifest, 'NoSuchFamily')).toBeUndefined();
   });
 
-  it('is case-insensitive', () => {
-    expect(familyKey('  Myriad PRO ')).toBe('myriad pro');
+  it('is case-insensitive and spaceless (Myriad Pro == MyriadPro)', () => {
+    expect(familyKey('  Myriad PRO ')).toBe('myriadpro');
+    expect(familyKey('MyriadPro')).toBe(familyKey('Myriad Pro'));
   });
 });
 

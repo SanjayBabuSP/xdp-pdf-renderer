@@ -948,11 +948,17 @@ function parseOccur(occur: unknown): OccurSpec | undefined {
 
 function parseColumnWidths(raw: string | undefined): number[] | undefined {
   if (!raw) return undefined;
-  return raw
+  const widths = raw
     .trim()
     .split(/\s+/)
     .map((v) => toPointsOrZero(v))
-    .filter((v) => v > 0);
+    .map((v) => (v > 0 ? v : -1));
+  // evidence: XFATableLayout parses columnWidths space-tokenized with `-1`
+  // (or non-positive) stored as the auto marker (xfalayout_disasm.c:97860 —
+  // FUN_1857b5c0 reads attr 0x1d8, token `-1` → unit span -1). Dropping those
+  // tokens shifts every later column, so they are preserved, not filtered.
+  if (widths.length === 0) return undefined;
+  return widths;
 }
 
 function parseFont(font: unknown): FontSpec | undefined {

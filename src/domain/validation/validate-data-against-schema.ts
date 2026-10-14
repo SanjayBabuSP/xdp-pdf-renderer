@@ -105,7 +105,11 @@ function validateType(value: unknown, type: string, path: string, errors: string
       break;
     case 'int':
     case 'integer':
-      if (!Number.isInteger(Number(value))) errors.push(`${path}: expected integer, got "${value}"`);
+      // Lenient: SAP data routinely carries non-numeric strings for numbers
+      // (codes, IDs); Adobe renders the raw text, so tolerate instead of fail.
+      if (!Number.isInteger(Number(value)) && strict) {
+        errors.push(`${path}: expected integer, got "${value}"`);
+      }
       break;
     case 'byte': {
       // SAP/OData XSD exports map Edm.Byte (unsigned 0..255) to xs:byte (standard signed -128..127).
@@ -117,16 +121,20 @@ function validateType(value: unknown, type: string, path: string, errors: string
       break;
     }
     case 'short':
+      // Lenient: skip both the lexical check and the range (see byte above).
       if (
-        !Number.isInteger(Number(value)) ||
-        (strict && (Number(value) < -32768 || Number(value) > 32767))
+        strict &&
+        (!Number.isInteger(Number(value)) || Number(value) < -32768 || Number(value) > 32767)
       ) {
         errors.push(`${path}: expected short (-32768..32767), got "${value}"`);
       }
       break;
     case 'decimal':
     case 'float':
-      if (isNaN(parseFloat(strVal))) errors.push(`${path}: expected number, got "${value}"`);
+      // Lenient: render the raw string as Adobe does.
+      if (isNaN(parseFloat(strVal)) && strict) {
+        errors.push(`${path}: expected number, got "${value}"`);
+      }
       break;
     case 'date':
       if (!DATE_PATTERN.test(strVal)) errors.push(`${path}: expected date (YYYY-MM-DD), got "${value}"`);

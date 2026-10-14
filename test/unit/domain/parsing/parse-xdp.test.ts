@@ -131,6 +131,24 @@ describe('parse-xdp', () => {
         expect(table.columnWidths![0]).toBeCloseTo(141.73, 0); // 50mm ≈ 141.73pt
       }
     });
+
+    it('preserves -1 columnWidths tokens as auto markers (xfalayout:97860)', () => {
+      const raw = XDP_WITH_TABLE.replace('columnWidths="50mm 50mm 50mm"', 'columnWidths="50mm -1 50mm"');
+      const result = parseXdp(raw);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      const table = result.data.children.find(
+        (n) => n.type === 'subform' && n.name === 'Table'
+      );
+      expect(table?.type).toBe('subform');
+      if (table?.type === 'subform') {
+        expect(table.columnWidths).toHaveLength(3);
+        expect(table.columnWidths![0]).toBeCloseTo(141.73, 0);
+        expect(table.columnWidths![1]).toBe(-1);
+        expect(table.columnWidths![2]).toBeCloseTo(141.73, 0);
+      }
+    });
   });
 
   describe('borders', () => {

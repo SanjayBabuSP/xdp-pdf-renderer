@@ -1,6 +1,7 @@
 import { LayoutNode, SubformNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent } from './sizing';
+import { calculateTableLayout } from './calculate-table-layout';
 
 // ─── Table engine (table / row / rl-row) ──────────────────────────────────
 // evidence: layout enums 0x1b0004 (table) select XFATableLayout, row/rl-row
@@ -63,20 +64,6 @@ function layoutRow(
   };
 }
 
-/** Column count = max sum of colSpans across rows (colSpan-aware occupancy). */
-function countColumns(children: LayoutNode[]): number {
-  let max = 0;
-  for (const child of children) {
-    if (!isRow(child)) continue;
-    let sum = 0;
-    for (const cell of (child as SubformNode).children) {
-      sum += cellColSpan(cell);
-    }
-    if (sum > max) max = sum;
-  }
-  return Math.max(max, 1);
-}
-
 /**
  * Table: non-row children stack vertically (tb), row children become rows of
  * cells laid out left-to-right with colSpan occupancy.
@@ -94,11 +81,10 @@ export function layoutTableSubform(
   const contentW = Math.max(width - mLeft - mRight, 0);
   const baseX = ctx.x + mLeft;
   const baseY = ctx.y + mTop;
-  let colWidths = node.columnWidths && node.columnWidths.length > 0 ? node.columnWidths : [];
-  if (colWidths.length === 0) {
-    const colCount = countColumns(node.children);
-    if (colCount > 0) colWidths = Array(colCount).fill(contentW / colCount);
-  }
+  // Single source of truth for column widths (attr + cell-driven auto slots);
+  // applyTableLayouts stamps the same values earlier, recomputing here is
+  // idempotent and covers direct engine use.
+  const colWidths = calculateTableLayout(node, contentW).columnWidths;
   const children: LayoutNode[] = [];
   let yOffset = 0;
 

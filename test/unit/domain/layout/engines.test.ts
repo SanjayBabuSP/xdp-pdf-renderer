@@ -113,6 +113,48 @@ describe('layout engines (dispatcher)', () => {
     expect(tbl.position!.h).toBe(20);
   });
 
+  it('table without columnWidths infers columns from authored cell widths', () => {
+    // evidence: auto slots take max cell width (xfalayout_disasm.c:96505).
+    const out = run([
+      subform('tbl', 'table', { x: 0, y: 0 }, [
+        subform('r1', 'row', { y: 0 }, [field('a', { h: 20, w: 100 }), field('b', { h: 20, w: 200 })]),
+      ]),
+    ]);
+    const row = (out[0] as SubformNode).children[0] as SubformNode;
+    expect(row.children[0].position!.x).toBe(54);
+    expect(row.children[0].position!.w).toBe(100);
+    expect(row.children[1].position!.x).toBe(154);
+    expect(row.children[1].position!.w).toBe(200);
+  });
+
+  it('table auto column takes the max cell width across rows', () => {
+    const out = run([
+      subform('tbl', 'table', { x: 0, y: 0 }, [
+        subform('r1', 'row', { y: 0 }, [field('a', { h: 20, w: 80 }), field('b', { h: 20, w: 120 })]),
+        subform('r2', 'row', { y: 0 }, [field('c', { h: 20, w: 150 }), field('d', { h: 20, w: 90 })]),
+      ]),
+    ]);
+    const rows = (out[0] as SubformNode).children as SubformNode[];
+    // col0 = max(80, 150) = 150, col1 = max(120, 90) = 120: columns align
+    // across rows while cells keep their authored widths.
+    expect(rows[0].children[1].position!.x).toBe(54 + 150);
+    expect(rows[1].children[1].position!.x).toBe(54 + 150);
+    expect(rows[0].children[0].position!.w).toBe(80);
+    expect(rows[1].children[0].position!.w).toBe(150);
+  });
+
+  it('table spanned auto cell contributes width/span per slot', () => {
+    const spanned = field('wide', { h: 20, w: 200 });
+    spanned.colSpan = 2;
+    const out = run([
+      subform('tbl', 'table', { x: 0, y: 0 }, [
+        { ...subform('r1', 'row', { y: 0 }, [spanned]) } as SubformNode,
+      ]),
+    ]);
+    const row = (out[0] as SubformNode).children[0] as SubformNode;
+    expect(row.children[0].position!.w).toBe(200);
+  });
+
   it('sizes a leaf field from content when h is absent (1.2× line)', () => {
     const out = run([field('a', { x: 0, y: 0, w: 100 })]);
     expect(out[0].position!.h).toBeCloseTo(12, 5);

@@ -9,6 +9,15 @@
  * Writes assets/fonts/adobe/manifest.json, which FontManager loads at render time
  * (font-registry.ts). Nothing is bundled in the package — the fonts stay on your
  * machine because they are licensed with Designer.
+ *
+ * Coverage notes (ADS parity brief §5.4):
+ * - Designer ships Myriad/Minion/Kozuka/CJK faces — this import covers them
+ *   (requests match spaceless: `MyriadPro` == `Myriad Pro`).
+ * - Designer does NOT ship Microsoft faces (Arial, Arial Narrow, Calibri,
+ *   Segoe UI, Times/Courier New): those resolve via base-14 aliases in
+ *   standard-fonts.ts (Arial Narrow additionally condensed ×0.82), NOT via
+ *   this import. To use licensed copies instead, drop the .ttf files into a
+ *   directory and pass it via RenderOptions.fontDirs (or default-fonts.json).
  */
 import fs from 'node:fs';
 import path from 'node:path';

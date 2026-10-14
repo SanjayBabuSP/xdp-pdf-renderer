@@ -47,7 +47,11 @@ export function manifestPath(dir: string = adobeFontDir()): string {
 }
 
 export function familyKey(family: string): string {
-  return family.trim().toLowerCase();
+  // Spaceless match: XDP authors write both `Myriad Pro` and `MyriadPro`
+  // (ditto Minion, Courier Std, …) for the same face, and the manifest
+  // carries both spellings as duplicate keys — collapse whitespace so either
+  // request resolves to an embedded face instead of the DejaVu fallback.
+  return family.trim().toLowerCase().replace(/[\s_]+/g, '');
 }
 
 /**
@@ -64,10 +68,16 @@ export function loadManifest(dir: string = adobeFontDir()): FontManifest | null 
     };
     const fonts: Record<string, FontVariant[]> = {};
     for (const [key, variants] of Object.entries(raw.fonts ?? {})) {
-      fonts[key] = variants.map((variant) => ({
-        ...variant,
-        file: path.isAbsolute(variant.file) ? variant.file : path.join(dir, variant.file),
-      }));
+      // Collapse spaced/PostScript duplicate keys (`myriad pro` +
+      // `myriadpro-regular` → `myriadpro…`) so spaceless lookups hit.
+      const norm = familyKey(key);
+      const list = (fonts[norm] ??= []);
+      for (const variant of variants ?? []) {
+        const file = path.isAbsolute(variant.file)
+          ? variant.file
+          : path.join(dir, variant.file);
+        if (!list.some((v) => v.file === file)) list.push({ ...variant, file });
+      }
     }
     return { fonts, source: raw.source ?? dir };
   } catch {

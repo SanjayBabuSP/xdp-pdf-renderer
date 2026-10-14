@@ -3,6 +3,7 @@
 // Implements the <fontInfo><seq> mechanism from Adobe XDC/XCI files
 // ────────────────────────────────────────────────────────────────────────────
 
+import { familyKey } from '../rendering/font-registry';
 export interface FontSequenceRule {
   /** The font family name to match */
   fromFamily: string;
@@ -154,14 +155,16 @@ export function resolveFontSequence(
 
   if (!rule) return family;
 
-  // Try each font in the sequence
+  // Try each font in the sequence (spaceless match: manifest keys are
+  // normalized, so `Adobe Song Std L` also matches `adobesongstdl`).
   for (const candidate of rule.sequence) {
     if (availableFonts.has(candidate)) {
       return candidate;
     }
-    // Case-insensitive check
+    // Case- and space-insensitive check
+    const normCandidate = familyKey(candidate);
     for (const available of availableFonts) {
-      if (available.toLowerCase() === candidate.toLowerCase()) {
+      if (familyKey(available) === normCandidate) {
         return available;
       }
     }

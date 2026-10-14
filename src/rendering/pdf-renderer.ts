@@ -18,6 +18,7 @@ import {
   moveTo,
   lineTo,
   setFillingRgbColor,
+  setFillingGrayscaleColor,
   setStrokingRgbColor,
   setLineWidth,
   setLineCap,
@@ -242,17 +243,9 @@ function drawBorderBox(
       const r = clampCornerRadius(border.cornerRadius, w, h);
       fillRoundedRectangle(pdfPage, pos.x, y, w, h, r, fill.color);
     } else {
-      // `borderWidth` is emitted as `0 w` regardless (pdf-lib always writes it),
-      // but this path fills only — no stroke. Passing an explicit 0 documents
-      // that the operator is inert rather than an accidental hairline.
-      pdfPage.drawRectangle({
-        x: pos.x,
-        y,
-        width: w,
-        height: h,
-        color: toPdfColor(fill.color),
-        borderWidth: 0,
-      });
+      // Solid fill as one `re` + `f` (no stroke operator at all — the old
+      // drawRectangle path emitted an inert `0 w` per fill).
+      fillUniformRect(pdfPage, fill.color, pos.x, y, w, h);
     }
     endOpacityScope(pdfPage, started);
   }
@@ -346,6 +339,27 @@ function strokeRoundedRectangle(
   endOpacityScope(pdfPage, started);
 }
 
+/** Fill an axis-aligned box as one `re` + `f`, preserving gray collapse. */
+function fillUniformRect(
+  pdfPage: PDFPage,
+  color: RgbColor,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
+  const paint = isGray(color)
+    ? setFillingGrayscaleColor(grayLevel(color))
+    : setFillingRgbColor(color.r / 255, color.g / 255, color.b / 255);
+  pdfPage.pushOperators(
+    pushGraphicsState(),
+    paint,
+    rectangle(x, y, w, h),
+    fillPath(),
+    popGraphicsState()
+  );
+}
+
 /** Draw only the border edges (not fill). Used when fill is drawn separately before children. */
 function drawBorderEdges(
   pdfPage: PDFPage,
@@ -363,6 +377,15 @@ function drawBorderEdges(
 
   const edges = border.edges ?? [];
   if (edges.length === 0) return;
+
+  // Uniform axis-aligned borders stroke a single `re` rect (ADS emits re/S,
+  // not four m/l segments). Rounded corners are handled upstream by
+  // strokeRoundedRectangle; genuinely per-edge borders keep the legacy path.
+  const uniform = uniformEdgeOf(edges);
+  if (uniform && !(border.cornerRadius && border.cornerRadius > 0)) {
+    strokeUniformRect(pdfPage, uniform, pos.x, y, w, h);
+    return;
+  }
   const [top, right, bottom, left] =
     edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
 
@@ -409,6 +432,39 @@ function drawEdge(
 
   const started = beginOpacityScope(pdfPage, { stroke: edge.opacity });
   pdfPage.drawLine(lineOptions);
+  endOpacityScope(pdfPage, started);
+}
+
+/**
+ * Stroke an axis-aligned uniform border as one `re` rect in a single
+ * graphics-state block (instead of four m/l segments with four state
+ * blocks). Dash, cap and join ride on the same operators ADS emits.
+ */
+function strokeUniformRect(
+  pdfPage: PDFPage,
+  edge: EdgeSpec,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
+  if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
+  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  if (thickness <= 0) return;
+  const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
+
+  const started = beginOpacityScope(pdfPage, { stroke: edge.opacity });
+  pdfPage.pushOperators(
+    pushGraphicsState(),
+    setStrokingRgbColor(red / 255, green / 255, blue / 255),
+    setLineWidth(thickness),
+    setLineCap(xfaCapToPdf(edge.cap)),
+    setLineJoin(xfaJoinToPdf(edge.join)),
+    setDashPattern(dashArrayForStyle(edge.style, thickness) ?? [], 0),
+    rectangle(x, y, w, h),
+    strokePath(),
+    popGraphicsState()
+  );
   endOpacityScope(pdfPage, started);
 }
 
@@ -634,7 +690,9 @@ async function renderField(
       // Box swap: wrap along the reading axis (box height), anchor with the
       // cross-axis offset preserving the caption reserve strip.
       const valueBox = { x: x + reserve, y, w: valueAreaWidth, h: innerHeight };
-      const lines = wrapText(valueText, fontSize, innerHeight, valueFont);
+      const lines = wrapText(valueText, fontSize, innerHeight, valueFont, {
+        horizontalScale: valueScale,
+      });
       const advance = pm.lineAdvance;
       const ascent = fontAscent(valueFont, fontSize);
       const descent = fontDescent(valueFont, fontSize);
@@ -903,7 +961,7 @@ async function renderDraw(
 
     if (isVerticalRotation(rotate)) {
       // Box swap: wrap along the box height, anchor via rotation remap
-      const lines = wrapText(text, fontSize, height, font);
+      const lines = wrapText(text, fontSize, height, font, { horizontalScale: drawScale });
       const advance = pm.lineAdvance;
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font, drawScale)),
@@ -922,14 +980,19 @@ async function renderDraw(
       });
       if (anchor) {
         if (lines.length > 1) pdfPage.setLineHeight(advance);
-        pdfPage.drawText(lines.join('\n'), {
-          x: anchor.x,
-          y: anchor.y,
-          size: fontSize,
-          font,
-          color: fontColor,
-          rotate: rotation,
-        });
+        drawScaledText(
+          pdfPage,
+          lines.join('\n'),
+          {
+            x: anchor.x,
+            y: anchor.y,
+            size: fontSize,
+            font,
+            color: fontColor,
+            rotate: rotation,
+          },
+          drawScale
+        );
       }
       return;
     }
@@ -969,15 +1032,20 @@ async function renderDraw(
       // paragraph, so draw each paragraph start with the same shift.
       const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
       const lineAvail = Math.max(textW - indent, 0);
-      const lineWidth = measureTextWidth(line, fontSize, font);
-      pdfPage.drawText(line, {
-        x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
-        y: lineY,
-        size: fontSize,
-        font,
-        color: fontColor,
-        rotate: rotation,
-      });
+      const lineWidth = measureTextWidth(line, fontSize, font, drawScale);
+      drawScaledText(
+        pdfPage,
+        line,
+        {
+          x: textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth),
+          y: lineY,
+          size: fontSize,
+          font,
+          color: fontColor,
+          rotate: rotation,
+        },
+        drawScale
+      );
     }
     endOverflowClip(pdfPage, clipped);
   }
@@ -1175,13 +1243,18 @@ async function renderRichText(
       textX + lines[i].indent + horizontalOffsetX(justH, lineAvail, lines[i].width);
     for (const segment of lines[i].segments) {
       const run = styled[segment.run];
-      pdfPage.drawText(segment.text, {
-        x: lineOriginX + segment.x,
-        y: lineY,
-        size: run.size,
-        font: run.font,
-        color: run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color),
-      });
+      drawScaledText(
+        pdfPage,
+        segment.text,
+        {
+          x: lineOriginX + segment.x,
+          y: lineY,
+          size: run.size,
+          font: run.font,
+          color: run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color),
+        },
+        richScale
+      );
     }
   }
   endOverflowClip(pdfPage, clipped);
@@ -1346,11 +1419,17 @@ function wrapText(
   fontSize: number,
   maxWidth: number,
   font?: PDFFont,
-  opts: { firstLineIndent?: number } = {}
+  opts: { firstLineIndent?: number; horizontalScale?: number } = {}
 ): string[] {
   if (!text) return [text];
   if (maxWidth <= 0) return text.split(/\r\n|\r|\n/);
-  return breakLines(text, maxWidth, (s) => measureTextWidth(s, fontSize, font), opts);
+  // ponytail: wrap must measure with the same condensed scale the draw path
+  // applies (Tz), or condensed families wrap at full width and overflow their
+  // own box with extra lines. Callers computing alignment/draw must pass the
+  // identical scale (see measureTextWidth doc).
+  const measure = (s: string): number =>
+    measureTextWidth(s, fontSize, font, opts.horizontalScale);
+  return breakLines(text, maxWidth, measure, { firstLineIndent: opts.firstLineIndent });
 }
 
 /**

@@ -115,6 +115,31 @@ describe('rendering a condensed face', () => {
     expect(content).not.toMatch(/ Tz(\n|$)/);
   });
 
+  it('emits a horizontal scaling operator for Arial Narrow static draws too', async () => {
+    const drawXdp = `<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb">
+      <pageSet><pageArea name="Page1" id="Page1">
+        <contentArea x="36" y="36" w="523" h="769"/>
+        <medium stock="a4" short="595.276pt" long="841.89pt"/>
+      </pageArea></pageSet>
+      <draw name="d" x="10" y="10" w="200pt" h="16pt">
+        <value><text>Arial Narrow static text</text></value>
+        <font typeface="Arial Narrow" size="10pt"/>
+      </draw>
+    </subform>
+  </template>
+</xdp:xdp>`;
+    const result = await renderFormToPdf(drawXdp, XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    expect(content).toMatch(/(^|\n)82 Tz(\n|$)/);
+    expect(content).toMatch(/(^|\n)100 Tz(\n|$)/);
+  });
+
   it('wraps Arial Narrow text into fewer lines than full-width Arial in the same box', async () => {
     const longData = `<?xml version="1.0" encoding="UTF-8"?><value><v>${'Arial Narrow sample text '.repeat(
       6

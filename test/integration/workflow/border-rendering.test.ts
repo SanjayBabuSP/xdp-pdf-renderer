@@ -137,4 +137,73 @@ describe('border rendering parity', () => {
     expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
     expect(content).toContain('0 0 0 RG');
   });
+
+  it('strokes a uniform axis-aligned border as one re rect, not four segments', async () => {
+    const rect = `        <draw name="box" x="20pt" y="20pt" w="120pt" h="60pt">
+          <value>
+            <rectangle>
+              <border>
+                <edge stroke="solid" thickness="1pt">
+                  <color value="0,0,0"/>
+                </edge>
+              </border>
+            </rectangle>
+          </value>
+        </draw>`;
+    const result = await renderFormToPdf(xdp(rect), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    // single `re` + S with one width operator …
+    expect(content).toMatch(/[\d.]+ [\d.]+ [\d.]+ [\d.]+ re(\n|$)/);
+    expect(content).toMatch(/(^|\n)S(\n|$)/);
+    // … and no line-segment path for this border
+    expect(content).not.toMatch(/ m(\n|$)/);
+  });
+
+  it('keeps per-edge borders on the segment path when edges differ', async () => {    const mixed = `        <draw name="box" x="20pt" y="20pt" w="120pt" h="60pt">
+          <value>
+            <rectangle>
+              <border>
+                <edge stroke="solid" thickness="1pt">
+                  <color value="255,0,0"/>
+                </edge>
+                <edge stroke="solid" thickness="3pt">
+                  <color value="0,0,255"/>
+                </edge>
+              </border>
+            </rectangle>
+          </value>
+        </draw>`;
+    const result = await renderFormToPdf(xdp(mixed), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    expect(content).toMatch(/ m(\n|$)/);
+    expect(content).toContain('1 0 0 RG');
+    expect(content).toContain('0 0 1 RG');
+  });
+
+  it('fills a solid box as one re+f with no stroke operator', async () => {
+    const filled = `        <draw name="box" x="20pt" y="20pt" w="120pt" h="60pt">
+          <value>
+            <rectangle>
+              <border>
+                <fill><color value="12,200,90"/></fill>
+              </border>
+            </rectangle>
+          </value>
+        </draw>`;
+    const result = await renderFormToPdf(xdp(filled), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error.message);
+
+    const content = await contentStream(result.data);
+    expect(content).toMatch(/[\d.]+ [\d.]+ [\d.]+ [\d.]+ re(\n|$)/);
+    expect(content).toMatch(/(^|\n)f(\n|$)/);
+    // no inert zero-width stroke from the fill path
+    expect(content).not.toMatch(/(^|\n)0 w(\n|$)/);
+  });
 });
