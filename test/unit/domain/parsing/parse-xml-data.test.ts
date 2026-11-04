@@ -65,6 +65,19 @@ describe('parse-xml-data', () => {
     expect((result.data.item as unknown[]).length).toBe(2);
   });
 
+  it('normalizes empty complex elements to null', () => {
+    const xml = '<value><selection /></value>';
+    const complexSchema: SchemaModel = {
+      rootElement: 'value',
+      schemaAttributes: {},
+      fields: { selection: { type: 'complex', required: false, fields: {} } },
+    };
+    const result = parseXmlData(xml, complexSchema);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.selection).toBeNull();
+  });
+
   it('returns failure for malformed XML', () => {
     const result = parseXmlData('< broken xml', schema);
     expect(result.success).toBe(false);

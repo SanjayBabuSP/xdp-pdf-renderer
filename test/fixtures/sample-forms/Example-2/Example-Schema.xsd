@@ -1,0 +1,157 @@
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="value">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Element_2646">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element type="xs:int" name="LeadID"/>
+              <xs:element type="xs:string" name="Field_0095"/>
+              <xs:element type="xs:int" name="Element_2674"/>
+              <xs:element type="xs:string" name="Field_0105"/>
+              <xs:element type="xs:string" name="Subform_0051"/>
+              <xs:element type="xs:string" name="Field_0113"/>
+              <xs:element type="xs:short" name="Element_2651"/>
+              <xs:element type="xs:string" name="Field_0002"/>
+              <xs:element type="xs:string" name="Element_2653"/>
+              <xs:element type="xs:byte" name="Element_2675"/>
+              <xs:element type="xs:date" name="Field_0110"/>
+              <xs:element type="xs:date" name="Element_2657"/>
+              <xs:element type="xs:string" name="Element_2676"/>
+              <xs:element type="xs:string" name="Element_1796"/>
+              <xs:element type="xs:string" name="Element_2677"/>
+              <xs:element type="xs:string" name="Field_0150" maxOccurs="unbounded" minOccurs="0"/>
+              <xs:element type="xs:string" name="Field_0149" maxOccurs="unbounded" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2662" maxOccurs="unbounded" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2665"/>
+              <xs:element type="xs:string" name="Element_2666"/>
+              <xs:element type="xs:string" name="ID"/>
+              <xs:element type="xs:byte" name="Field_0182"/>
+              <xs:element type="xs:string" name="Element_2678"/>
+              <xs:element type="xs:string" name="Element_2679"/>
+              <xs:element type="xs:string" name="LeadName"/>
+              <xs:element type="xs:string" name="Element_2680"/>
+              <xs:element type="xs:string" name="Element_2681"/>
+              <xs:element type="xs:string" name="Element_2682"/>
+              <xs:element type="xs:string" name="Element_2683"/>
+              <xs:element type="xs:string" name="Element_2684"/>
+              <xs:element type="xs:string" name="Element_2685"/>
+              <xs:element type="xs:string" name="Field_0163"/>
+              <xs:element type="xs:string" name="Field_0164"/>
+              <xs:element type="xs:string" name="Element_2686"/>
+              <xs:element type="xs:int" name="Element_1798"/>
+              <xs:element type="xs:string" name="Element_1923"/>
+              <xs:element type="xs:string" name="Element_2687"/>
+              <xs:element type="xs:string" name="LeadURL"/>
+              <xs:element type="xs:string" name="Element_1919"/>
+			  <xs:element type="xs:string" name="Element_2655"/>
+              <xs:element type="xs:string" name="Element_0548"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element type="xs:string" name="Element_2688"/>
+        <xs:element type="xs:string" name="outputCurrency"/>
+        <xs:element type="xs:string" name="Element_2652"/>
+        <xs:element type="xs:string" name="Element_2654"/>
+        <xs:element name="Element_2659" maxOccurs="unbounded" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="Element_2660" maxOccurs="unbounded" minOccurs="0">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element type="xs:string" name="Element_2658"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element type="xs:string" name="Element_2658" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2661" minOccurs="0"/>
+              <xs:element type="xs:string" name="ID" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2689" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2690" minOccurs="0"/>
+              <xs:element type="xs:byte" name="Element_2691" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2692" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2693" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_0548" minOccurs="0"/>
+              <xs:element type="xs:string" name="Element_2662" maxOccurs="unbounded" minOccurs="0"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="Element_2694" maxOccurs="unbounded" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element type="xs:string" name="Element_2658"/>
+              <xs:element type="xs:string" name="Element_2661"/>
+              <xs:element type="xs:string" name="ID"/>
+              <xs:element type="xs:string" name="Element_2689"/>
+              <xs:element type="xs:string" name="Element_2690"/>
+              <xs:element type="xs:byte" name="Element_2691"/>
+              <xs:element type="xs:string" name="Element_2692"/>
+              <xs:element type="xs:string" name="Element_2693"/>
+              <xs:element type="xs:string" name="Element_0548"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element type="xs:byte" name="Field_0151"/>
+        <xs:element type="xs:byte" name="Field_0152"/>
+        <xs:element type="xs:byte" name="Field_0153"/>
+        <xs:element type="xs:byte" name="Field_0154"/>
+        <xs:element type="xs:byte" name="Field_0155"/>
+        <xs:element type="xs:byte" name="Field_0156"/>
+        <xs:element type="xs:byte" name="Field_0157"/>
+        <xs:element type="xs:byte" name="Field_0158"/>
+        <xs:element type="xs:byte" name="Element_2664"/>
+        <xs:element type="xs:string" name="Element_2668"/>
+        <xs:element type="xs:string" name="Element_2669"/>
+        <xs:element type="xs:string" name="Element_2670"/>
+        <xs:element type="xs:string" name="Element_2671"/>
+        <xs:element type="xs:float" name="Element_2656"/>
+        <xs:element type="xs:string" name="Element_2667"/>
+        <xs:element type="xs:string" name="Element_2695"/>
+        <xs:element type="xs:string" name="Element_2696"/>
+        <xs:element name="Element_2663" maxOccurs="unbounded" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element type="xs:byte" name="Element_2697"/>
+              <xs:element type="xs:string" name="Field_0100"/>
+              <xs:element type="xs:string" name="Element_2662"/>
+              <xs:element type="xs:string" name="Field_0147" maxOccurs="unbounded" minOccurs="0"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element type="xs:byte" name="Field_0116"/>
+        <xs:element type="xs:byte" name="Field_0118"/>
+        <xs:element type="xs:int" name="Field_0117"/>
+        <xs:element type="xs:int" name="Field_0122"/>
+        <xs:element type="xs:byte" name="Field_0121"/>
+        <xs:element type="xs:byte" name="Field_0123"/>
+        <xs:element type="xs:byte" name="Field_0125"/>
+        <xs:element type="xs:byte" name="Field_0128"/>
+        <xs:element type="xs:byte" name="Field_0130"/>
+        <xs:element type="xs:byte" name="Field_0132"/>
+        <xs:element type="xs:byte" name="Field_0127"/>
+        <xs:element type="xs:int" name="Field_0126"/>
+        <xs:element type="xs:int" name="Field_0129"/>
+        <xs:element type="xs:int" name="Field_0131"/>
+        <xs:element type="xs:float" name="Field_0133"/>
+        <xs:element type="xs:byte" name="Field_0137"/>
+		<xs:element type="xs:byte" name="Field_0134"/>
+		<xs:element type="xs:short" name="Field_0135"/>
+        <xs:element type="xs:byte" name="Field_0139"/>
+        <xs:element type="xs:byte" name="Field_0138"/>
+        <xs:element type="xs:string" name="Element_2648"/>
+        <xs:element type="xs:string" name="Element_2647"/>
+        <xs:element type="xs:string" name="Element_2650"/>
+        <xs:element type="xs:string" name="Element_2649"/>
+        <xs:element name="Element_2673" maxOccurs="unbounded" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element type="xs:byte" name="Element_2672"/>
+              <xs:element type="xs:date" name="date"/>
+              <xs:element type="xs:string" name="description"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

@@ -131,8 +131,8 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
       const text = extractText(stream);
 
       expect(text).toContain('Machine location (white)');
-      expect(text).toContain('Hamburg');
-      expect(text.filter((t) => t === 'Hamburg')).toHaveLength(2); // white + density row
+      expect(text).toContain('Newtown');
+      expect(text.filter((t) => t === 'Newtown')).toHaveLength(2); // white + density row
       expect(text).not.toContain('Machine location (black)');
 
       // No opaque full-cell black fill anywhere over the value area.
@@ -144,12 +144,12 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
     it('selects the else branch for an empty sibling and shows the OEM data value', () => {
       const { layout, errors } = runPreLayout('synthetic.xml');
       expect(errors).toEqual([]);
-      expect(findField(layout, 'oemDisplay')?.resolvedValue).toBe('ITT Bornemann GmbH');
+      expect(findField(layout, 'oemDisplay')?.resolvedValue).toBe('Example Pumps GmbH');
     });
 
     it('renders the script-derived value', async () => {
       const text = extractText(await contentStream(await render('synthetic.xml')));
-      expect(text).toContain('ITT Bornemann GmbH');
+      expect(text).toContain('Example Pumps GmbH');
     });
   });
 
@@ -203,7 +203,7 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
   describe('Issue 5 — header logo subtitle', () => {
     it('renders on page 1', async () => {
       const text = extractText(await contentStream(await render('synthetic.xml'), 0));
-      expect(text).toContain('a member of EKK and FREUDENBERG');
+      expect(text).toContain('a member of ABC and EXAMPLECORP');
     });
   });
 });

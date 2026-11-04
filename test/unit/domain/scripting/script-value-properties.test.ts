@@ -56,12 +56,12 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
   it('assigns to the scripting object', () => {
     const layout = fieldNode('oem');
     const self = scriptable('content.oem', layout);
-    expect(run('$.rawValue = "ITT Bornemann GmbH"', self, [], {})).toBe(
-      'ITT Bornemann GmbH'
+    expect(run('$.rawValue = "Example Pumps GmbH"', self, [], {})).toBe(
+      'Example Pumps GmbH'
     );
-    expect(self.resolvedValue).toBe('ITT Bornemann GmbH');
+    expect(self.resolvedValue).toBe('Example Pumps GmbH');
     // Writes mirror straight through to the layout node the renderer reads.
-    expect(layout.resolvedValue).toBe('ITT Bornemann GmbH');
+    expect(layout.resolvedValue).toBe('Example Pumps GmbH');
   });
 
   it('assigns presence to the scripting object', () => {
@@ -79,9 +79,9 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
       '$.rawValue = OEM.formattedValue',
       self,
       [],
-      { OEM: 'ITT Bornemann GmbH' }
+      { OEM: 'Example Pumps GmbH' }
     );
-    expect(out).toBe('ITT Bornemann GmbH');
+    expect(out).toBe('Example Pumps GmbH');
   });
 
   it('reads a sibling template node by bare name', () => {
@@ -105,9 +105,9 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
       ].join('\n'),
       self,
       [],
-      { OEMDescription: '', OEM: 'ITT Bornemann GmbH' }
+      { OEMDescription: '', OEM: 'Example Pumps GmbH' }
     );
-    expect(out).toBe('ITT Bornemann GmbH');
+    expect(out).toBe('Example Pumps GmbH');
   });
 
   it('takes the then branch when the sibling has a value', () => {
@@ -122,7 +122,7 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
       ].join('\n'),
       self,
       [],
-      { OEMDescription: 'DESC', OEM: 'ITT Bornemann GmbH' }
+      { OEMDescription: 'DESC', OEM: 'Example Pumps GmbH' }
     );
     expect(out).toBe('DESC');
   });

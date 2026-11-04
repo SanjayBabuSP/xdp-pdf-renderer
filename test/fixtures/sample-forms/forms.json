@@ -1,0 +1,46 @@
+{
+  "forms": [
+    {
+      "name": "DGS",
+      "xdp": "DGS/DGS_Datasheet.xdp",
+      "xsd": "DGS/DGS_schema.xsd",
+      "data": "DGS/DGS.xml",
+      "expectedPages": 2,
+      "minDataValuesShown": 15
+    },
+    {
+      "name": "IPQT_CoverLetter_EN",
+      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_EN.xdp",
+      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
+      "data": "IPQT/IPQT_CoverLetter.xml",
+      "expectedPages": 5,
+      "minDataValuesShown": 18
+    },
+    {
+      "name": "IPQT_CoverLetter_CN",
+      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_CN.xdp",
+      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
+      "data": "IPQT/IPQT_CoverLetter.xml",
+      "expectedPages": 5,
+      "minDataValuesShown": 18
+    },
+    {
+      "name": "IPQT_CoverLetter_ESP",
+      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_ESP.xdp",
+      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
+      "data": "IPQT/IPQT_CoverLetter.xml",
+      "expectedPages": 5,
+      "minDataValuesShown": 18,
+      "knownIssue": "XML_1004, parser rejects a renderCache.subset processing instruction containing a double quote; the original form fails too"
+    },
+    {
+      "name": "MechanicalSeal",
+      "xdp": "MechanicalSeal/MechanicalSeal_Datasheet.xdp",
+      "xsd": "MechanicalSeal/MechanicalSeal_schema.xsd",
+      "data": "MechanicalSeal/MechanicalSeal.xml",
+      "expectedPages": 2,
+      "minDataValuesShown": 30
+    }
+  ],
+  "schemasOnly": ["IPQT/IPQT_Overview_schema.xsd"]
+}

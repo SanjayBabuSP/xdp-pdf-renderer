@@ -37,7 +37,7 @@
 
       <!-- Issue 5: header logo subtitle (text draw on the master page area). -->
       <draw name="logoSubtitle" id="logoSubtitle" x="19.05mm" y="19.05mm" w="90mm" h="5mm">
-        <value><text>a member of EKK and FREUDENBERG</text></value>
+        <value><text>a member of ABC and EXAMPLECORP</text></value>
         <font typeface="Helvetica" size="6pt"/>
       </draw>
 

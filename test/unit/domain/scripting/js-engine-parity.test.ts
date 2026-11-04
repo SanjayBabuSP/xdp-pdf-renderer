@@ -42,7 +42,7 @@ function exec(
 }
 
 describe('JavaScript engine — Adobe LiveCycle script semantics', () => {
-  const data = { IsPreview: 'true', OEM: 'ITT Bornemann GmbH' };
+  const data = { IsPreview: 'true', OEM: 'Example Pumps GmbH' };
 
   it('binds `this` to the scripting object', () => {
     const layout: FieldNode = { type: 'field', name: 'subject' };

@@ -7,6 +7,13 @@
   "bin": {
     "xdp-pdf": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "assets/fonts/*.ttf",
+    "assets/fonts/LICENSE-DejaVu.txt",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -17,6 +24,8 @@
     "verify": "npm run build && node scripts/verify-pdf.mjs",
     "fonts:import": "node scripts/import-adobe-fonts.mjs",
     "locales:import": "node scripts/import-xfa-locale.mjs",
+    "sanitize:forms": "node scripts/sanitize-forms.mjs",
+    "sample-forms": "npm run build && node scripts/render-sample-forms.mjs",
     "format": "prettier --write src/ test/",
     "prepublishOnly": "npm run build"
   },

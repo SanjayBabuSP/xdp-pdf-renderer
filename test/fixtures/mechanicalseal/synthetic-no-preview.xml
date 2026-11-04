@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MechanicalSeal>
-  <OEM>ITT Bornemann GmbH</OEM>
+  <OEM>Example Pumps GmbH</OEM>
   <OEMDescription/>
-  <MachineLocation>Hamburg</MachineLocation>
+  <MachineLocation>Newtown</MachineLocation>
   <MachineLocationIsAssumption/>
   <DensityUnit>kg/m3</DensityUnit>
 </MechanicalSeal>

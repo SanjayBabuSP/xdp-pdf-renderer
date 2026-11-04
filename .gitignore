@@ -9,5 +9,8 @@ coverage/
 reference/
 **/.verify/
 
+# Local company forms — never commit. Sanitized copies live in test/fixtures/sample-forms
+test/final-test/
+.agents/
 # Locally imported Adobe fonts (npm run fonts:import) — licensed with Designer
 assets/fonts/adobe/

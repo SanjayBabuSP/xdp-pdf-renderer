@@ -98,7 +98,11 @@ XDP Template + XSD Schema + XML Data
 npm install
 npm run build
 npm test
+npm run sample-forms   # render the sanitized real-world forms into test/fixtures/sample-forms/results/
 ```
+
+The real-world test forms in [`test/fixtures/sample-forms`](test/fixtures/sample-forms/README.md)
+are sanitized copies of private forms; see their README for how they are produced.
 
 ## License
 
