@@ -1,4 +1,4 @@
-import { resolveExtent, clamp, isHeightGrowable, isWidthGrowable } from '../../../../src/domain/layout/sizing';
+import { resolveExtent, resolveSubformHeight, clamp, isHeightGrowable, isWidthGrowable } from '../../../../src/domain/layout/sizing';
 
 describe('layout/sizing', () => {
   describe('isHeightGrowable', () => {
@@ -55,6 +55,21 @@ describe('layout/sizing', () => {
       expect(resolveExtent({}, 'width', 487)).toBe(487);
       expect(resolveExtent({ maxW: 100 }, 'width', 487)).toBe(100);
       expect(resolveExtent({ w: 200 }, 'width', 487)).toBe(200);
+    });
+  });
+
+  describe('resolveSubformHeight', () => {
+    // Adobe sizes growable subforms to content; a lone minH does not reserve
+    // space (Example-1: minH boxes render at content height, not the floor).
+    it('ignores a lone minH on a growable subform', () => {
+      expect(resolveSubformHeight({ minH: 71.7 }, 34)).toBe(34);
+      expect(resolveSubformHeight(undefined, 42)).toBe(42);
+    });
+    it('honors explicit h and bounded [minH,maxH] ranges', () => {
+      expect(resolveSubformHeight({ h: 50 }, 100)).toBe(50);
+      expect(resolveSubformHeight({ minH: 60, maxH: 100 }, 42)).toBe(60);
+      expect(resolveSubformHeight({ minH: 10, maxH: 30 }, 42)).toBe(30);
+      expect(resolveSubformHeight({ maxH: 30 }, 42)).toBe(30);
     });
   });
 });

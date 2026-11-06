@@ -1,5 +1,7 @@
 import { applyPagination } from '../../../../src/domain/layout/apply-pagination';
-import { LayoutModel } from '../../../../src/types';
+import { applyTableLayouts } from '../../../../src/domain/layout/calculate-table-layout';
+import { calculatePositions } from '../../../../src/domain/layout/calculate-positions';
+import { LayoutModel, SubformNode } from '../../../../src/types';
 
 describe('applyPagination', () => {
   it('keeps table rows together when splitting pages', () => {
@@ -45,7 +47,16 @@ describe('applyPagination', () => {
       ],
     };
 
-    const result = applyPagination(layout, 25);
+    // Pagination runs on positioned content (the real pipeline order:
+    // table layout → positions → pagination); rows have no authored y.
+    const laidOut = applyTableLayouts(layout, layout.pages[0].contentArea.w);
+    expect(laidOut.success).toBe(true);
+    if (!laidOut.success) return;
+    const positioned = calculatePositions(laidOut.data);
+    expect(positioned.success).toBe(true);
+    if (!positioned.success) return;
+
+    const result = applyPagination(positioned.data, 25);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -53,8 +64,14 @@ describe('applyPagination', () => {
     expect(result.data.pages).toHaveLength(2);
     expect(result.data.pages[0].children).toHaveLength(1);
     expect(result.data.pages[1].children).toHaveLength(1);
-    expect(result.data.pages[0].children[0].type).toBe('subform');
-    expect((result.data.pages[0].children[0] as any).name).toBe('Row1');
-    expect((result.data.pages[1].children[0] as any).name).toBe('Row2');
+    // The table wrapper is fragmented per page; each fragment keeps exactly one
+    // whole row (rows are atomic units, never split across a page boundary).
+    const p0 = result.data.pages[0].children[0] as SubformNode;
+    const p1 = result.data.pages[1].children[0] as SubformNode;
+    expect(p0.type).toBe('subform');
+    expect(p0.name).toBe('RevisionHistoryTable');
+    expect(p1.name).toBe('RevisionHistoryTable');
+    expect(p0.children.map((c) => c.name)).toEqual(['Row1']);
+    expect(p1.children.map((c) => c.name)).toEqual(['Row2']);
   });
 });

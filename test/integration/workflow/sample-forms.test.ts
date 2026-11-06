@@ -2,7 +2,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PDFDocument, PDFDict, PDFName, PDFRawStream } from 'pdf-lib';
 import { render } from '../../../src';
+import { parseXdp } from '../../../src/domain/parsing/parse-xdp';
 import { parseXsd } from '../../../src/domain/parsing/parse-xsd';
+import { parseXmlData } from '../../../src/domain/parsing/parse-xml-data';
+import { resolveBindings } from '../../../src/domain/mapping/resolve-bindings';
+import { expandRepeats } from '../../../src/domain/mapping/expand-repeats';
+import { evaluateConditions } from '../../../src/domain/mapping/evaluate-conditions';
+import { resolveXfaEmbeds } from '../../../src/domain/mapping/resolve-embeds';
+import { applyTableLayouts } from '../../../src/domain/layout/calculate-table-layout';
+import { calculatePositions } from '../../../src/domain/layout/calculate-positions';
+import { applyPagination } from '../../../src/domain/layout/apply-pagination';
+import { dispatchScripts, dispatchPostLayoutScripts } from '../../../src/domain/scripting';
+import { LayoutNode, PaginatedLayout, Result } from '../../../src/types';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
 /**
@@ -88,16 +99,81 @@ describe.each(manifest.forms.filter((form) => !form.knownIssue))('sample form $n
   });
 });
 
-describe.each(manifest.forms.filter((form) => form.knownIssue))('sample form $name', (form) => {
-  // Passes while the known issue exists; starts failing once it is fixed, as a
-  // reminder to drop `knownIssue` from forms.json.
-  it.failing(`renders (known issue: ${form.knownIssue})`, async () => {
-    expect(await PDFDocument.load(await renderForm(form))).toBeDefined();
+describe('sample schemas', () => {
+  const schemas = manifest.schemasOnly;
+  (schemas.length > 0 ? it.each(schemas) : it.skip.each(['(none)']))('%s parses', (rel) => {
+    expect(parseXsd(read(rel)).success).toBe(true);
   });
 });
 
-describe('sample schemas', () => {
-  it.each(manifest.schemasOnly)('%s parses', (rel) => {
-    expect(parseXsd(read(rel)).success).toBe(true);
+// ── Geometry regression: no two field boxes may overlap ────────────────────
+// The real-world defects this guards: positioned fields stretching to the
+// container width (LeadTime blocks) and pagination unit-shifts growing a
+// fragmenting container so its next-page fragment collides with the following
+// sibling (paragraph lines). Both showed up as field↔field overlap here.
+
+function unwrap<T>(res: Result<T>, what: string): T {
+  if (!res.success) throw new Error(`${what} failed: ${JSON.stringify(res.error)}`);
+  return res.data;
+}
+
+function paginatedLayout(form: SampleForm): PaginatedLayout {
+  const layout = unwrap(parseXdp(read(form.xdp), { strict: true }), 'parseXdp');
+  const schema = unwrap(parseXsd(read(form.xsd)), 'parseXsd');
+  const data = unwrap(parseXmlData(read(form.data), schema), 'parseXmlData');
+  let tree = unwrap(resolveBindings(layout, data), 'resolveBindings');
+  tree = unwrap(expandRepeats(tree, data), 'expandRepeats');
+  const scripted = unwrap(
+    dispatchScripts(tree, data, { skipScripts: false, strictMode: true }),
+    'dispatchScripts'
+  );
+  resolveXfaEmbeds(scripted.layout);
+  let computed = unwrap(evaluateConditions(scripted.layout, data), 'evaluateConditions');
+  computed = unwrap(
+    applyTableLayouts(computed, computed.pages[0]?.contentArea.w ?? 487),
+    'applyTableLayouts'
+  );
+  computed = unwrap(calculatePositions(computed), 'calculatePositions');
+  const paginated = unwrap(applyPagination(computed, undefined), 'applyPagination');
+  return unwrap(
+    dispatchPostLayoutScripts(paginated, data, { skipScripts: false, strictMode: true }),
+    'dispatchPostLayoutScripts'
+  ).layout;
+}
+
+function leaves(nodes: LayoutNode[], out: LayoutNode[] = []): LayoutNode[] {
+  for (const n of nodes) {
+    if (n.type === 'subform' || n.type === 'exclGroup') leaves(n.children, out);
+    else out.push(n);
+  }
+  return out;
+}
+
+function overlapArea(a: LayoutNode, b: LayoutNode): number {
+  const pa = a.position;
+  const pb = b.position;
+  if (!pa || !pb) return 0;
+  const { x: ax = 0, y: ay = 0, w: aw = 0, h: ah = 0 } = pa;
+  const { x: bx = 0, y: by = 0, w: bw = 0, h: bh = 0 } = pb;
+  const ix = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
+  const iy = Math.min(ay + ah, by + bh) - Math.max(ay, by);
+  return Math.max(ix, 0) * Math.max(iy, 0);
+}
+
+describe.each(manifest.forms)('sample form geometry $name', (form) => {
+  it('has no overlapping field boxes on any page', () => {
+    const layout = paginatedLayout(form);
+    for (const page of layout.pages) {
+      const fields = leaves(page.children).filter((n) => n.type === 'field');
+      const collisions: string[] = [];
+      for (let i = 0; i < fields.length; i++) {
+        for (let j = i + 1; j < fields.length; j++) {
+          if (overlapArea(fields[i], fields[j]) > 1) {
+            collisions.push(`${fields[i].name} ↔ ${fields[j].name}`);
+          }
+        }
+      }
+      expect({ page: page.pageIndex, collisions }).toEqual({ page: page.pageIndex, collisions: [] });
+    }
   });
 });

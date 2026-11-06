@@ -58,10 +58,15 @@ function formatCompoundValue(value: unknown, pattern: string, locale?: string): 
   return pattern.replace(COMPOUND_RE, (_match, kind: string, body: string) => {
     const k = kind.toLowerCase();
     if (k === 'text') return formatTextTemplate(value, body);
-    const date = coerceDate(value);
+    // Picture-directed parse first so an already-formatted display value
+    // (e.g. script output "06-11-2026" for `date{DD-MM-YYYY}`) is not
+    // reinterpreted as US MM-DD-YYYY and day/month-swapped on reformat.
+    const effective = body || (k === 'time' ? 'h:MM:SS A' : 'M/D/YYYY');
+    const pictured = typeof value === 'string' ? parseDateByPicture(value, effective) : null;
+    const date = pictured ?? coerceDate(value);
     if (!date) return String(value);
-    if (k === 'time') return formatTimeBody(date, body || 'h:MM:SS A');
-    return formatDateBody(date, body || 'M/D/YYYY', locale);
+    if (k === 'time') return formatTimeBody(date, effective);
+    return formatDateBody(date, effective, locale);
   });
 }
 
@@ -116,9 +121,52 @@ function looksLikeDatePattern(pattern: string): boolean {
 }
 
 function formatDateValue(value: unknown, pattern: string, locale?: string): string {
-  const date = coerceDate(value);
+  // Picture-directed parse first: a value that already matches the picture
+  // (e.g. script output `Num2Date(Date(), "DD-MM-YYYY")` → "06-11-2026")
+  // must not be reinterpreted as US MM-DD-YYYY by coerceDate's `new Date`
+  // fallback (which would swap day/month on reformat). Falls back to
+  // coercion for ISO/raw values.
+  const pictured = typeof value === 'string' ? parseDateByPicture(value, pattern) : null;
+  const date = pictured ?? coerceDate(value);
   if (!date) return String(value);
   return formatDateBody(date, pattern, locale);
+}
+
+/**
+ * Parse a numeric date string using the picture's token order
+ * (`DD-MM-YYYY`, `M/D/YYYY`, …). Returns null unless exactly three numeric
+ * groups map to a plausible calendar date. Makes formatting idempotent for
+ * already-formatted display values.
+ */
+function parseDateByPicture(value: string, pattern: string): Date | null {
+  const tokens: Array<'d' | 'm' | 'y'> = [];
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i].toUpperCase();
+    if (ch === 'D' && tokens[tokens.length - 1] !== 'd') tokens.push('d');
+    else if (ch === 'M' && tokens[tokens.length - 1] !== 'm') {
+      // `M` after an hour token is minutes, not month (see formatDateBody).
+      tokens.push('m');
+    } else if (ch === 'Y' && tokens[tokens.length - 1] !== 'y') tokens.push('y');
+  }
+  if (tokens.length !== 3) return null;
+  // Time pictures (`h:MM`) must not be misread as dates.
+  if (/[hHkK]/.test(pattern.replace(/'[^']*'/g, '')) || /S\b/.test(pattern)) return null;
+  const groups = value.trim().split(/[^0-9]+/).filter(Boolean);
+  if (groups.length !== 3) return null;
+  const parts: Record<'d' | 'm' | 'y', number> = { d: 0, m: 0, y: 0 };
+  for (let i = 0; i < 3; i++) {
+    const v = parseInt(groups[i], 10);
+    if (!Number.isFinite(v)) return null;
+    parts[tokens[i]] = v;
+  }
+  let { y } = parts;
+  const m = parts.m;
+  const d = parts.d;
+  if (y < 100) y += y < 50 ? 2000 : 1900;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return dt;
 }
 
 /** Format a date with XFA date tokens (Y/M/D/E). Matching is case-insensitive. */

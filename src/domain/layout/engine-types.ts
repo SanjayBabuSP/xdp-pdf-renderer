@@ -12,10 +12,17 @@ import { LayoutNode } from '../../types';
 export interface LayoutContext {
   /** Absolute x of the content origin for this node (page-1 content space). */
   x: number;
-  /** Absolute y of the content origin for this node. */
+  /** Absolute y of the content origin for this node (page-1 content space). */
   y: number;
   /** Width available to the node's content box, in points. */
   availableWidth: number;
+  /**
+   * Absolute ("position") layout: a leaf without an authored `w` sizes to its
+   * nominal width (minW) or content — NOT to the container width. Without this,
+   * two positioned fields with only `minW` each expand to the full container
+   * and overlap (seen in the cover-letter LeadTime blocks).
+   */
+  widthFromContent?: boolean;
 }
 
 export interface LayoutResult {

@@ -48,3 +48,24 @@ export function resolveExtent(
   const base = specified != null && specified !== 0 ? specified : contentExtent;
   return clamp(base, min, max);
 }
+
+/**
+ * Resolve a *subform container's* height.
+ *
+ * A lone `minH` does NOT reserve space on a growable subform — Adobe sizes
+ * these to content. evidence: Example-1 Adobe output renders four
+ * `minH="25.288mm"` lr-tb boxes at 11–34pt of content (not 71.7pt) and the
+ * `minH="138.906mm"` table at ~140–200pt of rows (not 393.8pt); honoring the
+ * floors adds ~390pt and pushes the form to 2 pages where Adobe fits 1.
+ * Explicit `h` and bounded [minH,maxH] ranges keep their floors via
+ * resolveExtent. Leaves (fields/draws) are untouched — no counter-evidence
+ * there and their minH floors are covered by unit tests.
+ */
+export function resolveSubformHeight(
+  pos: Position | undefined,
+  contentExtent: number
+): number {
+  const hasFixedH = pos?.h != null && pos.h !== 0;
+  if (hasFixedH || pos?.maxH != null) return resolveExtent(pos, 'height', contentExtent);
+  return contentExtent;
+}

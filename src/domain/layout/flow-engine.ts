@@ -1,6 +1,6 @@
 import { LayoutNode, SubformNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
-import { resolveExtent } from './sizing';
+import { resolveExtent, resolveSubformHeight } from './sizing';
 
 // ─── Flow engine (tb / lr / rl-tb) ────────────────────────────────────────
 // evidence: engine dispatch — layout enums 0,1,2 (lr-tb, rl-tb, tb) select
@@ -109,7 +109,7 @@ export function layoutFlowSubform(
     usedHeight = yOffset + lineHeight;
   }
 
-  const height = resolveExtent(node.position, 'height', usedHeight + mTop + mBottom);
+  const height = resolveSubformHeight(node.position, usedHeight + mTop + mBottom);
   return {
     node: {
       ...node,

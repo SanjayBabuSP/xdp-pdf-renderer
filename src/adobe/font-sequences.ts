@@ -107,9 +107,23 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     fromFamily: 'SimHei',
     sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Microsoft YaHei', 'Noto Sans CJK SC', 'sans-serif'],
   },
+  // Windows CJK UI families Designer templates request. Without these they
+  // fall to the DejaVu fallback, which has no CJK glyphs (tofu boxes).
   {
-    fromFamily: 'SimHei',
-    sequence: ['Microsoft YaHei', 'Noto Sans CJK SC', 'sans-serif'],
+    fromFamily: 'Microsoft YaHei',
+    sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Noto Sans CJK SC', 'sans-serif'],
+  },
+  {
+    fromFamily: 'Microsoft YaHei Light',
+    sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N L', 'Noto Sans CJK SC', 'sans-serif'],
+  },
+  {
+    fromFamily: 'Microsoft YaHei UI',
+    sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Noto Sans CJK SC', 'sans-serif'],
+  },
+  {
+    fromFamily: 'NSimSun',
+    sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'Noto Serif CJK SC', 'serif'],
   },
 
   // Korean

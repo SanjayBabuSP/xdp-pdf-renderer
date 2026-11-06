@@ -1,5 +1,5 @@
 import { calculatePositions } from '../../../../src/domain/layout/calculate-positions';
-import { LayoutModel, LayoutNode, SubformNode, FieldNode, Position } from '../../../../src/types';
+import { LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, Position } from '../../../../src/types';
 
 const CA = { x: 54, y: 54, w: 487, h: 734 };
 
@@ -153,6 +153,24 @@ describe('layout engines (dispatcher)', () => {
     ]);
     const row = (out[0] as SubformNode).children[0] as SubformNode;
     expect(row.children[0].position!.w).toBe(200);
+  });
+
+  it('table honors colSpan on draws, not just fields (Example-1 header)', () => {
+    // A leading draw with colSpan 5 spans 5 authored columns; ignoring it
+    // placed every later cell ~150pt left of Adobe's position.
+    const tbl = subform('tbl', 'table', { x: 0, y: 0 }, [
+      subform('r1', 'row', { y: 0 }, [
+        { type: 'draw', name: 'd', position: { h: 9 }, colSpan: 5 } as DrawNode,
+        field('a', { h: 9, w: 30 }),
+        field('b', { h: 9, w: 30 }),
+      ]),
+    ]) as SubformNode;
+    tbl.columnWidths = [10, 10, 10, 10, 10, 30, 30];
+    const out = run([tbl]);
+    const row = (out[0] as SubformNode).children[0] as SubformNode;
+    // draw covers cols 0-4 (50pt); field a starts at 54+50.
+    expect(row.children[0].position!.w).toBe(50);
+    expect(row.children[1].position!.x).toBe(104);
   });
 
   it('sizes a leaf field from content when h is absent (1.2× line)', () => {

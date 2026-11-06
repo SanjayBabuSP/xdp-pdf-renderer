@@ -415,6 +415,8 @@ export interface DrawNode {
   breakBefore?: BreakValue;
   breakAfter?: BreakValue;
   keep?: KeepSpec;
+  /** Column span when this draw sits in a table row (XFA colSpan). */
+  colSpan?: number;
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;

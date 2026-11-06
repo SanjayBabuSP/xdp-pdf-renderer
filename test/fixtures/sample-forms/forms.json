@@ -1,46 +1,45 @@
 {
   "forms": [
     {
-      "name": "DGS",
-      "xdp": "DGS/DGS_Datasheet.xdp",
-      "xsd": "DGS/DGS_schema.xsd",
-      "data": "DGS/DGS.xml",
-      "expectedPages": 2,
+      "name": "Example-1",
+      "xdp": "Example-1/Example-Datasheet.xdp",
+      "xsd": "Example-1/Example-Schema.xsd",
+      "data": "Example-1/Example-Test-data.xml",
+      "expectedPages": 1,
       "minDataValuesShown": 15
     },
     {
-      "name": "IPQT_CoverLetter_EN",
-      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_EN.xdp",
-      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
-      "data": "IPQT/IPQT_CoverLetter.xml",
+      "name": "Example-2-EN",
+      "xdp": "Example-2/Example-Datasheet-EN.xdp",
+      "xsd": "Example-2/Example-Schema.xsd",
+      "data": "Example-2/Example-Test-Data.xml",
+      "expectedPages": 4,
+      "minDataValuesShown": 18
+    },
+    {
+      "name": "Example-2-CN",
+      "xdp": "Example-2/Example-Datasheet-CN.xdp",
+      "xsd": "Example-2/Example-Schema.xsd",
+      "data": "Example-2/Example-Test-Data.xml",
+      "expectedPages": 4,
+      "minDataValuesShown": 18
+    },
+    {
+      "name": "Example-2-ESP",
+      "xdp": "Example-2/Example-Datasheet-ESP.xdp",
+      "xsd": "Example-2/Example-Schema.xsd",
+      "data": "Example-2/Example-Test-Data.xml",
       "expectedPages": 5,
       "minDataValuesShown": 18
     },
     {
-      "name": "IPQT_CoverLetter_CN",
-      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_CN.xdp",
-      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
-      "data": "IPQT/IPQT_CoverLetter.xml",
-      "expectedPages": 5,
-      "minDataValuesShown": 18
-    },
-    {
-      "name": "IPQT_CoverLetter_ESP",
-      "xdp": "IPQT/IPQT_CoverLetter_IPQT_Template_ESP.xdp",
-      "xsd": "IPQT/IPQT_CoverLetter_schema.xsd",
-      "data": "IPQT/IPQT_CoverLetter.xml",
-      "expectedPages": 5,
-      "minDataValuesShown": 18,
-      "knownIssue": "XML_1004, parser rejects a renderCache.subset processing instruction containing a double quote; the original form fails too"
-    },
-    {
-      "name": "MechanicalSeal",
-      "xdp": "MechanicalSeal/MechanicalSeal_Datasheet.xdp",
-      "xsd": "MechanicalSeal/MechanicalSeal_schema.xsd",
-      "data": "MechanicalSeal/MechanicalSeal.xml",
+      "name": "Example-3",
+      "xdp": "Example-3/Example-Datasheet.xdp",
+      "xsd": "Example-3/Example-Schema.xsd",
+      "data": "Example-3/Example-Test-Data.xml",
       "expectedPages": 2,
       "minDataValuesShown": 30
     }
   ],
-  "schemasOnly": ["IPQT/IPQT_Overview_schema.xsd"]
+  "schemasOnly": []
 }

@@ -1,6 +1,6 @@
 import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
-import { resolveExtent } from './sizing';
+import { resolveExtent, resolveSubformHeight } from './sizing';
 import { paraMetrics } from '../../rendering/text/line-metrics';
 
 // ─── Position engine ──────────────────────────────────────────────────────
@@ -104,6 +104,8 @@ export function layoutPositionSubform(
       x: baseX + getChildX(child),
       y: childY,
       availableWidth: nodeWidth(child) ?? contentW,
+      // Positioned leaves with only minW must not stretch to the container.
+      widthFromContent: true,
     };
     const result = layoutChild(child, childCtx);
     children.push(result.node);
@@ -115,7 +117,7 @@ export function layoutPositionSubform(
   }
 
   const contentExtent = Math.max(0, maxY - baseY) + insets.top + insets.bottom;
-  const height = resolveExtent(node.position, 'height', contentExtent);
+  const height = resolveSubformHeight(node.position, contentExtent);
 
   return {
     node: {
@@ -155,9 +157,13 @@ function valueLineHeight(node: FieldNode): number {
 
 /** Leaf field: resolve x/y/w/h with min/max clamping (plan Phase 2 task 4). */
 export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResult {
-  const width = resolveExtent(node.position, 'width', ctx.availableWidth);
-  const contentExtent = captionHeight(node) + valueLineHeight(node);
-  const height = resolveExtent(node.position, 'height', contentExtent);
+  const contentExtent =
+    ctx.widthFromContent && node.position?.w == null
+      ? node.position?.minW ?? ctx.availableWidth
+      : ctx.availableWidth;
+  const width = resolveExtent(node.position, 'width', contentExtent);
+  const contentExtentH = captionHeight(node) + valueLineHeight(node);
+  const height = resolveExtent(node.position, 'height', contentExtentH);
 
   return {
     node: {
@@ -170,7 +176,11 @@ export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResu
 
 /** Leaf draw: explicit h else minH else legacy 18 default (shapes need a box). */
 export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult {
-  const width = resolveExtent(node.position, 'width', ctx.availableWidth);
+  const contentExtent =
+    ctx.widthFromContent && node.position?.w == null
+      ? node.position?.minW ?? ctx.availableWidth
+      : ctx.availableWidth;
+  const width = resolveExtent(node.position, 'width', contentExtent);
   const height = resolveExtent(node.position, 'height', 18);
 
   return {

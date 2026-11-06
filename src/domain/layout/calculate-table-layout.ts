@@ -59,8 +59,8 @@ function cellWidth(cell: LayoutNode): number | undefined {
 }
 
 function cellSpan(cell: LayoutNode): number {
-  if (cell.type === 'field') return Math.max(1, cell.colSpan ?? 1);
-  return 1;
+  const span = (cell as { colSpan?: number }).colSpan;
+  return Math.max(1, span ?? 1);
 }
 
 /**
@@ -97,7 +97,7 @@ function inferColumnCount(node: SubformNode): number {
     if (child.type !== 'subform' || (child.layout !== 'row' && child.layout !== 'rl-row')) continue;
     let sum = 0;
     for (const cell of child.children) {
-      sum += cell.type === 'field' ? Math.max(1, cell.colSpan ?? 1) : 1;
+      sum += Math.max(1, (cell as { colSpan?: number }).colSpan ?? 1);
     }
     if (sum > max) max = sum;
   }

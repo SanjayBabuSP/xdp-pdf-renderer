@@ -109,3 +109,15 @@ describe('numeric pictures are minimum width, not maximum', () => {
     expect(formatValue(1234567.5, '$0.00')).toBe('$1234567.50');
   });
 });
+
+describe('date pictures are idempotent on display values (ADS parity)', () => {
+  // A script-formatted value must survive its own picture instead of being
+  // reinterpreted as US MM-DD-YYYY and day/month-swapped (Example-1 date).
+  it('keeps DD-MM-YYYY display text stable', () => {
+    expect(formatValue('06-11-2026', 'date{DD-MM-YYYY}')).toBe('06-11-2026');
+    expect(formatValue('06-11-2026', 'DD-MM-YYYY')).toBe('06-11-2026');
+  });
+  it('still parses ISO input through the picture', () => {
+    expect(formatValue('2026-11-06', 'date{DD-MM-YYYY}')).toBe('06-11-2026');
+  });
+});

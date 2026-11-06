@@ -1,6 +1,6 @@
 import { LayoutNode, SubformNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
-import { resolveExtent } from './sizing';
+import { resolveExtent, resolveSubformHeight } from './sizing';
 import { calculateTableLayout } from './calculate-table-layout';
 
 // ─── Table engine (table / row / rl-row) ──────────────────────────────────
@@ -14,8 +14,11 @@ function isRow(node: LayoutNode): boolean {
 }
 
 function cellColSpan(node: LayoutNode): number {
-  if (node.type === 'field') return Math.max(1, node.colSpan ?? 1);
-  return 1;
+  // evidence: Example-1 rows put colSpan on draws (draw colSpan 9 + field
+  // colSpan 2 + 8× field colSpan 3); ignoring non-field spans shifts every
+  // later cell left of Adobe's position.
+  const span = (node as { colSpan?: number }).colSpan;
+  return Math.max(1, span ?? 1);
 }
 
 /** Width of `span` columns starting at `col` given declared column widths. */
@@ -100,7 +103,7 @@ export function layoutTableSubform(
     }
   }
 
-  const height = resolveExtent(node.position, 'height', yOffset + mTop + mBottom);
+  const height = resolveSubformHeight(node.position, yOffset + mTop + mBottom);
   return {
     node: {
       ...node,

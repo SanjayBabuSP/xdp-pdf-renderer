@@ -34,7 +34,7 @@ import {
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { XMLParser } from 'fast-xml-parser';
-import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment } from '../../lib/xml-utils';
+import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment, stripProcessingInstructions, firstChild, extractRichTextContent } from '../../lib/xml-utils';
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { parseOpacityValue } from '../../lib/opacity';
 import { ERROR_CODES } from '../../errors/error-codes';
@@ -357,7 +357,7 @@ function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
       commentPropName: '__comment',
       preserveOrder: true,
     });
-    const doc = parser.parse(xdpXml) as unknown[];
+    const doc = parser.parse(stripProcessingInstructions(xdpXml)) as unknown[];
     if (!Array.isArray(doc)) return undefined;
     const rootItems = toOrderedItems(doc);
     const rootKids = kidsOfItems(rootItems, ['xdp:xdp', 'xdp']);
@@ -657,14 +657,15 @@ function parseDraw(draw: unknown): DrawNode {
     type: 'draw',
     name: attr(draw, 'name'),
     uid: attr(draw, 'id') ?? undefined,
-    value: parseDrawValue(getChild(draw, 'value')),
-    font: parseFont(getChild(draw, 'font')),
-    para: parsePara(getChild(draw, 'para')),
+    value: parseDrawValue(firstChild(draw, 'value')),
+    font: parseFont(firstChild(draw, 'font')),
+    para: parsePara(firstChild(draw, 'para')),
     position: parsePosition(draw),
     presence: (attr(draw, 'presence') as PresenceValue) ?? 'visible',
-    ui: parseUi(getChild(draw, 'ui')),
-    margin: parseMargin(getChild(draw, 'margin')),
-    border: parseBorder(getChild(draw, 'border')),
+    ui: parseUi(firstChild(draw, 'ui')),
+    margin: parseMargin(firstChild(draw, 'margin')),
+    border: parseBorder(firstChild(draw, 'border')),
+    colSpan: attr(draw, 'colSpan') ? parseInt(attr(draw, 'colSpan')!) : undefined,
     events: parseEvents(getChild(draw, 'event')),
     relevant: attr(draw, 'relevant') ?? undefined,
     assist: parseAssist(draw),
@@ -1033,7 +1034,12 @@ function parseCaption(caption: unknown): CaptionSpec | undefined {
   const reserve = attr(caption, 'reserve') ? toPointsOrZero(attr(caption, 'reserve')) : undefined;
   const placement = attr(caption, 'placement') as CaptionSpec['placement'] | undefined;
   const valueEl = getChild(caption, 'value');
-  const text = textContent(getChild(valueEl, 'text'));
+  let text = textContent(getChild(valueEl, 'text'));
+  if (text == null) {
+    // Rich-text caption (`<value><exData><body><p>…`); Adobe renders it.
+    // example: Example-1 `AKJSZ MGYAWXDT:<spacerun/><u>+</u>`.
+    text = extractRichTextContent(getChild(valueEl, 'exData')) ?? undefined;
+  }
   const font = parseFont(getChild(caption, 'font'));
   return { reserve, placement, text, font };
 }

@@ -9,12 +9,11 @@ bindings and script logic are unchanged, so the forms render like the originals
 
 | Form | Template (`.xdp`) | Schema (`.xsd`) | Data (`.xml`) | Pages |
 |---|---|---|---|---|
-| DGS datasheet | `DGS/DGS_Datasheet.xdp` | `DGS/DGS_schema.xsd` | `DGS/DGS.xml` | 2 |
-| Cover letter EN / CN / ESP | `IPQT/IPQT_CoverLetter_IPQT_Template_{EN,CN,ESP}.xdp` | `IPQT/IPQT_CoverLetter_schema.xsd` | `IPQT/IPQT_CoverLetter.xml` | 5 |
-| Mechanical seal datasheet | `MechanicalSeal/MechanicalSeal_Datasheet.xdp` | `MechanicalSeal/MechanicalSeal_schema.xsd` | `MechanicalSeal/MechanicalSeal.xml` | 2 |
+| Example-1 (datasheet) | `Example-1/Example-Datasheet.xdp` | `Example-1/Example-Schema.xsd` | `Example-1/Example-Test-data.xml` | 2 |
+| Example-2 EN / CN / ESP (cover letter) | `Example-2/Example-Datasheet-{EN,CN,ESP}.xdp` | `Example-2/Example-Schema.xsd` | `Example-2/Example-Test-Data.xml` | 5 |
+| Example-3 (datasheet) | `Example-3/Example-Datasheet.xdp` | `Example-3/Example-Schema.xsd` | `Example-3/Example-Test-Data.xml` | 2 |
 
-`IPQT/IPQT_Overview_schema.xsd` is a stand-alone schema. [`forms.json`](forms.json)
-lists the combinations the tests use.
+[`forms.json`](forms.json) lists the combinations the tests use.
 
 ## What was replaced
 
@@ -56,10 +55,9 @@ const result = await render({ xdp, xsd, data }); // file contents as strings
 
 ## Known issue
 
-`IPQT_CoverLetter_ESP` fails with `XML_1004` (the original form does too): the
-XML parser rejects Designer's `<?renderCache.subset …?>` processing instruction
-because its character list contains a `"`. Its test uses `it.failing`, so it
-starts failing once the parser is fixed; then drop `knownIssue` from `forms.json`.
+None. The ESP cover letter previously failed with `XML_1004` because the XML
+parser rejected Designer's `<?renderCache.subset "…"?>` processing
+instructions; `parseXml` now strips ignorable PIs before parsing.
 
 ## Regenerating (maintainers only)
 

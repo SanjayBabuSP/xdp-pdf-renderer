@@ -57,7 +57,7 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
     ca1: { ...first.contentArea },
   };
 
-  const { nodes: walked } = walkContainer(layout.children, state, false);
+  const { nodes: walked } = walkContainer(layout.children, state, false, true);
 
   // Bucket top-level nodes by page span; straddling containers fragment.
   const buckets: LayoutNode[][] = [];
@@ -148,7 +148,12 @@ function isRowNode(node: LayoutNode): boolean {
  * non-kept containers straddle (fragmented later by coordinate bucketing).
  * Returns the local content bottom (for the parent's height fix-up).
  */
-function walkContainer(nodes: LayoutNode[], state: WalkState, parentIsTable: boolean): { nodes: LayoutNode[]; bottom: number } {
+function walkContainer(
+  nodes: LayoutNode[],
+  state: WalkState,
+  parentIsTable: boolean,
+  allowUnitShift: boolean
+): { nodes: LayoutNode[]; bottom: number } {
   const out: LayoutNode[] = [];
   let localDy = 0;
   let pendingBreak: BreakValue | null = null;
@@ -177,7 +182,13 @@ function walkContainer(nodes: LayoutNode[], state: WalkState, parentIsTable: boo
 
     // Recurse into containers so nested breaks/keeps resolve first.
     if (node.type === 'subform' || node.type === 'exclGroup') {
-      const inner = walkContainer(node.children, state, node.type === 'subform' && node.layout === 'table');
+      // Only a table's direct children (its rows) may be unit-shifted as whole
+      // units. Inside any other container, shifting a leaf forward grows the
+      // container past its original box, so the parent's next-page fragment
+      // overlaps the following sibling (cover-letter paragraph lines). Let
+      // those containers fragment by coordinate instead.
+      const childMayShift = node.type === 'subform' && node.layout === 'table';
+      const inner = walkContainer(node.children, state, node.type === 'subform' && node.layout === 'table', childMayShift);
       if (node.type === 'subform') {
         node = { ...node, children: inner.nodes } as SubformNode;
         // Container box must cover content pushed past it by breaks/keeps.
@@ -200,12 +211,13 @@ function walkContainer(nodes: LayoutNode[], state: WalkState, parentIsTable: boo
       const kEnd = Math.max(kStart, pageIndexFloor(y1, state));
       if (kEnd > kStart) {
         const atomic =
-          node.type === 'field' ||
-          node.type === 'draw' ||
-          node.type === 'exclGroup' ||
-          isRowNode(node) ||
-          (parentIsTable && node.type === 'subform') ||
-          isExplicitKeep((node as { keep?: KeepSpec }).keep);
+          allowUnitShift &&
+          (node.type === 'field' ||
+            node.type === 'draw' ||
+            node.type === 'exclGroup' ||
+            isRowNode(node) ||
+            (parentIsTable && node.type === 'subform') ||
+            isExplicitKeep((node as { keep?: KeepSpec }).keep));
         const fits = (p.h ?? 0) <= state.pageH;
         if (atomic && fits) {
           const target = state.ca1.y + (kStart + 1) * state.pageH;

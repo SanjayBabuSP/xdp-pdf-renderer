@@ -735,12 +735,17 @@ async function renderField(
 
     // Wrap text to fit within the value area (hard \n breaks always split).
     // `<para marginLeft/Right>` inset the text block; `textIndent` narrows the
-    // first line of each paragraph.
+    // first line of each paragraph. Single-line fields never soft-wrap: XFA
+    // shows them on one line (overflowing visibly if wider than the box),
+    // while wrapping them shatters table values into overlapping fragments
+    // (Example-1 `29815.6/95850.4`). Infinite width disables soft wrapping
+    // but preserves hard-break splitting.
     const textX = x + reserve + pm.marginLeft;
     const textW = Math.max(valueAreaWidth - pm.marginLeft - pm.marginRight, 0);
     const measure = (s: string): number =>
       measureTextWidth(s, fontSize, valueFont, valueScale);
-    const lines = breakLinesInfo(valueText, textW, measure, {
+    const wrapWidth = node.ui?.multiLine === true ? textW : Number.POSITIVE_INFINITY;
+    const lines = breakLinesInfo(valueText, wrapWidth, measure, {
       firstLineIndent: pm.textIndent,
     });
 

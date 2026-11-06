@@ -7,6 +7,22 @@ export interface ParsedXml {
 }
 
 /**
+ * Remove processing instructions (except the XML declaration).
+ *
+ * Designer emits `<?renderCache.…?>` PIs whose payload is not attribute
+ * syntax; fast-xml-parser treats a `"` in the payload as an attribute quote
+ * and throws "Pi Tag is not closed" (the ESP cover letter hits this). PIs are
+ * ignorable metadata — the renderer re-lays out the form and never reads the
+ * render cache — so dropping them is safe and matches XML semantics.
+ */
+function stripProcessingInstructions(xml: string): string {
+  return xml.replace(/<\?(?!xml[\s?])[\s\S]*?\?>/g, '');
+}
+
+/** Exported for the ordered (preserveOrder) parser in parse-xdp. */
+export { stripProcessingInstructions };
+
+/**
  * Parse an XML string into a plain JS object.
  * SECURITY: processEntities disabled to prevent XXE injection.
  */
@@ -26,7 +42,7 @@ export function parseXml(xmlString: string, maxInputSize: number = MAX_INPUT_SIZ
     commentPropName: '__comment',
   });
 
-  return parser.parse(xmlString) as ParsedXml;
+  return parser.parse(stripProcessingInstructions(xmlString)) as ParsedXml;
 }
 
 /** Safely get a nested value by key, returning undefined if not found. */
@@ -42,8 +58,60 @@ export function toArray<T>(value: unknown): T[] {
   return [value as T];
 }
 
-/** Get string attribute value, stripping the @_ prefix convention. */
-export function attr(obj: unknown, name: string): string | undefined {
+/**
+ * Get a singular child element, tolerating Designer-emitted duplicates.
+ * Real forms sometimes repeat a singular child (e.g. two `<value>` blocks
+ * under one `<draw>`); Adobe uses the first. Without this, `getChild` hands
+ * back an array and every downstream object read misses (empty draw text).
+ */
+export function firstChild(obj: unknown, key: string): unknown {
+  const val = getChild(obj, key);
+  if (Array.isArray(val)) return val[0];
+  return val;
+}
+
+/**
+ * Extract plain text from an XFA rich-text `<exData>` block.
+ *
+ * Captions (and some draws) carry HTML (`<body><p>Text<span>…</span></p>`)
+ * instead of a plain `<text>` node. fast-xml-parser groups repeated tags into
+ * arrays and does not preserve mixed-content order, so this walks
+ * body → paragraphs → (#text, then inline runs) rather than relying on key
+ * order. Inline `xfa:embed` references resolve later (resolve-embeds); here
+ * only literal text is collected. Formatting (bold/underline) is dropped —
+ * content presence is what Adobe parity needs first.
+ */
+export function extractRichTextContent(exData: unknown): string | undefined {
+  if (exData == null || typeof exData !== 'object') return undefined;
+  const body = getChild(exData, 'body');
+  const scope = body ?? exData;
+  const paras = toArray<unknown>(getChild(scope, 'p'));
+  // No <p> wrapper (bare text or spans directly under body/exData).
+  if (paras.length === 0) return collectInlineText(scope) || undefined;
+  const out = paras.map((p) => collectInlineText(p)).join('\n');
+  return out || undefined;
+}
+
+/** Text of a paragraph: its own #text plus any inline run elements. */
+function collectInlineText(node: unknown): string {
+  if (node == null) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map((i) => collectInlineText(i)).join('');
+  if (typeof node !== 'object') return '';
+  const rec = node as Record<string, unknown>;
+  let out = '';
+  const text = rec['#text'];
+  if (typeof text === 'string' || typeof text === 'number') out += String(text);
+  const cdata = rec['__cdata'];
+  if (typeof cdata === 'string' || typeof cdata === 'number') out += String(cdata);
+  for (const [key, val] of Object.entries(rec)) {
+    if (key.startsWith('@_') || key === '#text' || key === '__cdata') continue;
+    out += collectInlineText(val);
+  }
+  return out;
+}
+
+/** Get string attribute value, stripping the @_ prefix convention. */export function attr(obj: unknown, name: string): string | undefined {
   const val = getChild(obj, `@_${name}`);
   if (val == null) return undefined;
   return String(val);
