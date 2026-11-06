@@ -46,6 +46,7 @@ import {
 } from '../types';
 import { formatValue } from '../lib/value-format';
 import { PAGE_NUMBER_TOKEN } from '../domain/mapping/resolve-embeds';
+import { drawValueHeight } from '../domain/layout/position-engine';
 import { resolveChoiceText, resolveButtonLabel } from './ui-values';
 import { FontManager } from './font-manager';
 import { embedBase64Image } from './image-embedder';
@@ -767,13 +768,18 @@ async function renderField(
       { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
 
+    const verticalOverflow =
+      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > innerHeight + 0.5;
+    const horizontalOverflow = lines.some(
+      (line) => measure(line.text) > textW + 0.5
+    );
     const clipped = clipOverflow(
       pdfPage,
       textX,
       y,
       textW,
       innerHeight,
-      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > innerHeight + 0.5
+      verticalOverflow || horizontalOverflow
     );
 
     // Draw each line
@@ -921,12 +927,28 @@ async function renderDraw(
   if (pos?.x === undefined || pos?.y === undefined) return;
 
   const margins = getMargins(node.margin);
-  const x = pos.x + margins.left;
-  const y = flipY(pos.y, pos.h ?? 18, pageH) + margins.bottom;
   const width = Math.max((pos.w ?? 0) - margins.left - margins.right, 0);
-  const height = Math.max((pos.h ?? 18) - margins.top - margins.bottom, 0);
+  const measuredHeight =
+    pos.h == null &&
+    (node.value?.type === 'richText' || node.value?.type === 'text')
+      ? drawValueHeight(node, width)
+      : undefined;
+  const outerHeight = pos.h ?? measuredHeight ?? 18;
+  const x = pos.x + margins.left;
+  const y = flipY(pos.y, outerHeight, pageH) + margins.bottom;
+  const height = Math.max(outerHeight - margins.top - margins.bottom, 0);
 
-  if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
+  // A rotated rectangle is identical to its swapped visual box: draw the
+  // fill/border with w/h exchanged so label backgrounds stay in the narrow
+  // vertical strip instead of painting a horizontal bar across the table.
+  const borderRotate = normalizeRotation(pos.rotate ?? 0);
+  const borderPos =
+    (borderRotate === 90 || borderRotate === 270) &&
+    pos.w != null &&
+    pos.h != null
+      ? { ...pos, w: pos.h, h: pos.w }
+      : pos;
+  if (node.border) drawBorderBox(pdfPage, node.border, borderPos, pageH);
 
   if (!node.value) return;
 
@@ -973,16 +995,18 @@ async function renderDraw(
     const drawScale = scaleForFamily(baseFamily);
 
     if (isVerticalRotation(rotate)) {
-      // Box swap: the authored long axis becomes vertical reading length.
+      // Box swap: wrap along the authored long axis and anchor in the
+      // post-rotation box (w/h exchanged).
       const lines = wrapText(text, fontSize, width, font, { horizontalScale: drawScale });
       const advance = pm.lineAdvance;
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font, drawScale)),
         0
       );
+      const rotatedY = flipY(pos.y ?? 0, width, pageH) + margins.bottom;
       const anchor = rotatedAnchor({
         rotate,
-        box: { x, y, w: height, h: width },
+        box: { x, y: rotatedY, w: height, h: width },
         align: alignClassOf(justH),
         valign: verticalAlign,
         lineLen: longest,

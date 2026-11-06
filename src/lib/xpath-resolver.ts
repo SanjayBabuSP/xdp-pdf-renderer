@@ -10,9 +10,19 @@ import { DataObject, DataValue } from '../types';
  *   $.to_Perf[0].Value         → data.to_Perf[0].Value
  */
 export function resolveXPath(ref: string, data: DataObject): DataValue | undefined {
-  if (!ref.startsWith('$.')) return undefined;
-  const path = ref.slice(2);
+  const path = stripDataRefPrefix(ref);
+  if (path == null) return undefined;
   return resolvePath(path, data);
+}
+
+/**
+ * XFA dataRefs normally start with `$.`, but Designer also emits bare paths
+ * (`Element_0002.Element_0023[0].Element_2014`). Treat both as data paths.
+ */
+function stripDataRefPrefix(ref: string): string | null {
+  if (ref.startsWith('$.')) return ref.slice(2);
+  if (ref.startsWith('$')) return null;
+  return ref;
 }
 
 /**
@@ -20,8 +30,9 @@ export function resolveXPath(ref: string, data: DataObject): DataValue | undefin
  * nearest bound ancestor's data node), as XFA dataRefs are evaluated.
  */
 export function resolveXPathRelative(ref: string, scope: DataObject): DataValue | undefined {
-  if (!ref.startsWith('$.')) return undefined;
-  return resolvePath(ref.slice(2), scope);
+  const path = stripDataRefPrefix(ref);
+  if (path == null) return undefined;
+  return resolvePath(path, scope);
 }
 
 function resolvePath(path: string, current: unknown): DataValue | undefined {

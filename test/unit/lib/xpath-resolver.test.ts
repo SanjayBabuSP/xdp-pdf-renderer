@@ -52,8 +52,9 @@ describe('xpath-resolver', () => {
     expect(resolveXPath('$.NonExistent', data)).toBeUndefined();
   });
 
-  it('returns undefined for non-$ prefix', () => {
-    expect(resolveXPath('Name', data)).toBeUndefined();
+  it('accepts bare Designer dataRefs without the $ prefix', () => {
+    expect(resolveXPath('Name', data)).toBe('Acme Corp');
+    expect(resolveXPath('revisionHistory[0]', data)).toMatchObject({ revision: 0 });
   });
 
   it('returns undefined when intermediate is null', () => {

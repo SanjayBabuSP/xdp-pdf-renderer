@@ -208,7 +208,10 @@ function walkContainer(
         // Container box must cover content pushed past it by breaks/keeps.
         const boxBottom = node.position!.y! + (node.position!.h ?? 0);
         const contentBottom = Number.isFinite(inner.bottom) ? Math.max(inner.bottom, boxBottom) : boxBottom;
-        if (contentBottom > boxBottom) {
+        // A table row's height is already decided by its cells; an oversized
+        // empty spacer draw inside a row must not grow the row box (Example-3
+        // row otherwise becomes 18pt instead of the authored 10.63pt grid).
+        if (contentBottom > boxBottom && !isRowNode(node)) {
           node = { ...node, position: { ...node.position!, h: contentBottom - node.position!.y! } } as SubformNode;
         }
       } else {

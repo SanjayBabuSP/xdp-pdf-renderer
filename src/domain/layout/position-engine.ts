@@ -1,4 +1,4 @@
-import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode } from '../../types';
+import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, Position } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 import { paraMetrics } from '../../rendering/text/line-metrics';
@@ -278,7 +278,7 @@ export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult
  * Preview PDF grows the draw to all three lines instead of clipping after the
  * first (the Ytivos/Offqt sojjpitx block).
  */
-function drawValueHeight(node: DrawNode, width: number): number {
+export function drawValueHeight(node: DrawNode, width: number): number {
   const value = node.value;
   if (!value) return 0;
   let text: string;
@@ -302,13 +302,10 @@ function drawValueHeight(node: DrawNode, width: number): number {
     measureLayoutText(s, fontSize, node.font), {
     firstLineIndent: pm.textIndent,
   });
-  return (
-    top +
-    bottom +
-    lines.length * pm.lineAdvance +
-    pm.spaceAbove +
-    pm.spaceBelow
-  );
+  // Margins are internal padding inside the authored/minH box; they must not
+  // be added to the draw's outer height (Example-3 table rows are minH
+  // 3.596mm and Adobe keeps them there instead of growing to 3.75mm).
+  return lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
 /** ExclGroup: fields stacked vertically (tb), box sized to content. */

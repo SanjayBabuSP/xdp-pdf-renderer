@@ -31,8 +31,15 @@ function alignOffset(align: string | undefined, slot: number, extent: number, ax
 }
 
 function declaredWidth(node: LayoutNode): number | undefined {
-  if (node.type === 'field' || node.type === 'draw') return node.position?.w;
-  if (node.type === 'subform' || node.type === 'exclGroup') return node.position?.w;
+  const pos = node.position;
+  if (!pos) return undefined;
+  const rotate = pos.rotate;
+  if (rotate != null) {
+    const r = ((rotate % 360) + 360) % 360;
+    if (r === 90 || r === 270) return pos.h ?? pos.minH ?? pos.maxH;
+  }
+  if (node.type === 'field' || node.type === 'draw') return pos.w;
+  if (node.type === 'subform' || node.type === 'exclGroup') return pos.w;
   return undefined;
 }
 
