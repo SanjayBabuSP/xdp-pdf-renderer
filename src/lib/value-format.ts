@@ -41,7 +41,7 @@ export function formatValue(value: unknown, picture?: string, locale?: string): 
 
 // ─── Compound pictures: date{…} / time{…} ────────────────────────────────
 
-const COMPOUND_RE = /(datetime|date|time|text)\{([^}]*)\}/gi;
+const COMPOUND_RE = /(datetime|date|time|text|num)\{([^}]*)\}/gi;
 
 /**
  * Format a value through a compound picture such as
@@ -58,6 +58,7 @@ function formatCompoundValue(value: unknown, pattern: string, locale?: string): 
   return pattern.replace(COMPOUND_RE, (_match, kind: string, body: string) => {
     const k = kind.toLowerCase();
     if (k === 'text') return formatTextTemplate(value, body);
+    if (k === 'num') return formatNumberValue(value, body || 'zzz,zzz,zz9.99');
     // Picture-directed parse first so an already-formatted display value
     // (e.g. script output "06-11-2026" for `date{DD-MM-YYYY}`) is not
     // reinterpreted as US MM-DD-YYYY and day/month-swapped on reformat.

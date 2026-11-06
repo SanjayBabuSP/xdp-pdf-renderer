@@ -126,17 +126,61 @@ export function createFieldAccessor(
     return formatValue(v, node.formatPicture);
   };
 
-  /** Walk up from the current node trying `ancestor.path + '.' + ref`. */
+  /**
+   * Resolve a SOM path against the scripting node's own instance hierarchy.
+   *
+   * Duplicate siblings (repeating rows) share the same `path`, so looking up
+   * `${node.path}.${ref}` in the flat map always returns the FIRST row's
+   * sibling. Walking the live `parent`/`children` links keeps each row's
+   * script bound to that row's fields.
+   */
   const resolveScoped = (ref: string): ScriptableNode | undefined => {
-    let node = currentNode();
-    while (node) {
-      if (node.path) {
-        const candidate = allNodes.get(`${node.path}.${ref}`);
-        if (candidate) return candidate;
+    const segments = ref.split('.');
+    let scope: ScriptableNode | undefined = currentNode();
+    while (scope) {
+      let current: ScriptableNode | undefined =
+        scope.name === segments[0]
+          ? scope
+          : (scope.children ?? []).find((child) => child.name === segments[0]);
+      if (current) {
+        let ok = true;
+        let cursor: ScriptableNode = current;
+        for (let i = 1; i < segments.length; i++) {
+          const next: ScriptableNode | undefined = (cursor.children ?? []).find(
+            (child) => child.name === segments[i]
+          );
+          if (!next) {
+            ok = false;
+            break;
+          }
+          cursor = next;
+        }
+        if (ok) return cursor;
+        if (ok) return current;
       }
-      node = node.parent;
+      scope = scope.parent;
     }
-    return allNodes.get(ref);
+
+    if (ref) {
+      const candidate = allNodes.get(ref);
+      if (candidate) return candidate;
+    }
+    // Adobe SOM resolves a bare/subpath reference that is not a child of any
+    // ancestor by locating the named object anywhere in the form (for example
+    // the total field's initialize script references `Subform_0069.Field_0125`
+    // while the rows live under the table's `Subform_0068` set). Match by path
+    // suffix and prefer the shallowest match so a unique nested name resolves.
+    let best: ScriptableNode | undefined;
+    let bestLength = Infinity;
+    for (const [path, candidate] of allNodes) {
+      if (path === ref || path.endsWith(`.${ref}`)) {
+        if (path.length < bestLength) {
+          best = candidate;
+          bestLength = path.length;
+        }
+      }
+    }
+    return best;
   };
 
   const resolveNodeRef = (ref: string): ScriptableNode | undefined => {
@@ -152,7 +196,10 @@ export function createFieldAccessor(
       }
       return self.path ? allNodes.get(`${self.path}.${rest}`) : undefined;
     }
-    return allNodes.get(ref) ?? resolveScoped(ref);
+    // Scoped lookup first: duplicate sibling names all share the same flat
+    // `allNodes` key for the first instance, so `Subform_0077.presence = …`
+    // from row N must bind to row N's wrapper, not row 1's.
+    return resolveScoped(ref) ?? allNodes.get(ref);
   };
 
   /** Attribute reads on the scripting object itself (`$.presence`, `$.x` …). */
@@ -319,14 +366,14 @@ export function createFieldAccessor(
 
       const withAttr = splitNodeAttribute(path);
       if (withAttr.attribute) {
-        const owner = allNodes.get(withAttr.base) ?? resolveScoped(withAttr.base);
+        const owner = resolveScoped(withAttr.base) ?? allNodes.get(withAttr.base);
         if (owner) {
           const attr = readAttribute(owner, withAttr.attribute);
           if (attr !== undefined) return attr;
         }
       }
 
-      const node = allNodes.get(path) ?? resolveScoped(path);
+      const node = resolveScoped(path) ?? allNodes.get(path);
       if (node) {
         const value = readValue(node);
         if (value !== undefined) return value;
@@ -376,7 +423,7 @@ export function createFieldAccessor(
       if (!property) {
         const withAttr = splitNodeAttribute(path);
         if (withAttr.attribute) {
-          const owner = allNodes.get(withAttr.base) ?? resolveScoped(withAttr.base);
+          const owner = resolveScoped(withAttr.base) ?? allNodes.get(withAttr.base);
           if (owner) {
             writeAttribute(owner, withAttr.attribute, value);
             return;

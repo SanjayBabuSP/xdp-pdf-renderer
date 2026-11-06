@@ -27,6 +27,10 @@ interface EmbedTarget {
   raw: string;
   /** Value rendered through the node's `<bind><picture>`, when present. */
   formatted: string;
+  /** Whether the node declared a format picture. */
+  hasPicture?: boolean;
+  /** `CurrentPage` is a Preview-PDF page-number placeholder, not a static value. */
+  pageNumber?: boolean;
 }
 
 /**
@@ -36,6 +40,9 @@ interface EmbedTarget {
 const EMBED_ATTR = String.raw`xfa:embed\s*=\s*(["'])(#[^"']+)\1`;
 
 const EMBED_MODE = /xfa:embedMode\s*=\s*(["'])([^"']+)\1/i;
+
+/** Renderer-time placeholder for the CurrentPage footer field. */
+export const PAGE_NUMBER_TOKEN = '\uE000XFA_PAGE_NUMBER\uE001';
 
 /**
  * Substitute every `xfa:embed="#id"` occurrence in an exData HTML fragment.
@@ -87,7 +94,12 @@ export function resolveXfaEmbedsInHtml(
     if (cursor < tagStart) out.push(html.slice(cursor, tagStart));
 
     const target = lookup(id);
-    out.push(target ? (mode.toLowerCase() === 'raw' ? target.raw : target.formatted) : '');
+    // Adobe Preview applies the field's format picture even for
+    // embedMode="raw" (Example-2 prices render `57,814.00`, not `57814`);
+    // when there is no picture both spellings are identical.
+    const asRaw = mode.toLowerCase() === 'raw' && target?.hasPicture !== true;
+    if (target?.pageNumber) out.push(PAGE_NUMBER_TOKEN);
+    else out.push(target ? (asRaw ? target.raw : target.formatted) : '');
     cursor = end;
     attr.lastIndex = cursor;
   }
@@ -111,6 +123,8 @@ export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
     index.set(key, {
       raw: value == null ? '' : String(value),
       formatted: value == null ? '' : formatValue(value, picture),
+      hasPicture: picture != null,
+      pageNumber: node.type === 'field' && node.name === 'CurrentPage',
     });
   };
 

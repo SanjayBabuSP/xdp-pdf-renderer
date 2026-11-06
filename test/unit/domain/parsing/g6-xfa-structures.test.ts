@@ -188,7 +188,7 @@ describe('G6 — <traversal>', () => {
 describe('G6 — <subformSet> and <area>', () => {
   it('instantiates the @initial alternative instead of dropping the whole set', () => {
     const layout = parseTemplate(
-      `<subformSet name="set" initial="1">
+      `<subformSet name="set" relation="choice" initial="1">
          <subform name="alt0"><field name="zero"/></subform>
          <subform name="alt1"><field name="one"/></subform>
        </subformSet>`
@@ -203,13 +203,24 @@ describe('G6 — <subformSet> and <area>', () => {
 
   it('defaults to the first alternative when @initial is absent', () => {
     const layout = parseTemplate(
-      `<subformSet name="set">
+      `<subformSet name="set" relation="choice">
          <subform name="alt0"><field name="zero"/></subform>
          <subform name="alt1"><field name="one"/></subform>
        </subformSet>`
     );
     const set = byName(layout.children, 'set') as SubformNode;
     expect(set.children[0].name).toBe('alt0');
+  });
+
+  it('defaults to relation="ordered" and keeps every alternative', () => {
+    const layout = parseTemplate(
+      `<subformSet name="set">
+         <subform name="row0"><field name="a"/></subform>
+         <subform name="row1"><field name="b"/></subform>
+       </subformSet>`
+    );
+    const set = byName(layout.children, 'set') as SubformNode;
+    expect(set.children.map((c) => c.name)).toEqual(['row0', 'row1']);
   });
 
   it('renders <area> as a subform-shaped container', () => {

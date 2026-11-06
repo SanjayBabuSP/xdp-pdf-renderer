@@ -2,6 +2,11 @@ import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode } from '../
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 import { paraMetrics } from '../../rendering/text/line-metrics';
+import { breakLinesInfo } from '../../rendering/text/line-breaker';
+import { resolveChoiceText } from '../../rendering/ui-values';
+import { parseRichText, textRunsToPlainText } from '../../rendering/rich-text-parser';
+import { formatValue } from '../../lib/value-format';
+import { measureLayoutText } from './text-measure';
 
 // ─── Position engine ──────────────────────────────────────────────────────
 // evidence: XFAPositionLayout is the fallback engine for nodes whose layout
@@ -160,9 +165,16 @@ export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResu
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
       ? node.position?.minW ?? ctx.availableWidth
-      : ctx.availableWidth;
-  const width = resolveExtent(node.position, 'width', contentExtent);
-  const contentExtentH = captionHeight(node) + valueLineHeight(node);
+      : ctx.widthFromText && node.position?.w == null
+        ? fieldContentWidth(node)
+        : ctx.availableWidth;
+  const width = resolveExtent(
+    ctx.stretchWidth ? { ...node.position, w: undefined } : node.position,
+    'width',
+    contentExtent
+  );
+  const contentExtentH =
+    captionHeight(node) + nodeValueHeight(node, width);
   const height = resolveExtent(node.position, 'height', contentExtentH);
 
   return {
@@ -174,14 +186,82 @@ export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResu
   };
 }
 
-/** Leaf draw: explicit h else minH else legacy 18 default (shapes need a box). */
+/** Content width for an auto-width field in a flow line (lr-tb/rl-tb). */
+function fieldContentWidth(node: FieldNode): number {
+  const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
+  const pm = paraMetrics(node.para, fontSize);
+  const value = node.ui?.type === 'choiceList'
+    ? resolveChoiceText(node.resolvedValue, node.ui.items)
+    : formatValue(node.resolvedValue, node.formatPicture);
+  const valueWidth = value ? measureLayoutText(value, fontSize, node.font) : 0;
+
+  let captionWidth = 0;
+  if (node.caption?.text) {
+    const capSize = node.caption.font?.size ?? fontSize;
+    captionWidth =
+      node.caption.reserve ??
+      measureLayoutText(node.caption.text, capSize, node.caption.font ?? node.font);
+  }
+
+  return (
+    (node.margin?.leftInset ?? 0) +
+    (node.margin?.rightInset ?? 0) +
+    pm.marginLeft +
+    pm.marginRight +
+    captionWidth +
+    valueWidth
+  );
+}
+
+/**
+ * Height of a field's value block including box margins. Multi-line textEdit
+ * fields grow to their wrapped line count; XFA/Adobe does not clip a
+ * growable row to its `minH` (`Subform_0077` list rows in Example-2 are 1–3
+ * lines tall even though the field declares `minH="7mm"`).
+ */
+function nodeValueHeight(node: FieldNode, width: number): number {
+  const top = node.margin?.topInset ?? 0;
+  const bottom = node.margin?.bottomInset ?? 0;
+  const left = node.margin?.leftInset ?? 0;
+  const right = node.margin?.rightInset ?? 0;
+  const reserve = node.caption?.reserve ?? 0;
+  const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
+  const pm = paraMetrics(node.para, fontSize);
+
+  const value = node.ui?.type === 'choiceList'
+    ? resolveChoiceText(node.resolvedValue, node.ui.items)
+    : formatValue(node.resolvedValue, node.formatPicture);
+  if (!value) return top + bottom + valueLineHeight(node);
+
+  const innerWidth = Math.max(width - left - right - reserve - pm.marginLeft - pm.marginRight, 0);
+  const wrapWidth = node.ui?.multiLine === true ? innerWidth : Number.POSITIVE_INFINITY;
+  const lines = breakLinesInfo(value, wrapWidth, (text) =>
+    measureLayoutText(text, fontSize, node.font), {
+    firstLineIndent: pm.textIndent,
+  });
+
+  return (
+    top +
+    bottom +
+    lines.length * pm.lineAdvance +
+    pm.spaceAbove +
+    pm.spaceBelow
+  );
+}
+
+/** Leaf draw: explicit h else content-driven rich text, else legacy 18 default. */
 export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult {
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
       ? node.position?.minW ?? ctx.availableWidth
       : ctx.availableWidth;
-  const width = resolveExtent(node.position, 'width', contentExtent);
-  const height = resolveExtent(node.position, 'height', 18);
+  const width = resolveExtent(
+    ctx.stretchWidth ? { ...node.position, w: undefined } : node.position,
+    'width',
+    contentExtent
+  );
+  const contentHeight = drawValueHeight(node, width);
+  const height = resolveExtent(node.position, 'height', contentHeight > 0 ? contentHeight : 18);
 
   return {
     node: {
@@ -190,6 +270,45 @@ export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult
     } as DrawNode,
     height,
   };
+}
+
+/**
+ * Height of a draw's text block. Rich-text draws such as Example-2 Draw_0036
+ * have `minH` only and a multi-paragraph `<exData>` with `lineHeight="30pt"`;
+ * Preview PDF grows the draw to all three lines instead of clipping after the
+ * first (the Ytivos/Offqt sojjpitx block).
+ */
+function drawValueHeight(node: DrawNode, width: number): number {
+  const value = node.value;
+  if (!value) return 0;
+  let text: string;
+  if (value.type === 'richText') {
+    text = textRunsToPlainText(parseRichText(value.content ?? ''));
+  } else if (value.type === 'text') {
+    text = value.content ?? '';
+  } else {
+    return 0;
+  }
+  if (!text) return 0;
+
+  const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
+  const pm = paraMetrics(node.para, fontSize);
+  const left = node.margin?.leftInset ?? 0;
+  const right = node.margin?.rightInset ?? 0;
+  const top = node.margin?.topInset ?? 0;
+  const bottom = node.margin?.bottomInset ?? 0;
+  const innerWidth = Math.max(width - left - right, 0);
+  const lines = breakLinesInfo(text, innerWidth, (s) =>
+    measureLayoutText(s, fontSize, node.font), {
+    firstLineIndent: pm.textIndent,
+  });
+  return (
+    top +
+    bottom +
+    lines.length * pm.lineAdvance +
+    pm.spaceAbove +
+    pm.spaceBelow
+  );
 }
 
 /** ExclGroup: fields stacked vertically (tb), box sized to content. */

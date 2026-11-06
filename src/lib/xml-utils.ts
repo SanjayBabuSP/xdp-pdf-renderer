@@ -42,7 +42,57 @@ export function parseXml(xmlString: string, maxInputSize: number = MAX_INPUT_SIZ
     commentPropName: '__comment',
   });
 
-  return parser.parse(stripProcessingInstructions(xmlString)) as ParsedXml;
+  const parsed = parser.parse(stripProcessingInstructions(xmlString)) as ParsedXml;
+  return decodeEntitiesDeep(parsed) as ParsedXml;
+}
+
+const XML_ENTITY_RE = /&(?:amp|lt|gt|quot|apos|#\d{1,7}|#[xX][0-9a-fA-F]{1,6});/g;
+
+/**
+ * Decode the five XML predefined entities plus numeric character references.
+ *
+ * `processEntities` stays disabled so DTD/external entities (XXE) are never
+ * expanded; this pass only implements the character references XML itself
+ * defines. Without it, text such as `QwqD &amp; Hd. EQ` reaches the renderer
+ * with the markup visible.
+ */
+export function decodeXmlEntities(text: string): string {
+  if (text.indexOf('&') < 0) return text;
+  return text.replace(XML_ENTITY_RE, (entity) => {
+    switch (entity) {
+      case '&amp;':
+        return '&';
+      case '&lt;':
+        return '<';
+      case '&gt;':
+        return '>';
+      case '&quot;':
+        return '"';
+      case '&apos;':
+        return "'";
+      default: {
+        const hex = entity[2] === 'x' || entity[2] === 'X';
+        const code = parseInt(entity.slice(hex ? 3 : 2, -1), hex ? 16 : 10);
+        if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return entity;
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return entity;
+        }
+      }
+    }
+  });
+}
+
+function decodeEntitiesDeep(value: unknown): unknown {
+  if (typeof value === 'string') return decodeXmlEntities(value);
+  if (Array.isArray(value)) return value.map(decodeEntitiesDeep);
+  if (value == null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = decodeEntitiesDeep(val);
+  }
+  return out;
 }
 
 /** Safely get a nested value by key, returning undefined if not found. */

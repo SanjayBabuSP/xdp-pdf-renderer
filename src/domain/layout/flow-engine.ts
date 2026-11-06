@@ -85,8 +85,9 @@ export function layoutFlowSubform(
     let yOffset = 0;
     let lineHeight = 0;
     for (const child of node.children) {
-      const cw = declaredWidth(child) ?? Math.max(0, contentW - xOffset);
-      if (xOffset > 0 && cw > 0 && xOffset + cw > contentW + 1e-6) {
+      const authored = declaredWidth(child);
+      const cw = authored ?? Math.max(0, contentW - xOffset);
+      if (authored !== undefined && xOffset > 0 && cw > 0 && xOffset + cw > contentW + 1e-6) {
         // Wrap: commit the current line and restart at the content origin.
         yOffset += lineHeight;
         xOffset = 0;
@@ -97,13 +98,22 @@ export function layoutFlowSubform(
       // First pass at line-top to learn the child's height, then re-place at
       // its vAlign offset when the line is taller than the child (top-aligned
       // children — the common case — only lay out once).
-      let result = layoutChild(child, { x: childX, y: baseY + yOffset, availableWidth: cw });
+      const childCtx = {
+        x: childX,
+        y: baseY + yOffset,
+        availableWidth: cw,
+        widthFromText: authored === undefined,
+      };
+      let result = layoutChild(child, childCtx);
       const vOff = alignOffset(childVAlign(child), Math.max(result.height, lineHeight), result.height, 'v');
       if (vOff > 0) {
-        result = layoutChild(child, { x: childX, y: baseY + yOffset + vOff, availableWidth: cw });
+        result = layoutChild(child, { ...childCtx, y: baseY + yOffset + vOff });
       }
       children.push(result.node);
-      xOffset += cw;
+      // Advance by the actual extent for content-sized children; otherwise by
+      // the declared column/slot width.
+      const advance = authored ?? result.node.position?.w ?? cw;
+      xOffset += advance;
       lineHeight = Math.max(lineHeight, vOff + result.height);
     }
     usedHeight = yOffset + lineHeight;

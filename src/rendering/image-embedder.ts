@@ -193,10 +193,13 @@ export async function embedBase64Image(
 
   switch (fmt) {
     case 'png':
-      return doc.embedPng(bytes);
+      // pdf-lib's JPEG parser builds a DataView over the whole underlying
+      // ArrayBuffer; a Node Buffer can be a view into a larger pool, which
+      // makes byte 0 not the PNG/JPEG signature. Copy into a tight Uint8Array.
+      return doc.embedPng(new Uint8Array(bytes));
 
     case 'jpeg':
-      return doc.embedJpg(bytes);
+      return doc.embedJpg(new Uint8Array(bytes));
 
     case 'bmp': {
       const decoded = decodeBmp(bytes);

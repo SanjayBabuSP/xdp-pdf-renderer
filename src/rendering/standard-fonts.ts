@@ -80,16 +80,17 @@ const FAMILY_ALIASES: Record<string, string> = {
  * Horizontal scale applied when a *condensed* family resolves to its
  * full-width base-14 counterpart.
  *
- * Arial Narrow's advance widths are Arial's multiplied by 0.82 for every glyph
- * in the Latin set — a published property of the face, not a tuning knob.
- * Without it, every Arial Narrow run is measured ~22% too wide and wraps into
- * more lines than Designer authored.
+ * Calibrated against Adobe Preview PDF output rather than the published face
+ * ratio. The same 12pt Arial Narrow text rasterizes ~14% wider than the old
+ * 0.82 scale produced, and 0.93 reproduces Adobe's line breaks in the
+ * Example-2 header/list/table blocks. The historical 0.82 fit extra words per
+ * line and collapsed Example-2 from 6 pages to 5.
  *
  * evidence: Adobe treats a condensed face as a horizontal scale, not a
  * separate base-14 slot (`Designer.xdc` `<seq>` has no Arial Narrow entry, so
- * Designer must scale). 0.82 is the Arial Narrow / Arial advance ratio.
+ * Designer must scale).
  */
-export const NARROW_SCALE = 0.82;
+export const NARROW_SCALE = 0.93;
 
 /** Families that must be drawn with {@link NARROW_SCALE} horizontally condensed. */
 const NARROW_FAMILIES = new Set(['arial narrow', 'arialnarrow']);

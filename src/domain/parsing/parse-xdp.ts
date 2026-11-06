@@ -152,6 +152,7 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   const children = parseChildren(rootSubform, orderedRootSubformKids);
   const config = parseConfig(getChild(root as Record<string, unknown>, 'config'));
   const connection = parseConnectionSet(getChild(root as Record<string, unknown>, 'connectionSet'));
+  const variables = parseVariables(getChild(rootSubform, 'variables'));
   // The root subform is collapsed to rootSubformName — carry its <event>
   // elements (ready ref=$form / $layout, overlay, docReady, …) so the script
   // dispatcher can fire them. evidence: XFAModelImpl::ready dispatches
@@ -172,6 +173,7 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
     pages,
     children,
     rootEvents,
+    variables,
     config,
     ...connection,
     metadata,
@@ -185,6 +187,17 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
  * `dc:description` / `dc:creator` when the metadata packet is present, with
  * the template `<desc><text>` (or `<toolTip>`) as the fallback Adobe uses.
  */
+function parseVariables(variables: unknown): Record<string, string> | undefined {
+  if (!variables || typeof variables !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const entry of toArray<unknown>(getChild(variables, 'text'))) {
+    const name = attr(entry, 'name');
+    if (!name) continue;
+    out[name] = textContent(entry) ?? '';
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseDocumentMetadata(
   root: Record<string, unknown>,
   rootSubform: unknown,
@@ -285,6 +298,63 @@ function parsePages(rootSubform: unknown, orderedKids?: OrderedItem[]): PageDefi
     .filter(Boolean) as PageDefinition[];
 }
 
+/** Find a direct ordered child element by local tag name. */
+function orderedChild(nodes: unknown[] | undefined, name: string): unknown[] | undefined {
+  if (!nodes) return undefined;
+  for (const entry of nodes) {
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    for (const [key, val] of Object.entries(entry as Record<string, unknown>)) {
+      if (key === name && Array.isArray(val)) return val;
+    }
+  }
+  return undefined;
+}
+
+/** Build the `<exData>` inner markup for an ordered element's children. */
+function orderedExDataHtml(children: unknown[]): string | undefined {
+  const valueKids = orderedChild(children, 'value');
+  const exDataKids = orderedChild(valueKids, 'exData');
+  if (!exDataKids) return undefined;
+  return serializeOrderedHtml(exDataKids).trim();
+}
+
+/** Serialize preserveOrder nodes back to XHTML, keeping mixed-content order. */
+function serializeOrderedHtml(nodes: unknown[]): string {
+  let out = '';
+  for (const entry of nodes) {
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const rec = entry as Record<string, unknown>;
+    if (typeof rec['#text'] === 'string') {
+      out += rec['#text'];
+      continue;
+    }
+    if (typeof rec['__cdata'] === 'string') {
+      out += rec['__cdata'];
+      continue;
+    }
+    const attrs = rec[':@'] as Record<string, unknown> | undefined;
+    for (const [key, val] of Object.entries(rec)) {
+      if (key === ':@' || key.startsWith('?') || key === '__comment' || !Array.isArray(val)) {
+        continue;
+      }
+      out += `<${key}`;
+      if (attrs) {
+        for (const [attrName, attrVal] of Object.entries(attrs)) {
+          if (!attrName.startsWith('@_')) continue;
+          out += ` ${attrName.slice(2)}="${String(attrVal)}"`;
+        }
+      }
+      if (val.length === 0) {
+        out += '/>';
+      } else {
+        out += `>${serializeOrderedHtml(val)}</${key}>`;
+      }
+      break; // one element tag per preserveOrder entry
+    }
+  }
+  return out;
+}
+
 function parsePageArea(pageArea: unknown, orderedKids?: OrderedItem[]): PageDefinition {
   const name = attr(pageArea, 'name') ?? 'Page1';
   const id = attr(pageArea, 'id');
@@ -334,6 +404,12 @@ interface OrderedItem {
   kids: OrderedItem[];
   /** Occurrence index among same-tag siblings under the same parent. */
   index: number;
+  /**
+   * `<value><exData>` inner markup reconstructed from the preserveOrder parse.
+   * Unlike the grouped fast-xml-parser tree this keeps #text and inline spans
+   * interleaved, which is required for embeds inside rich paragraphs.
+   */
+  richText?: string;
 }
 
 /** Child tags that become layout nodes, in XFA vocabulary (local names). */
@@ -351,7 +427,9 @@ function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
       attributeNamePrefix: '@_',
       allowBooleanAttributes: true,
       parseAttributeValue: false,
-      trimValues: true,
+      // Keep whitespace-only text nodes: `<span style="xfa-spacerun:yes"> </span>`
+      // is a meaningful inter-word space in rich-text embeds.
+      trimValues: false,
       processEntities: false,
       cdataPropName: '__cdata',
       commentPropName: '__comment',
@@ -408,7 +486,12 @@ function toOrderedItems(node: unknown): OrderedItem[] {
       const tag = key.includes(':') ? key.slice(key.lastIndexOf(':') + 1) : key;
       const index = counters.get(tag) ?? 0;
       counters.set(tag, index + 1);
-      out.push({ tag, kids: toOrderedItems(value), index });
+      out.push({
+        tag,
+        kids: toOrderedItems(value),
+        index,
+        richText: orderedExDataHtml(value),
+      });
       break; // one tag per entry
     }
   }
@@ -447,9 +530,9 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
       case 'area':
         return parseArea(rawNode, order?.kids);
       case 'field':
-        return parseField(rawNode);
+        return parseField(rawNode, order);
       case 'draw':
-        return parseDraw(rawNode);
+        return parseDraw(rawNode, order);
       case 'exclGroup':
         return parseExclGroup(rawNode, order?.kids);
       default:
@@ -514,21 +597,38 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
 function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode | undefined {
   const subs = toArray<unknown>(getChild(set, 'subform'));
   if (subs.length === 0) return undefined;
-  const parsed = Number.parseInt(attr(set, 'initial') ?? '0', 10);
-  const idx = Number.isFinite(parsed) && parsed >= 0 && parsed < subs.length ? parsed : 0;
+  const relation = (attr(set, 'relation') as SubformNode['setRelation']) ?? 'ordered';
   const orderedSubs = (orderedKids ?? []).filter((i) => i.tag === 'subform');
-  const active = parseSubform(subs[idx], orderedSubs[idx]?.kids);
-  // The set is a SOM scope (`set.alt0`); the chosen alternative stays a child
-  // so both names remain addressable. Without a name the set is transparent.
+  const pick = (i: number): SubformNode => parseSubform(subs[i], orderedSubs[i]?.kids);
+
+  // XFA subformSet default relation is `ordered`: every child is
+  // instantiated, in document order. `choice` instantiates only the selected
+  // alternative (`@initial`, default first). `unordered` may instantiate all.
+  const children: SubformNode[] = [];
+  if (relation === 'choice') {
+    const parsed = Number.parseInt(attr(set, 'initial') ?? '0', 10);
+    const idx = Number.isFinite(parsed) && parsed >= 0 && parsed < subs.length ? parsed : 0;
+    children.push(pick(idx));
+  } else {
+    for (let i = 0; i < subs.length; i++) children.push(pick(i));
+  }
+
+  // The set is a SOM scope (`set.alt0`); its alternatives stay children so
+  // both names remain addressable. Without a name a single-choice set is
+  // transparent (nothing to address).
   const setName = attr(set, 'name');
-  if (!setName) return active;
+  if (!setName && children.length === 1) return children[0];
   return {
     type: 'subform',
     name: setName,
     uid: attr(set, 'id') ?? undefined,
-    layout: 'position',
+    // Ordered sets behave as a content-flow group; a table parent lays their
+    // row children directly against its own columns (table-engine.ts).
+    layout: relation === 'ordered' ? 'tb' : 'position',
+    isSubformSet: true,
+    setRelation: relation,
     occur: parseOccur(getChild(set, 'occur')),
-    children: [active],
+    children,
     presence: (attr(set, 'presence') as PresenceValue) ?? 'visible',
     position: parsePosition(set),
     assist: parseAssist(set),
@@ -573,7 +673,7 @@ function parseSubform(subform: unknown, orderedKids?: OrderedItem[]): SubformNod
   };
 }
 
-function parseField(field: unknown): FieldNode {
+function parseField(field: unknown, order?: OrderedItem): FieldNode {
   const bind = parseBind(getChild(field, 'bind'));
   const ui = getChild(field, 'ui');
   const uiElement = ui ? findUiElement(ui) : undefined;
@@ -581,6 +681,11 @@ function parseField(field: unknown): FieldNode {
   // Parse <value> element for default/initial value
   const valueEl = getChild(field, 'value');
   const defaultValue = parseDefaultValue(valueEl);
+  const parsedValue = parseDrawValue(valueEl);
+  if (parsedValue?.type === 'richText' && order?.richText) {
+    parsedValue.content = order.richText;
+  }
+  const imageValue = parsedValue?.type === 'image' ? parsedValue : undefined;
 
   // Parse <relevant> attribute for conditional visibility
   const relevant = attr(field, 'relevant');
@@ -607,6 +712,7 @@ function parseField(field: unknown): FieldNode {
     border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
     relevant: relevant ?? undefined,
     defaultValue,
+    imageValue,
     assist: parseAssist(field),
     extras: parseExtras(field),
     traversal: parseTraversal(field),
@@ -652,12 +758,16 @@ function parseExclGroup(eg: unknown, orderedKids?: OrderedItem[]): ExclGroupNode
   };
 }
 
-function parseDraw(draw: unknown): DrawNode {
+function parseDraw(draw: unknown, order?: OrderedItem): DrawNode {
+  const value = parseDrawValue(firstChild(draw, 'value'));
+  if (value?.type === 'richText' && order?.richText) {
+    value.content = order.richText;
+  }
   return {
     type: 'draw',
     name: attr(draw, 'name'),
     uid: attr(draw, 'id') ?? undefined,
-    value: parseDrawValue(firstChild(draw, 'value')),
+    value,
     font: parseFont(firstChild(draw, 'font')),
     para: parsePara(firstChild(draw, 'para')),
     position: parsePosition(draw),
@@ -1012,6 +1122,22 @@ function parseBreaks(el: unknown): {
   const ba = parseBreak(attr(el, 'breakAfter'));
   if (bb) out.breakBefore = bb;
   if (ba) out.breakAfter = ba;
+
+  // Designer writes the modern form as child elements:
+  //   <breakBefore targetType="pageArea" startNew="1"/>
+  // The legacy form is the attribute handled above.
+  for (const [tag, key] of [
+    ['breakBefore', 'breakBefore'],
+    ['breakAfter', 'breakAfter'],
+  ] as const) {
+    if (out[key]) continue;
+    const breakEl = getChild(el, tag);
+    if (breakEl == null || typeof breakEl !== 'object') continue;
+    const startNew = attr(breakEl, 'startNew');
+    if (startNew === '0' || startNew === 'false') continue;
+    const target = parseBreak(attr(breakEl, 'targetType'));
+    if (target) out[key] = target;
+  }
 
   const keepEl = getChild(el, 'keep');
   if (keepEl != null && typeof keepEl === 'object') {

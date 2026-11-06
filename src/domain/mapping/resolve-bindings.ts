@@ -1,16 +1,16 @@
 import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, DataObject } from '../../types';
 import { success, failure } from '../../lib/result-type';
-import { resolveXPath } from '../../lib/xpath-resolver';
+import { resolveXPath, resolveXPathRelative } from '../../lib/xpath-resolver';
 import { ERROR_CODES } from '../../errors/error-codes';
 
 /** Deep-clone the layout model and attach resolvedValue to each data-bound field. */
 export function resolveBindings(layout: LayoutModel, data: DataObject): Result<LayoutModel> {
   try {
     const cloned = deepCloneLayout(layout);
-    cloned.children = resolveNodes(cloned.children, data);
+    cloned.children = resolveNodes(cloned.children, data, data);
     cloned.pages = cloned.pages.map((page) => ({
       ...page,
-      masterPageChildren: resolveNodes(page.masterPageChildren, data),
+      masterPageChildren: resolveNodes(page.masterPageChildren, data, data),
     }));
     return success(cloned);
   } catch (e) {
@@ -18,29 +18,49 @@ export function resolveBindings(layout: LayoutModel, data: DataObject): Result<L
   }
 }
 
-function resolveNodes(nodes: LayoutNode[], data: DataObject): LayoutNode[] {
-  return nodes.map((node) => resolveNode(node, data));
+function resolveNodes(nodes: LayoutNode[], data: DataObject, scope: DataObject): LayoutNode[] {
+  return nodes.map((node) => resolveNode(node, data, scope));
 }
 
-function resolveNode(node: LayoutNode, data: DataObject): LayoutNode {
-  if (node.type === 'subform') return resolveSubform(node, data);
-  if (node.type === 'field') return resolveField(node, data);
+function resolveNode(node: LayoutNode, data: DataObject, scope: DataObject): LayoutNode {
+  if (node.type === 'subform') return resolveSubform(node, data, scope);
+  if (node.type === 'field') return resolveField(node, data, scope);
   if (node.type === 'draw') return resolveDraw(node, data);
-  if (node.type === 'exclGroup') return resolveExclGroup(node, data);
+  if (node.type === 'exclGroup') return resolveExclGroup(node, data, scope);
   return node;
 }
 
-function resolveSubform(node: SubformNode, data: DataObject): SubformNode {
+/**
+ * XFA dataRefs are evaluated from the nearest bound ancestor's data node.
+ * A row bound to `$.Element_2646` therefore makes a child `$.Element_2651`
+ * address `Element_2646.Element_2651`, not a root sibling. Root lookup stays
+ * as a fallback for templates that use absolute-looking refs throughout.
+ */
+function resolveRef(ref: string, data: DataObject, scope: DataObject): unknown {
+  const scoped = scope !== data ? resolveXPathRelative(ref, scope) : undefined;
+  return scoped !== undefined ? scoped : resolveXPath(ref, data);
+}
+
+function isDataScope(value: unknown): value is DataObject {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveSubform(node: SubformNode, data: DataObject, scope: DataObject): SubformNode {
+  let childScope = scope;
+  if (node.bindMatch === 'dataRef' && node.bindRef) {
+    const resolved = resolveRef(node.bindRef, data, scope);
+    if (isDataScope(resolved)) childScope = resolved;
+  }
   return {
     ...node,
-    children: resolveNodes(node.children, data),
+    children: resolveNodes(node.children, data, childScope),
   };
 }
 
-function resolveField(node: FieldNode, data: DataObject): FieldNode {
+function resolveField(node: FieldNode, data: DataObject, scope: DataObject): FieldNode {
   // If data-bound, resolve from data
   if (node.bindMatch === 'dataRef' && node.bindRef) {
-    const resolved = resolveXPath(node.bindRef, data);
+    const resolved = resolveRef(node.bindRef, data, scope);
     if (resolved !== undefined) {
       return { ...node, resolvedValue: resolved };
     }
@@ -62,11 +82,16 @@ function resolveDraw(node: DrawNode, data: DataObject): DrawNode {
   return node;
 }
 
-function resolveExclGroup(node: ExclGroupNode, data: DataObject): ExclGroupNode {
-  const resolvedChildren = resolveNodes(node.children, data);
+function resolveExclGroup(node: ExclGroupNode, data: DataObject, scope: DataObject): ExclGroupNode {
+  let childScope = scope;
+  let resolvedValue: unknown;
   if (node.bindMatch === 'dataRef' && node.bindRef) {
-    const resolved = resolveXPath(node.bindRef, data);
-    return { ...node, children: resolvedChildren, resolvedValue: resolved };
+    resolvedValue = resolveRef(node.bindRef, data, scope);
+    if (isDataScope(resolvedValue)) childScope = resolvedValue;
+  }
+  const resolvedChildren = resolveNodes(node.children, data, childScope);
+  if (resolvedValue !== undefined) {
+    return { ...node, children: resolvedChildren, resolvedValue };
   }
   return { ...node, children: resolvedChildren };
 }

@@ -275,29 +275,10 @@ function executeScriptLifecycle(
   };
 
   // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 1: form ready — activity="ready" with ref="$form" (or no ref).
-  // Fires once on the form model before any per-field initialization.
-  // evidence: XFAModelImpl::ready dispatches 'ready' on the model alias node
-  // xfa_disasm.c:49230-49275; default event ("OnFormReady","ready","$form")
-  // xfatemplate_disasm.c:32238-32244. Events with ref="$layout" are handled
-  // in PHASE 6 (layout ready), not here.
-  // ═══════════════════════════════════════════════════════════════════════
-  if (!config.skipEvents?.includes('ready') && !config.skipEvents?.includes('form:ready')) {
-    const formReadyScripts = scripts.filter(
-      (s) =>
-        (s.eventName === 'ready' || s.eventName === 'form:ready') &&
-        !isLayoutReadyEvent(s)
-    );
-    for (const entry of formReadyScripts) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // PHASE 2: initialize + indexChange — LEAF-FIRST depth-first order.
+  // PHASE 2: initialize + indexChange — post-order depth-first.
   // Adobe's initializeNewContentNodes fires 'initialize' (executeReason 4)
   // and immediately after, 'indexChange' (executeReason 0x10) for the SAME
-  // node, once per new content node, leaf-first.
+  // node, once per new content node, children before their container.
   // evidence: xfaform_disasm.c:26396-26402 (FUN_17521320, called by
   // XFAFormModel::initializeNewContentNodes, xfaform_disasm.c:15285-15291)
   // ═══════════════════════════════════════════════════════════════════════
@@ -341,6 +322,27 @@ function executeScriptLifecycle(
   if (!config.skipEvents?.includes('overlay')) {
     const overlayScripts = scripts.filter((s) => s.eventName === 'overlay');
     for (const entry of overlayScripts) {
+      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PHASE 6: form ready — activity="ready" with ref="$form" (or no ref).
+  //
+  // XFA model event order is initialize → calculate → validate → ready.
+  // "Ready" means the model has finished initializing, so scripts here may
+  // read fields populated by initialize/calculate. Example-2 depends on this:
+  // Field_0146's form-ready script reads `rowCountHeader`, which is incremented
+  // by each Field_0147 initialize; running ready before initialize hid the
+  // whole V-row block (Subform_0080/0081).
+  // ═══════════════════════════════════════════════════════════════════════
+  if (!config.skipEvents?.includes('ready') && !config.skipEvents?.includes('form:ready')) {
+    const formReadyScripts = scripts.filter(
+      (s) =>
+        (s.eventName === 'ready' || s.eventName === 'form:ready') &&
+        !isLayoutReadyEvent(s)
+    );
+    for (const entry of formReadyScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
   }
@@ -582,8 +584,13 @@ function executeInitializePhase(
     index: group.index,
   }));
 
-  // Leaf-first: fields/draws before containers, deeper before shallower.
-  for (const item of sortLeafFirst(perElement)) {
+  // Post-order within each subtree: children initialize before their
+  // container, but sibling rows complete before the next row starts. This is
+  // Adobe's new-content order for repeating rows: row N's counter script sees
+  // the value left by row N−1's container initialize. A global leaf-first sort
+  // ran every row's fields before any row container, collapsing Example-2's
+  // item numbers to "1.".
+  for (const item of orderInitializeByTree(perElement)) {
     if (!config.skipEvents?.includes('initialize')) {
       for (const entry of item.init) {
         executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
@@ -763,6 +770,36 @@ function executeSingleScript(
   }
 }
 
+/** Post-order traversal of the scriptable tree, preserving sibling order. */
+function orderInitializeByTree<T extends { element: ScriptableNode }>(items: T[]): T[] {
+  const byElement = new Map<ScriptableNode, T>();
+  for (const item of items) byElement.set(item.element, item);
+
+  const roots = new Set<ScriptableNode>();
+  for (const item of items) {
+    let node: ScriptableNode | undefined = item.element;
+    while (node?.parent) node = node.parent;
+    if (node) roots.add(node);
+  }
+
+  const out: T[] = [];
+  const seen = new Set<T>();
+  const visit = (node: ScriptableNode): void => {
+    for (const child of node.children ?? []) visit(child);
+    const item = byElement.get(node);
+    if (item && !seen.has(item)) {
+      seen.add(item);
+      out.push(item);
+    }
+  };
+  for (const node of roots) visit(node);
+  // Safety: scripts collected from detached nodes still execute.
+  for (const item of items) {
+    if (!seen.has(item)) out.push(item);
+  }
+  return out;
+}
+
 // ─── Leaf-First Sort ────────────────────────────────────────────────────
 
 /**
@@ -836,6 +873,25 @@ export function buildScriptIndex(layout: LayoutModel): ScriptIndex {
     };
     allNodes.set(root.key!, root);
     ordered.push(root);
+  }
+
+  // Designer `<variables>` are form-wide mutable script variables. Expose each
+  // as a scriptable node so `Variable_0001 = Variable_0001 + 1` persists across
+  // initialize scripts instead of becoming a per-script local.
+  for (const [name, value] of Object.entries(layout.variables ?? {})) {
+    const variable: ScriptableNode = {
+      type: 'variable',
+      name,
+      key: name,
+      path: name,
+      uid: name,
+      presence: 'visible',
+      resolvedValue: value,
+      children: [],
+    };
+    allNodes.set(name, variable);
+    ordered.push(variable);
+    root?.children?.push(variable);
   }
 
   function walkNodes(nodes: LayoutNode[], parent: ScriptableNode | undefined) {

@@ -186,7 +186,40 @@ export class SomExpressionResolver {
     if (relativeResult.found) return relativeResult;
 
     // Absolute fallback: try from form root
-    return this.resolveFromRoot(trimmed);
+    const rootResult = this.resolveFromRoot(trimmed);
+    if (rootResult.found) return rootResult;
+
+    // Adobe's SOM also resolves named objects across the form when no
+    // ancestor-scoped match exists (scripts reference nested rows such as
+    // Subform_0069 from a sibling table area). Fall back to a global name
+    // lookup before giving up.
+    return this.resolveByFirstName(trimmed);
+  }
+
+  /**
+   * Resolve a SOM path by locating the first segment anywhere in the form
+   * tree, then walking the remaining segments from that node.
+   */
+  private resolveByFirstName(path: string): SomResolutionResult {
+    const segments = parseSomExpression(path);
+    if (segments.length === 0) return { nodes: [], found: false };
+    const first = segments[0];
+    const matches: string[] = [];
+    for (const candidate of this.nodeMap.keys()) {
+      if (candidate.substring(candidate.lastIndexOf('.') + 1) === first.name) {
+        matches.push(candidate);
+      }
+    }
+    const bases = first.wildcard
+      ? matches
+      : first.index !== undefined
+        ? matches[first.index] !== undefined ? [matches[first.index]] : []
+        : matches.slice(0, 1);
+    for (const base of bases) {
+      const result = this.walkSegments(segments.slice(1), base);
+      if (result.found) return result;
+    }
+    return { nodes: [], found: false };
   }
 
   /**

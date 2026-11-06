@@ -100,8 +100,8 @@ describe('rendering a condensed face', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // 82% condensed -> Tz 82
-    expect(content).toMatch(/(^|\n)82 Tz(\n|$)/);
+    // 93% condensed -> Tz 93
+    expect(content).toMatch(/(^|\n)93 Tz(\n|$)/);
     // and it must be reset so the scale does not leak to later content
     expect(content).toMatch(/(^|\n)100 Tz(\n|$)/);
   });
@@ -136,7 +136,7 @@ describe('rendering a condensed face', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)82 Tz(\n|$)/);
+    expect(content).toMatch(/(^|\n)93 Tz(\n|$)/);
     expect(content).toMatch(/(^|\n)100 Tz(\n|$)/);
   });
 

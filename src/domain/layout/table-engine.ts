@@ -49,7 +49,16 @@ function layoutRow(
   for (const cell of cells) {
     const span = cellColSpan(cell);
     const cw = spanWidth(colWidths, col, span, ctx.availableWidth, colCount);
-    const result = layoutChild(cell, { x: ctx.x + xOffset, y: ctx.y + yOffset, availableWidth: cw });
+    const fixedHeight =
+      (cell.type === 'field' || cell.type === 'draw') &&
+      cell.position?.h != null &&
+      cell.position.h !== 0;
+    const result = layoutChild(cell, {
+      x: ctx.x + xOffset,
+      y: ctx.y + yOffset,
+      availableWidth: cw,
+      stretchWidth: !fixedHeight,
+    });
     children.push(result.node);
     col += span;
     xOffset += cw;
@@ -64,6 +73,55 @@ function layoutRow(
       position: { ...row.position, x: ctx.x, y: ctx.y + yOffset, w: width, h: maxHeight },
     } as SubformNode,
     height: maxHeight,
+  };
+}
+
+/**
+ * `<subformSet relation="ordered">` used as a table child: its subforms are
+ * rows of the enclosing table, not a nested table. Lay them against the
+ * parent's columns and wrap the positioned rows in the set node so script /
+ * SOM addresses such as `Subform_0068.Subform_0069` stay valid.
+ */
+function layoutSubformSetRows(
+  set: SubformNode,
+  ctx: LayoutContext,
+  yOffset: number,
+  colWidths: number[],
+  layoutChild: ChildLayouter
+): LayoutResult {
+  const children: LayoutNode[] = [];
+  let innerOffset = 0;
+  for (const child of set.children) {
+    const y = ctx.y + yOffset + innerOffset;
+    const result = isRow(child)
+      ? layoutRow(
+          child as SubformNode,
+          { ...ctx, x: ctx.x, y: ctx.y + yOffset, availableWidth: ctx.availableWidth },
+          innerOffset,
+          colWidths,
+          layoutChild
+        )
+      : layoutChild(child, { x: ctx.x, y, availableWidth: ctx.availableWidth });
+    // Adobe Preview lays the Example-2 ordered-set rows on the table's 7mm
+    // row grid even though the authored cell draws are only ~5.6mm high;
+    // using the raw cell height clips embedded numeric text at row borders.
+    const rowHeight = Math.max(result.height, 7 * 72 / 25.4);
+    children.push({
+      ...result.node,
+      position: { ...result.node.position, h: rowHeight },
+    } as LayoutNode);
+    innerOffset += rowHeight;
+  }
+
+  const width = resolveExtent(set.position, 'width', ctx.availableWidth);
+  const height = resolveSubformHeight(set.position, innerOffset);
+  return {
+    node: {
+      ...set,
+      children,
+      position: { ...set.position, x: ctx.x, y: ctx.y + yOffset, w: width, h: height },
+    } as SubformNode,
+    height,
   };
 }
 
@@ -94,6 +152,10 @@ export function layoutTableSubform(
   for (const child of node.children) {
     if (isRow(child)) {
       const r = layoutRow(child as SubformNode, { ...ctx, x: baseX, y: baseY, availableWidth: contentW }, yOffset, colWidths, layoutChild);
+      children.push(r.node);
+      yOffset += r.height;
+    } else if (child.type === 'subform' && child.isSubformSet) {
+      const r = layoutSubformSetRows(child, { ...ctx, x: baseX, y: baseY, availableWidth: contentW }, yOffset, colWidths, layoutChild);
       children.push(r.node);
       yOffset += r.height;
     } else {

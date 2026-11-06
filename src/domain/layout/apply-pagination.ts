@@ -57,7 +57,7 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
     ca1: { ...first.contentArea },
   };
 
-  const { nodes: walked } = walkContainer(layout.children, state, false, true);
+  const { nodes: walked } = walkContainer(layout.children, state, false, true, false);
 
   // Bucket top-level nodes by page span; straddling containers fragment.
   const buckets: LayoutNode[][] = [];
@@ -152,7 +152,8 @@ function walkContainer(
   nodes: LayoutNode[],
   state: WalkState,
   parentIsTable: boolean,
-  allowUnitShift: boolean
+  allowUnitShift: boolean,
+  ancestorRepeat: boolean
 ): { nodes: LayoutNode[]; bottom: number } {
   const out: LayoutNode[] = [];
   let localDy = 0;
@@ -187,8 +188,21 @@ function walkContainer(
       // container past its original box, so the parent's next-page fragment
       // overlaps the following sibling (cover-letter paragraph lines). Let
       // those containers fragment by coordinate instead.
-      const childMayShift = node.type === 'subform' && node.layout === 'table';
-      const inner = walkContainer(node.children, state, node.type === 'subform' && node.layout === 'table', childMayShift);
+      const repeatInstance = node.type === 'subform' && (node as SubformNode).repeatIndex != null;
+      // Inside a repeating wrapper (Subform_0082 rows), the table represents
+      // one data row. Do not keep-shift that inner row to a page top: the
+      // outer wrapper is what flows, and shifting only the inner row leaves
+      // the previous page's table empty while subsequent wrappers stay at
+      // their old coordinates (overlapping rows).
+      const childMayShift =
+        node.type === 'subform' && node.layout === 'table' && !ancestorRepeat && !repeatInstance;
+      const inner = walkContainer(
+        node.children,
+        state,
+        node.type === 'subform' && node.layout === 'table',
+        childMayShift,
+        ancestorRepeat || repeatInstance
+      );
       if (node.type === 'subform') {
         node = { ...node, children: inner.nodes } as SubformNode;
         // Container box must cover content pushed past it by breaks/keeps.

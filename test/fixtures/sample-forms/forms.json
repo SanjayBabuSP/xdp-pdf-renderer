@@ -13,7 +13,7 @@
       "xdp": "Example-2/Example-Datasheet-EN.xdp",
       "xsd": "Example-2/Example-Schema.xsd",
       "data": "Example-2/Example-Test-Data.xml",
-      "expectedPages": 4,
+      "expectedPages": 6,
       "minDataValuesShown": 18
     },
     {
@@ -21,7 +21,7 @@
       "xdp": "Example-2/Example-Datasheet-CN.xdp",
       "xsd": "Example-2/Example-Schema.xsd",
       "data": "Example-2/Example-Test-Data.xml",
-      "expectedPages": 4,
+      "expectedPages": 6,
       "minDataValuesShown": 18
     },
     {
@@ -29,7 +29,7 @@
       "xdp": "Example-2/Example-Datasheet-ESP.xdp",
       "xsd": "Example-2/Example-Schema.xsd",
       "data": "Example-2/Example-Test-Data.xml",
-      "expectedPages": 5,
+      "expectedPages": 6,
       "minDataValuesShown": 18
     },
     {

@@ -45,6 +45,7 @@ import {
   MarginSpec,
 } from '../types';
 import { formatValue } from '../lib/value-format';
+import { PAGE_NUMBER_TOKEN } from '../domain/mapping/resolve-embeds';
 import { resolveChoiceText, resolveButtonLabel } from './ui-values';
 import { FontManager } from './font-manager';
 import { embedBase64Image } from './image-embedder';
@@ -168,7 +169,7 @@ async function renderNode(
   if (!options.previewMode) {
     if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive') return;
   }
-  if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager);
+  if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager, pageIndex);
   if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager);
   if (node.type === 'subform') return renderSubform(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
   if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager, options);
@@ -544,6 +545,12 @@ async function renderField(
     return renderCheckButton(pdfPage, node, pos.x, flipY(pos.y, height, pageH), pos.w ?? 0, height, fontSize, fontManager, fontColor);
   }
 
+  if (node.imageValue?.type === 'image' && node.imageValue.content) {
+    if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
+    await renderImage(pdfPage, node.imageValue, x, y, width, innerHeight);
+    return;
+  }
+
   if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
 
   // Buttons draw their authored label centred in the widget box (G7); the
@@ -907,7 +914,8 @@ async function renderDraw(
   pdfPage: PDFPage,
   node: DrawNode,
   pageH: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  pageIndex = 0
 ): Promise<void> {
   const pos = node.position;
   if (pos?.x === undefined || pos?.y === undefined) return;
@@ -923,7 +931,7 @@ async function renderDraw(
   if (!node.value) return;
 
   if (node.value.type === 'image' && node.value.content) {
-    await renderImage(pdfPage, node, x, y - height, width, height);
+    await renderImage(pdfPage, node.value, x, y, width, height);
     return;
   }
 
@@ -938,7 +946,7 @@ async function renderDraw(
   }
 
   if (node.value.type === 'richText') {
-    await renderRichText(pdfPage, node, x, y, fontManager, width, height);
+    await renderRichText(pdfPage, node, x, y, fontManager, width, height, pageIndex);
     return;
   }
 
@@ -965,8 +973,8 @@ async function renderDraw(
     const drawScale = scaleForFamily(baseFamily);
 
     if (isVerticalRotation(rotate)) {
-      // Box swap: wrap along the box height, anchor via rotation remap
-      const lines = wrapText(text, fontSize, height, font, { horizontalScale: drawScale });
+      // Box swap: the authored long axis becomes vertical reading length.
+      const lines = wrapText(text, fontSize, width, font, { horizontalScale: drawScale });
       const advance = pm.lineAdvance;
       const longest = lines.reduce(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font, drawScale)),
@@ -974,9 +982,9 @@ async function renderDraw(
       );
       const anchor = rotatedAnchor({
         rotate,
-        box: { x, y, w: width, h: height },
-        align: 'left',
-        valign: 'top',
+        box: { x, y, w: height, h: width },
+        align: alignClassOf(justH),
+        valign: verticalAlign,
         lineLen: longest,
         ascent: fontAscent(font, fontSize),
         descent: fontDescent(font, fontSize),
@@ -1110,9 +1118,13 @@ async function renderRichText(
   y: number,
   fontManager: FontManager,
   width?: number,
-  height?: number
+  height?: number,
+  pageIndex = 0
 ): Promise<void> {
-  const content = node.value?.content ?? '';
+  const content = (node.value?.content ?? '').replace(
+    new RegExp(PAGE_NUMBER_TOKEN, 'g'),
+    String(pageIndex + 1)
+  );
   const runs = parseRichText(content);
 
   if (runs.length === 0) {
@@ -1267,30 +1279,30 @@ async function renderRichText(
 
 async function renderImage(
   pdfPage: PDFPage,
-  node: DrawNode,
+  value: NonNullable<DrawNode['value']>,
   x: number,
   y: number,
   w: number,
   h: number
 ): Promise<void> {
-  if (!node.value?.content) return;
+  if (!value.content) return;
   const doc = pdfPage.doc;
   try {
-    const image = await embedBase64Image(doc, node.value.content, node.value.contentType);
+    const image = await embedBase64Image(doc, value.content, value.contentType);
 
     // Aspect-ratio scaling (xfaimageservice_disasm.c:9324-9379).
     // image.width / image.height are the pixel dimensions from pdf-lib.
     const rect = computeImageRect(
-      node.value.aspectMode,
+      value.aspectMode,
       w,
       h,
       {
         pixelW: image.width,
         pixelH: image.height,
-        xdpi: node.value.xdpi,
-        ydpi: node.value.ydpi,
+        xdpi: value.xdpi,
+        ydpi: value.ydpi,
       },
-      { hAlign: node.value.hAlign, vAlign: node.value.vAlign }
+      { hAlign: value.hAlign, vAlign: value.vAlign }
     );
 
     // y is already the bottom-left PDF coordinate; apply vertical alignment offset.

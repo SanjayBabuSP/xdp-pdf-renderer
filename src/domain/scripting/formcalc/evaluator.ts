@@ -133,6 +133,8 @@ export interface FieldAccessor {
    * `$.rawValue = …` writes to the exact node that owns the script.
    */
   setCurrentKey?(key: string | null): void;
+  /** Return the current scripting node key (undefined when none). */
+  getCurrentKey?(): string | null;
 }
 
 export interface FormCalcResult {
@@ -204,6 +206,24 @@ function strValue(v: unknown): string {
 }
 
 /** empty string ≡ null (evidence: comparison rules at :19655) */
+const SELF_PROPERTY_NAMES = new Set([
+  'rawValue',
+  'formattedValue',
+  'presence',
+  'access',
+  'x',
+  'y',
+  'w',
+  'h',
+  'rotate',
+  'name',
+  'value',
+]);
+
+function isSelfProperty(name: string): boolean {
+  return SELF_PROPERTY_NAMES.has(name);
+}
+
 function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === '';
 }
@@ -1912,6 +1932,13 @@ export class FormCalcEvaluator {
       this.modifiedFields.push(fr.path);
     } else if (node.target.type === 'Identifier') {
       const id = node.target as Identifier;
+      if (!this.env.has(id.name) && isSelfProperty(id.name) && this.fieldAccessor.getCurrentKey?.()) {
+        const current = this.fieldAccessor.getField(`.${id.name}`, '$');
+        const newVal = this.computeAssignedValue(node.operator, current, value);
+        this.fieldAccessor.setField(`.${id.name}`, '$', coerceScriptVar(newVal));
+        this.modifiedFields.push(`.${id.name}`);
+        return;
+      }
       // Unqualified assignment targets an existing form field (XFA SOM
       // scoping resolves bare names to fields) unless the name was declared
       // as a local variable via Dim/var.
@@ -1969,6 +1996,12 @@ export class FormCalcEvaluator {
       case 'Identifier': {
         const name = (node as Identifier).name;
         if (this.env.has(name)) return this.env.get(name);
+        // Inside a field script, bare `rawValue` / `presence` / geometry names
+        // address the scripting object itself (Example-2 counters read
+        // `if (rawValue == Variable_0002)`).
+        if (isSelfProperty(name) && this.fieldAccessor.getCurrentKey?.()) {
+          return this.fieldAccessor.getField(`.${name}`, '$');
+        }
         if (this.strictIdentifiers) {
           if (this.fieldAccessor.hasField?.(name)) return this.fieldAccessor.getField(name, '$');
           throw new FormCalcError(`Unknown identifier: ${name}`, FORMCALC_ERR.SYNTAX);
@@ -2099,6 +2132,18 @@ export class FormCalcEvaluator {
     }
 
     if (typeof left === 'string' && typeof right === 'string') {
+      // Adobe's collation compares numeric-looking strings by value: the
+      // list-number script writes `Concat(Variable_0002, ".")` ("1.") and then
+      // tests `rawValue == Variable_0002` ("1"), which is true in Preview PDF.
+      const numeric = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+      if (
+        (op === '=' || op === '<>') &&
+        numeric.test(left.trim()) &&
+        numeric.test(right.trim())
+      ) {
+        const equal = Number(left.trim()) === Number(right.trim());
+        return op === '=' ? (equal ? 1 : 0) : (equal ? 0 : 1);
+      }
       switch (op) {
         case '=': return left === right ? 1 : 0;
         case '<>': return left !== right ? 1 : 0;

@@ -15,8 +15,32 @@ export function resolveXPath(ref: string, data: DataObject): DataValue | undefin
   return resolvePath(path, data);
 }
 
+/**
+ * Resolve a `$.path` dataRef relative to an already-bound data scope (the
+ * nearest bound ancestor's data node), as XFA dataRefs are evaluated.
+ */
+export function resolveXPathRelative(ref: string, scope: DataObject): DataValue | undefined {
+  if (!ref.startsWith('$.')) return undefined;
+  return resolvePath(ref.slice(2), scope);
+}
+
 function resolvePath(path: string, current: unknown): DataValue | undefined {
   if (!path || current == null) return current as DataValue;
+
+  // A wildcard segment (`Nodes[*].Child`) leaves an array in `current`.
+  // Continue the remaining path from every item and flatten the results, so
+  // XFA nested repeat bindings (`$.Element_2659[*].Element_2660`) resolve to
+  // the concatenation of each occurrence's children.
+  if (Array.isArray(current)) {
+    const out: DataValue[] = [];
+    for (const item of current) {
+      const resolved = resolvePath(path, item);
+      if (resolved === undefined) continue;
+      if (Array.isArray(resolved)) out.push(...resolved);
+      else out.push(resolved);
+    }
+    return out.length > 0 ? (out as unknown as DataValue) : undefined;
+  }
 
   const dotIndex = findNextDot(path);
   const segment = dotIndex === -1 ? path : path.slice(0, dotIndex);

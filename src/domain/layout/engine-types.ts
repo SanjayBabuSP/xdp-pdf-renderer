@@ -23,6 +23,19 @@ export interface LayoutContext {
    * and overlap (seen in the cover-letter LeadTime blocks).
    */
   widthFromContent?: boolean;
+  /**
+   * Table row cell: stretch a leaf field/draw to the column width. Adobe's
+   * table layout gives cell content the full cell box, even when the authored
+   * field `w` is narrower (Example-2 header company field is 32mm inside a
+   * 76.8mm column; Preview PDF paints the whole company name on one line).
+   */
+  stretchWidth?: boolean;
+  /**
+   * Flow line (lr-tb/rl-tb): a leaf with no authored `w` sizes to its content
+   * instead of consuming the remaining line width, so the next sibling (e.g.
+   * the comma after a salutation) stays on the same line.
+   */
+  widthFromText?: boolean;
 }
 
 export interface LayoutResult {

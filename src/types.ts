@@ -273,6 +273,9 @@ export interface SubformNode {
   bindRef?: string;
   occur?: OccurSpec;
   columnWidths?: number[];
+  /** `<subformSet>` wrapper: relation="ordered" instantiates every child. */
+  isSubformSet?: boolean;
+  setRelation?: 'ordered' | 'choice' | 'unordered';
   children: LayoutNode[];
   locale?: string;
   restoreState?: string;
@@ -353,6 +356,8 @@ export interface FieldNode {
   relevant?: string;
   /** Default value from <value> element */
   defaultValue?: unknown;
+  /** `<value><image>` payload for imageEdit fields (checked/unchecked marks). */
+  imageValue?: NonNullable<DrawNode['value']>;
   /** `<assist>` annotations (G6). */
   assist?: AssistSpec;
   /** `<extras>` author baggage (G6). */
@@ -487,6 +492,8 @@ export interface LayoutModel {
    * so its scripts are carried here for the script dispatcher.
    */
   rootEvents?: EventSpec[];
+  /** Template-level `<variables>` (Designer global variables). */
+  variables?: Record<string, string>;
   config?: ConfigSpec;
   xsdUri?: string;
   xsdRootElement?: string;

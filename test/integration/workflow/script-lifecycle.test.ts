@@ -43,7 +43,7 @@ function stageField(layout: unknown): FieldNode | undefined {
 }
 
 describe('XFA script lifecycle order (Phase 1)', () => {
-  it('executes ready → initialize → calculate → validate → overlay → ready($layout) → docReady in order', () => {
+  it('executes initialize → calculate → validate → overlay → ready($form) → ready($layout) → docReady in order', () => {
     const { xdp, xsd, data } = loadFixtures();
 
     const parsed = parseXdp(xdp);
@@ -70,10 +70,10 @@ describe('XFA script lifecycle order (Phase 1)', () => {
     expect(preLayout.success).toBe(true);
     if (!preLayout.success) return;
     expect(preLayout.data.scriptErrors).toBe(0);
-    // ready(A) + initialize(B) + calculate(C, executed exactly once despite
-    // reading its own output) + validate(D) + overlay(E) + ready($layout)(F)
+    // initialize(B) + calculate(C, executed exactly once despite reading its
+    // own output) + validate(D) + overlay(E) + ready($form)(A) + ready($layout)(F)
     expect(preLayout.data.scriptsExecuted).toBe(6);
-    expect(stageField(preLayout.data.layout)?.resolvedValue).toBe('SABCDEF');
+    expect(stageField(preLayout.data.layout)?.resolvedValue).toBe('SBCDEAF');
 
     const conditions = evaluateConditions(preLayout.data.layout);
     expect(conditions.success).toBe(true);
@@ -97,7 +97,7 @@ describe('XFA script lifecycle order (Phase 1)', () => {
     expect(postLayout.success).toBe(true);
     if (!postLayout.success) return;
     expect(postLayout.data.scriptErrors).toBe(0);
-    expect(stageField(postLayout.data.layout)?.resolvedValue).toBe('SABCDEFG');
+    expect(stageField(postLayout.data.layout)?.resolvedValue).toBe('SBCDEAFG');
   });
 
   it('renders the lifecycle fixture to a PDF', async () => {
