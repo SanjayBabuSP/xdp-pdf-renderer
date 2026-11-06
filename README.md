@@ -1,8 +1,10 @@
 # xdp-pdf-render
 
-> Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP/Adobe dependency.
+> Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP dependency.
+> IMPORTANT: THIS PROJECT IS PURELY DEVELOPED FOR MY OWN EDUCATIONAL PURPOSES. I DO NOT CONDEMN PIRATING/SHARING OF ILLEGAL SOFTWARE LICENSES WITHOUT PROPER PURCHASE.
+> This is a passion project that I've developed to understand how this particular software works. I do not sell this or made money off this project.
 
-Replaces SAP Adobe Forms Service by taking an **XDP template**, an **XSD schema**, and **XML data** — and producing a **PDF** — entirely in Node.js with zero SAP dependencies.
+Replaces SAP  Forms Service by taking an **XDP template**, an **XSD schema**, and **XML data** — and producing a **PDF** — entirely in Node.js with zero SAP dependencies.
 
 ## Installation
 
