@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import { FontManager } from '../../../src/rendering/font-manager';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream } from '../../helpers/pdf-content';
+import { itWithImportedFaces } from '../../helpers/adobe-fonts';
 /**
  * G16 — `font-sequences.ts` fallback chains: a family with no embedded face and
  * no base-14 counterpart should follow its Adobe `<seq>` chain (here to Times)
@@ -25,16 +26,21 @@ describe('G16 — FontManager font-sequence fallback', () => {
     expect(helvetica.name).toContain('Helvetica');
   });
 
-  it('resolves SimSun-ExtB through its sequence to an embedded CJK face', async () => {
-    const doc = await PDFDocument.create();
-    const manager = new FontManager(doc);
+  // Needs the proprietary Adobe Song face in assets/fonts/adobe/
+  // (gitignored) — runs locally after `npm run fonts:import`, skips in CI.
+  itWithImportedFaces(['SimSun-ExtB', 'SimSun'])(
+    'resolves SimSun-ExtB through its sequence to an embedded CJK face',
+    async () => {
+      const doc = await PDFDocument.create();
+      const manager = new FontManager(doc);
 
-    // Sequence lands on the bundled Adobe Song face, not the DejaVu fallback
-    // (DejaVu has no CJK glyphs, so the old path produced tofu boxes).
-    expect((await manager.getFont('SimSun-ExtB')).name).toBe('AdobeSongStd-Light');
-    expect((await manager.getFont('SimSun')).name).toBe('AdobeSongStd-Light');
-    expect((await manager.getFont('NoSuchFontXYZ')).name).toBe('DejaVuSans');
-  });
+      // Sequence lands on the bundled Adobe Song face, not the DejaVu fallback
+      // (DejaVu has no CJK glyphs, so the old path produced tofu boxes).
+      expect((await manager.getFont('SimSun-ExtB')).name).toBe('AdobeSongStd-Light');
+      expect((await manager.getFont('SimSun')).name).toBe('AdobeSongStd-Light');
+      expect((await manager.getFont('NoSuchFontXYZ')).name).toBe('DejaVuSans');
+    },
+  );
 
   it('renders CJK text with the sequenced face without failing', async () => {
     const xdp = `<?xml version="1.0" encoding="UTF-8"?>

@@ -1,9 +1,12 @@
 {
-  "name": "xdp-pdf-render",
+  "name": "@sanjay-sde/xdp-pdf-renderer",
   "version": "0.1.0",
   "description": "Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP/Adobe dependency",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "xdp-pdf": "dist/cli.js"
   },
@@ -42,10 +45,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SanjayBabuSP/xdp-pdf-renderer"
+    "url": "git+https://github.com/SanjayBabuSP/xdp-pdf-renderer.git"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.14.0"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

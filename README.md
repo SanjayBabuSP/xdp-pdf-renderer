@@ -1,7 +1,6 @@
-# xdp-pdf-render
-
+# @sanjay-sde/xdp-pdf-renderer
+⚠️ **IMPORTANT:** THIS PROJECT IS PURELY DEVELOPED FOR MY OWN EDUCATIONAL PURPOSES. I DO NOT CONDEMN PIRATING/SHARING OF ILLEGAL SOFTWARE LICENSES WITHOUT PROPER PURCHASE.
 > Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP dependency.
-> IMPORTANT: THIS PROJECT IS PURELY DEVELOPED FOR MY OWN EDUCATIONAL PURPOSES. I DO NOT CONDEMN PIRATING/SHARING OF ILLEGAL SOFTWARE LICENSES WITHOUT PROPER PURCHASE.
 > This is a passion project that I've developed to understand how this particular software works. I do not sell this or made money off this project.
 
 Replaces SAP  Forms Service by taking an **XDP template**, an **XSD schema**, and **XML data** — and producing a **PDF** — entirely in Node.js with zero SAP dependencies.
@@ -9,7 +8,7 @@ Replaces SAP  Forms Service by taking an **XDP template**, an **XSD schema**, an
 ## Installation
 
 ```bash
-npm install xdp-pdf-render
+npm install @sanjay-sde/xdp-pdf-renderer
 ```
 
 ## Usage
@@ -17,7 +16,7 @@ npm install xdp-pdf-render
 ### Programmatic API
 
 ```typescript
-import { render } from 'xdp-pdf-render';
+import { render } from '@sanjay-sde/xdp-pdf-renderer';
 import { readFileSync, writeFileSync } from 'fs';
 
 const result = await render({

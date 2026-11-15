@@ -11,6 +11,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { FontManager } from '../../../src/rendering/font-manager';
 import { familyKey } from '../../../src/rendering/font-registry';
+import { itWithImportedFaces } from '../../helpers/adobe-fonts';
 
 // `PDFDocument.create()` is async in pdf-lib, and FontManager needs a real
 // document (it registers fontkit against it), so every case awaits one.
@@ -89,16 +90,24 @@ describe('font resolution — substitution rules', () => {
     expect((await backingPsName('Helvetica'))).toBe('Helvetica');
   });
 
-  it('embeds the imported Adobe faces when a manifest is present', async () => {
-    // Myriad Pro ships with Designer, so it must resolve to the real face
-    // rather than a substitute. Designer embeds and subsets it too.
-    const ps = await backingPsName('Myriad Pro');
-    expect(ps).toMatch(/MyriadPro/i);
-  });
+  // These two need the proprietary Adobe faces in assets/fonts/adobe/
+  // (gitignored) — they run locally after `npm run fonts:import` and skip in CI.
+  itWithImportedFaces(['Myriad Pro'])(
+    'embeds the imported Adobe faces when a manifest is present',
+    async () => {
+      // Myriad Pro ships with Designer, so it must resolve to the real face
+      // rather than a substitute. Designer embeds and subsets it too.
+      const ps = await backingPsName('Myriad Pro');
+      expect(ps).toMatch(/MyriadPro/i);
+    },
+  );
 
-  it('resolves Adobe-provided Minion Pro rather than substituting', async () => {
-    expect(await backingPsName('Minion Pro')).toMatch(/MinionPro/i);
-  });
+  itWithImportedFaces(['Minion Pro'])(
+    'resolves Adobe-provided Minion Pro rather than substituting',
+    async () => {
+      expect(await backingPsName('Minion Pro')).toMatch(/MinionPro/i);
+    },
+  );
 });
 
 describe('familyKey', () => {
