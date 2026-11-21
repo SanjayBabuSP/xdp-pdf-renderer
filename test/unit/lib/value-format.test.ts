@@ -112,3 +112,66 @@ describe('date pictures are idempotent on display values (ADS parity)', () => {
     expect(formatValue('2026-11-06', 'date{DD-MM-YYYY}')).toBe('06-11-2026');
   });
 });
+
+describe('formatValue fallback and compound directives', () => {
+  it('returns the plain string when the picture is not a known pattern', () => {
+    expect(formatValue('abc', 'CR')).toBe('abc');
+    expect(formatValue(7, undefined)).toBe('7');
+    expect(formatValue(null)).toBe('');
+    expect(formatValue(undefined)).toBe('');
+  });
+
+  it('formats num and datetime directives', () => {
+    expect(formatValue(1234.5, 'num{}')).toBe('     1,234.50');
+    expect(formatValue(1234.5, 'num{0.0}')).toBe('1234.5');
+    expect(formatValue('2024-03-05T14:30:05Z', 'datetime{YYYY-MM-DD}')).toBe('2024-03-05');
+  });
+
+  it('formats text templates with O/X/x and unterminated quoted literals', () => {
+    expect(formatValue('abcd', 'text{OOXx}')).toBe('abcd');
+    expect(formatValue('X', "text{'unterminated}")).toBe('unterminated');
+    expect(formatValue('abc', 'text{}')).toBe('');
+  });
+});
+
+describe('formatValue date and time tokens', () => {
+  it('formats single and double year tokens', () => {
+    expect(formatValue('2024-03-05', 'Y')).toBe('2024');
+    expect(formatValue('2024-03-05', 'YY')).toBe('24');
+  });
+
+  it('formats every hour, minute and second token', () => {
+    expect(formatValue('14:30:05', 'time{H}')).toBe('14');
+    expect(formatValue('14:30:05', 'time{hh}')).toBe('02');
+    expect(formatValue('14:30:05', 'time{KK}')).toBe('02');
+    expect(formatValue('14:30:05', 'time{K}')).toBe('2');
+    expect(formatValue('14:30:05', 'time{M}')).toBe('30');
+    expect(formatValue('14:30:05', 'time{S}')).toBe('5');
+    expect(formatValue('00:30', 'time{hh}')).toBe('12');
+  });
+
+  it('coerces numeric and generic date values', () => {
+    expect(formatValue(0, 'date{YYYY}')).toBe('1970');
+    expect(formatValue('March 5, 2024', 'date{YYYY}')).toBe('2024');
+    expect(formatValue(Number.NaN, 'date{YYYY}')).toBe('NaN');
+    expect(formatValue('not a date', 'date{YYYY}')).toBe('not a date');
+  });
+});
+
+describe('formatValue numeric coercion and padding', () => {
+  it('parses strings with grouping separators and currency symbols', () => {
+    expect(formatValue('1,234.50', '$#,##0.00')).toBe('$1,234.50');
+    expect(formatValue('$1,234.50', '$#,##0.00')).toBe('$1,234.50');
+    expect(formatValue(' 42 ', '0')).toBe('42');
+  });
+
+  it('falls back for non-numeric strings and non-numeric values', () => {
+    expect(formatValue('abc', '0')).toBe('abc');
+    expect(formatValue(true, '0')).toBe('true');
+    expect(formatValue(Number.NaN, '0')).toBe('NaN');
+  });
+
+  it('zero-fills integer placeholders that are not needed for the digits', () => {
+    expect(formatValue(5, '000')).toBe('005');
+  });
+});

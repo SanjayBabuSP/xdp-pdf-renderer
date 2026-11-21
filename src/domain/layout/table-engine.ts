@@ -127,12 +127,8 @@ function layoutSubformSetRows(
           layoutChild
         )
       : layoutChild(child, { x: ctx.x, y, availableWidth: ctx.availableWidth });
-    const rowHeight = Math.max(result.height, (7 * 72) / 25.4);
-    children.push({
-      ...result.node,
-      position: { ...result.node.position, h: rowHeight },
-    } as LayoutNode);
-    innerOffset += rowHeight;
+    children.push(result.node);
+    innerOffset += result.height;
   }
 
   const width = resolveExtent(set.position, 'width', ctx.availableWidth);

@@ -4,6 +4,11 @@ import {
   xfaCapToPdf,
   xfaJoinToPdf,
   clampCornerRadius,
+  cornerRadiiOf,
+  hasRoundedCorners,
+  rotateEdgesForAngle,
+  rotateCornersForAngle,
+  isBottomUnderlineOnly,
 } from '../../../src/rendering/border-style';
 
 describe('border-style', () => {
@@ -53,6 +58,76 @@ describe('border-style', () => {
       expect(clampCornerRadius(50, 100, 40)).toBe(20);
       expect(clampCornerRadius(5, 100, 40)).toBe(5);
       expect(clampCornerRadius(-1, 100, 40)).toBe(0);
+    });
+  });
+
+  describe('corner radius selection', () => {
+    it('returns four undefined radii when no radius is authored', () => {
+      expect(cornerRadiiOf({})).toEqual([undefined, undefined, undefined, undefined]);
+      expect(cornerRadiiOf({ cornerRadius: 0, cornerRadii: [0, undefined, 0, undefined] })).toEqual(
+        [undefined, undefined, undefined, undefined]
+      );
+    });
+
+    it('expands a single radius to all four corners', () => {
+      expect(cornerRadiiOf({ cornerRadius: 5 })).toEqual([5, 5, 5, 5]);
+    });
+
+    it('prefers explicit per-corner radii when any is positive', () => {
+      expect(cornerRadiiOf({ cornerRadius: 5, cornerRadii: [1, 2, 3, 4] })).toEqual([1, 2, 3, 4]);
+      expect(cornerRadiiOf({ cornerRadii: [1, undefined, 3] })).toEqual([
+        1,
+        undefined,
+        3,
+        undefined,
+      ]);
+    });
+
+    it('detects corners that survive clamping', () => {
+      expect(hasRoundedCorners([5, undefined, undefined, undefined], 100, 40)).toBe(true);
+      expect(hasRoundedCorners([50, undefined, undefined, undefined], 10, 4)).toBe(true);
+      expect(hasRoundedCorners([0, 0, 0, 0], 10, 4)).toBe(false);
+    });
+  });
+
+  describe('rotation helpers', () => {
+    const edges: [string, string, string, string] = ['top', 'right', 'bottom', 'left'];
+    const corners: [string, string, string, string] = ['tl', 'tr', 'br', 'bl'];
+
+    it('rotates edges by 0, 90 and 270 degrees', () => {
+      expect(rotateEdgesForAngle(edges, 0)).toEqual(['top', 'right', 'bottom', 'left']);
+      expect(rotateEdgesForAngle(edges, 90)).toEqual(['right', 'bottom', 'left', 'top']);
+      expect(rotateEdgesForAngle(edges, 270)).toEqual(['left', 'top', 'right', 'bottom']);
+      expect(rotateEdgesForAngle(edges, 180)).toEqual(['top', 'right', 'bottom', 'left']);
+      expect(rotateEdgesForAngle(edges, -90)).toEqual(['left', 'top', 'right', 'bottom']);
+    });
+
+    it('rotates corners by 0, 90 and 270 degrees', () => {
+      expect(rotateCornersForAngle(corners, 0)).toEqual(['tl', 'tr', 'br', 'bl']);
+      expect(rotateCornersForAngle(corners, 90)).toEqual(['tr', 'br', 'bl', 'tl']);
+      expect(rotateCornersForAngle(corners, 270)).toEqual(['bl', 'tl', 'tr', 'br']);
+      expect(rotateCornersForAngle(corners, 180)).toEqual(['tl', 'tr', 'br', 'bl']);
+    });
+  });
+
+  describe('isBottomUnderlineOnly', () => {
+    it('identifies a bottom-only edge set', () => {
+      expect(isBottomUnderlineOnly([{ presence: 'visible' }])).toBe(true);
+      expect(
+        isBottomUnderlineOnly([
+          { presence: 'hidden' },
+          { style: 'none' },
+          { presence: 'visible' },
+          { presence: 'invisible' },
+        ])
+      ).toBe(true);
+    });
+
+    it('rejects missing, empty and non-bottom-only edge sets', () => {
+      expect(isBottomUnderlineOnly(undefined)).toBe(false);
+      expect(isBottomUnderlineOnly([])).toBe(false);
+      expect(isBottomUnderlineOnly([{}, { presence: 'visible' }, {}, {}])).toBe(false);
+      expect(isBottomUnderlineOnly([{}, {}, { style: 'none' }, {}])).toBe(false);
     });
   });
 });

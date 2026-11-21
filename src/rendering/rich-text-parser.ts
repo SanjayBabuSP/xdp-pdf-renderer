@@ -7,6 +7,16 @@ export interface TextRun {
   underline?: boolean;
   fontSize?: number;
   color?: RgbColor;
+  fontFamily?: string;
+}
+
+interface RichState {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  fontSize?: number;
+  color?: RgbColor;
+  fontFamily?: string;
 }
 
 export function parseRichText(html: string): TextRun[] {
@@ -14,52 +24,31 @@ export function parseRichText(html: string): TextRun[] {
 
   const runs: TextRun[] = [];
   let remaining = decodeEntities(html);
-  let currentBold = false;
-  let currentItalic = false;
-  let currentUnderline = false;
-  let currentFontSize: number | undefined;
-  let currentColor: RgbColor | undefined;
+  let state: RichState = { bold: false, italic: false, underline: false };
+  const stateStack: RichState[] = [];
 
-  const stateStack: Array<{
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-    fontSize?: number;
-    color?: RgbColor;
-  }> = [];
+  const pushRun = (text: string): void => {
+    if (!text) return;
+    runs.push({
+      text,
+      bold: state.bold || undefined,
+      italic: state.italic || undefined,
+      underline: state.underline || undefined,
+      fontSize: state.fontSize,
+      color: state.color,
+      fontFamily: state.fontFamily,
+    });
+  };
 
   while (remaining.length) {
     const tagMatch = remaining.match(/^([^<]*)<(\/?)(\w+)([^>]*)>/);
 
     if (!tagMatch) {
-      const text = remaining;
-      if (text) {
-        runs.push({
-          text,
-          bold: currentBold || undefined,
-          italic: currentItalic || undefined,
-          underline: currentUnderline || undefined,
-          fontSize: currentFontSize,
-          color: currentColor,
-        });
-      }
+      pushRun(remaining);
       break;
     }
 
-    const textBefore = tagMatch[1];
-    if (textBefore) {
-      const decoded = textBefore;
-      if (decoded) {
-        runs.push({
-          text: decoded,
-          bold: currentBold || undefined,
-          italic: currentItalic || undefined,
-          underline: currentUnderline || undefined,
-          fontSize: currentFontSize,
-          color: currentColor,
-        });
-      }
-    }
+    pushRun(tagMatch[1]);
 
     const isClosing = tagMatch[2] === '/';
     const tagName = tagMatch[3].toLowerCase();
@@ -67,53 +56,34 @@ export function parseRichText(html: string): TextRun[] {
     remaining = remaining.slice(tagMatch[0].length);
 
     if (isClosing) {
-      if (stateStack.length) {
-        const prev = stateStack.pop()!;
-        currentBold = prev.bold;
-        currentItalic = prev.italic;
-        currentUnderline = prev.underline;
-        currentFontSize = prev.fontSize;
-        currentColor = prev.color;
-      }
-    } else {
-      stateStack.push({
-        bold: currentBold,
-        italic: currentItalic,
-        underline: currentUnderline,
-        fontSize: currentFontSize,
-        color: currentColor,
-      });
+      const prev = stateStack.pop();
+      if (prev) state = prev;
+      continue;
+    }
 
-      switch (tagName) {
-        case 'b':
-        case 'strong':
-          currentBold = true;
-          break;
-        case 'i':
-        case 'em':
-          currentItalic = true;
-          break;
-        case 'br':
-          runs.push({ text: '\n' });
-          stateStack.pop();
-          break;
-        case 'p':
-          if (runs.length) {
-            runs.push({ text: '\n' });
-          }
-          break;
-        case 'span': {
-          const style = extractStyleAttr(attrs);
-          if (style) {
-            const fontSize = parseFontSizeFromStyle(style);
-            if (fontSize) currentFontSize = fontSize;
-            const color = parseColorFromStyle(style);
-            if (color) currentColor = color;
-            if (/text-decoration\s*:[^;]*underline/i.test(style)) currentUnderline = true;
-          }
-          break;
-        }
-      }
+    stateStack.push({ ...state });
+    switch (tagName) {
+      case 'b':
+      case 'strong':
+        state.bold = true;
+        break;
+      case 'i':
+      case 'em':
+        state.italic = true;
+        break;
+      case 'br':
+        pushRun('\n');
+        stateStack.pop();
+        break;
+      case 'p':
+      case 'div':
+        if (runs.length) pushRun('\n');
+        applyStyleFromAttrs(state, attrs);
+        break;
+      case 'body':
+      case 'span':
+        applyStyleFromAttrs(state, attrs);
+        break;
     }
   }
 
@@ -138,6 +108,50 @@ function decodeEntities(text: string): string {
 function extractStyleAttr(attrs: string): string | undefined {
   const match = attrs.match(/style\s*=\s*"([^"]*)"/i);
   return match?.[1];
+}
+
+function applyStyleFromAttrs(state: RichState, attrs: string): void {
+  const style = extractStyleAttr(attrs);
+  if (!style) return;
+
+  const weight = style
+    .match(/font-weight\s*:\s*([^;]+)/i)?.[1]
+    ?.trim()
+    .toLowerCase();
+  if (weight) state.bold = weight === 'bold' || weight === 'bolder' || /^[6-9]\d\d$/.test(weight);
+
+  const fontStyle = style
+    .match(/font-style\s*:\s*([^;]+)/i)?.[1]
+    ?.trim()
+    .toLowerCase();
+  if (fontStyle) state.italic = fontStyle === 'italic' || fontStyle === 'oblique';
+
+  const decoration = style.match(/text-decoration\s*:\s*([^;]+)/i)?.[1]?.toLowerCase();
+  if (decoration) {
+    state.underline = !decoration.includes('none') && decoration.includes('underline');
+  }
+
+  const fontSize = parseFontSizeFromStyle(style);
+  if (fontSize) state.fontSize = fontSize;
+
+  const color = parseColorFromStyle(style);
+  if (color) state.color = color;
+
+  const fontFamily = parseFontFamilyFromStyle(style);
+  if (fontFamily) state.fontFamily = fontFamily;
+}
+
+function parseFontFamilyFromStyle(style: string): string | undefined {
+  const match = style.match(/font-family\s*:\s*([^;]+)/i);
+  if (!match) return undefined;
+  const value = match[1].trim();
+  const quoted = value.match(/'([^']+)'|"([^"]+)"/);
+  if (quoted) return (quoted[1] ?? quoted[2]).trim();
+  const first = value
+    .split(',')[0]
+    .trim()
+    .replace(/^['"]|['"]$/g, '');
+  return first || undefined;
 }
 
 function parseFontSizeFromStyle(style: string): number | undefined {
@@ -186,6 +200,7 @@ function mergeAdjacentRuns(runs: TextRun[]): TextRun[] {
       prev.italic === curr.italic &&
       prev.underline === curr.underline &&
       prev.fontSize === curr.fontSize &&
+      prev.fontFamily === curr.fontFamily &&
       colorsEqual(prev.color, curr.color)
     ) {
       prev.text += curr.text;

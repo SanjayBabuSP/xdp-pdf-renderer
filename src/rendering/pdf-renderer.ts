@@ -202,10 +202,12 @@ function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
   if (!subBottomVisible && !subTopVisible) return border;
 
   const TOL = 3;
+  const X_COVER_TOL = 3;
   let suppressBottom = false;
   let suppressTop = false;
   if (subBottomVisible) {
     const subBottom = (pos.y ?? 0) + (pos.h ?? 0);
+    const intervals: Array<{ left: number; right: number }> = [];
     for (const child of node.children) {
       const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } })
         .position;
@@ -221,25 +223,24 @@ function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
       const gap = subBottom - childBottom;
       if (gap < -0.5 || gap > TOL) continue;
       if (!childBottomEdgeVisible(child, norm[2]?.thickness)) continue;
-      if (!xOverlap(pos.x ?? 0, pos.w ?? 0, cp.x, cp.w, 8)) continue;
-      suppressBottom = true;
-      break;
+      intervals.push({ left: cp.x, right: cp.x + cp.w });
     }
+    suppressBottom = coverXSpan(intervals, pos.x ?? 0, pos.w ?? 0, X_COVER_TOL);
   }
   if (subTopVisible) {
     const subTop = pos.y ?? 0;
+    const intervals: Array<{ left: number; right: number }> = [];
     for (const child of node.children) {
       const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } })
         .position;
-      if (!cp || cp.x === undefined || cp.y === undefined) continue;
+      if (!cp || cp.x === undefined || cp.y === undefined || cp.w === undefined) continue;
       const childTop = cp.y;
       const gap = childTop - subTop;
       if (gap < -0.5 || gap > TOL) continue;
       if (!childTopEdgeVisible(child, norm[0]?.thickness)) continue;
-      if (!xOverlap(pos.x ?? 0, pos.w ?? 0, cp.x ?? 0, cp.w ?? 0, 8)) continue;
-      suppressTop = true;
-      break;
+      intervals.push({ left: cp.x, right: cp.x + cp.w });
     }
+    suppressTop = coverXSpan(intervals, pos.x ?? 0, pos.w ?? 0, X_COVER_TOL);
   }
   if (!suppressBottom && !suppressTop) return border;
   const pruned: Array<EdgeSpec | undefined> = [...norm];
@@ -281,10 +282,21 @@ function childTopEdgeVisible(child: LayoutNode, parentThickness: number | undefi
   return childEdgeVisible(child, 0, parentThickness);
 }
 
-function xOverlap(ax: number, aw: number, bx: number, bw: number, minOverlap: number): boolean {
-  const left = Math.max(ax, bx);
-  const right = Math.min(ax + aw, bx + bw);
-  return right - left >= minOverlap;
+function coverXSpan(
+  intervals: Array<{ left: number; right: number }>,
+  x: number,
+  w: number,
+  tolerance: number
+): boolean {
+  if (intervals.length === 0 || w <= 0) return false;
+  const sorted = [...intervals].sort((a, b) => a.left - b.left);
+  let reach = x;
+  for (const interval of sorted) {
+    if (interval.right <= reach) continue;
+    if (interval.left > reach + tolerance) break;
+    reach = Math.max(reach, interval.right);
+  }
+  return reach >= x + w - tolerance;
 }
 
 async function renderExclGroup(
@@ -993,6 +1005,11 @@ async function renderField(
     const lines = breakLinesInfo(valueText, wrapWidth, measure, {
       firstLineIndent: pm.textIndent,
     });
+    const firstLine = Math.min(lines.length, Math.max(0, node.textLineRange?.start ?? 0));
+    const lastLine = Math.min(
+      lines.length,
+      Math.max(firstLine, node.textLineRange?.end ?? lines.length)
+    );
 
     const { baselines } = layoutLines(
       lines.length,
@@ -1006,16 +1023,11 @@ async function renderField(
     const verticalOverflow =
       lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > innerHeight + 0.5;
     const horizontalOverflow = lines.some((line) => measure(line.text) > textW + 0.5);
-    const clipped = clipOverflow(
-      pdfPage,
-      textX,
-      y,
-      textW,
-      innerHeight,
-      verticalOverflow || horizontalOverflow
-    );
+    const clipped = node.textLineRange
+      ? false
+      : clipOverflow(pdfPage, textX, y, textW, innerHeight, verticalOverflow || horizontalOverflow);
 
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = firstLine; i < lastLine; i++) {
       const { text: line, paragraphEnd } = lines[i];
       const lineY = baselines[i];
       const lineWidth = measure(line);
@@ -1397,6 +1409,11 @@ async function renderRichText(
       { firstLineIndent: pm.textIndent }
     );
     const lines = wrapped.map((line) => line.text);
+    const firstLine = Math.min(lines.length, Math.max(0, node.textLineRange?.start ?? 0));
+    const lastLine = Math.min(
+      lines.length,
+      Math.max(firstLine, node.textLineRange?.end ?? lines.length)
+    );
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
@@ -1406,16 +1423,18 @@ async function renderRichText(
       { lineAdvance: pm.lineAdvance, paddingTop: pm.spaceAbove, paddingBottom: pm.spaceBelow }
     );
 
-    const clipped = clipOverflow(
-      pdfPage,
-      textX,
-      y,
-      textW,
-      boxH,
-      lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
-    );
+    const clipped = node.textLineRange
+      ? false
+      : clipOverflow(
+          pdfPage,
+          textX,
+          y,
+          textW,
+          boxH,
+          lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
+        );
 
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = firstLine; i < lastLine; i++) {
       const line = lines[i];
       const lineY = baselines[i];
       const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
@@ -1450,13 +1469,12 @@ async function renderRichText(
   const textX = x + pm.marginLeft;
   const textW = Math.max(wrapWidth - pm.marginLeft - pm.marginRight, 0);
 
-  const richScale = scaleForFamily(baseFontFamily);
-
   const styled: StyledRun[] = [];
   for (const run of runs) {
+    const family = run.fontFamily ?? baseFontFamily;
     const font = await fontManager.getSafeFont(
       run.text,
-      baseFontFamily,
+      family,
       run.bold ? 'bold' : node.font?.weight,
       run.italic ? 'italic' : node.font?.posture
     );
@@ -1466,6 +1484,7 @@ async function renderRichText(
       font,
       color: run.color,
       underline: run.underline,
+      scale: scaleForFamily(family),
     });
   }
 
@@ -1473,7 +1492,9 @@ async function renderRichText(
     maxWidth: wrapWidth,
     baseSize: baseFontSize,
     measure: (text, run) =>
-      measureText(text, styled[run].size, styled[run].font, { horizontalScale: richScale }),
+      measureText(text, styled[run].size, styled[run].font, {
+        horizontalScale: styled[run].scale,
+      }),
     paragraph: {
       lineAdvance: pm.lineAdvance,
       marginLeft: pm.marginLeft,
@@ -1483,21 +1504,28 @@ async function renderRichText(
     },
   });
 
-  const clipped = clipOverflow(
-    pdfPage,
-    textX,
-    y,
-    textW,
-    boxH,
-    runBlockHeight(lines) + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
+  const firstLine = Math.min(lines.length, Math.max(0, node.textLineRange?.start ?? 0));
+  const lastLine = Math.min(
+    lines.length,
+    Math.max(firstLine, node.textLineRange?.end ?? lines.length)
   );
+  const clipped = node.textLineRange
+    ? false
+    : clipOverflow(
+        pdfPage,
+        textX,
+        y,
+        textW,
+        boxH,
+        runBlockHeight(lines) + pm.spaceAbove + pm.spaceBelow > boxH + 0.5
+      );
   const baselines = layoutRunBaselines(
     lines,
     { top: y + boxH - pm.spaceAbove, bottom: y + pm.spaceBelow },
     verticalAlign
   );
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = firstLine; i < lastLine; i++) {
     const lineY = baselines[i];
     const lineAvail = Math.max(textW - lines[i].indent, 0);
     const lineOriginX =
@@ -1514,10 +1542,12 @@ async function renderRichText(
           font: run.font,
           color: run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color),
         },
-        richScale
+        run.scale
       );
       if (run.underline) {
-        const segW = measureText(segment.text, run.size, run.font, { horizontalScale: richScale });
+        const segW = measureText(segment.text, run.size, run.font, {
+          horizontalScale: run.scale,
+        });
         const uy = lineY - Math.max(0.5, run.size * 0.12);
         pdfPage.drawLine({
           start: { x: lineOriginX + segment.x, y: uy },

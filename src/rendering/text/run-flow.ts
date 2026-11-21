@@ -10,6 +10,7 @@ export interface StyledRun {
   font: PDFFont;
   color?: RgbColor;
   underline?: boolean;
+  scale?: number;
 }
 
 export interface RunSegment {

@@ -26,6 +26,11 @@ export interface KeepSpec {
   [key: string]: string;
 }
 
+export interface TextLineRange {
+  start: number;
+  end: number;
+}
+
 export interface FontSpec {
   family?: string;
   size?: number;
@@ -257,6 +262,7 @@ export interface FieldNode {
   breakAfter?: BreakValue;
   keep?: KeepSpec;
   repeatIndex?: number;
+  textLineRange?: TextLineRange;
 }
 
 export interface DrawNode {
@@ -292,6 +298,7 @@ export interface DrawNode {
   breakAfter?: BreakValue;
   keep?: KeepSpec;
   colSpan?: number;
+  textLineRange?: TextLineRange;
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;

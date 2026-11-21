@@ -159,3 +159,124 @@ describe('validate-data-against-schema', () => {
     });
   });
 });
+
+describe('validate-data-against-schema — remaining field cases', () => {
+  function schemaFor(fields: SchemaModel['fields']): SchemaModel {
+    return { rootElement: 'Root', schemaAttributes: {}, fields };
+  }
+
+  it('rejects a repeating field whose value is not an array in either mode', () => {
+    const repeating = schemaFor({ Tags: { type: 'string', required: true, repeating: true } });
+
+    const strict = validateDataAgainstSchema({ Tags: 'one' }, repeating);
+    const lenient = validateDataAgainstSchema({ Tags: 'one' }, repeating, { strict: false });
+
+    expect(strict.success).toBe(false);
+    if (!strict.success) expect(strict.error.details).toEqual(['Field Tags should be an array']);
+    expect(lenient.success).toBe(false);
+    if (!lenient.success) expect(lenient.error.details).toEqual(['Field Tags should be an array']);
+  });
+
+  it('validates each item of a repeating field', () => {
+    const repeating = schemaFor({ Ids: { type: 'int', required: true, repeating: true } });
+
+    const result = validateDataAgainstSchema({ Ids: [1, 'bad'] }, repeating);
+
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.details).toEqual(['Ids[1]: expected integer, got "bad"']);
+  });
+
+  it('rejects a primitive where a complex type is expected', () => {
+    const complex = schemaFor({
+      Header: {
+        type: 'complex',
+        required: true,
+        fields: { Title: { type: 'string', required: true } },
+      },
+    });
+
+    const result = validateDataAgainstSchema({ Header: 5 }, complex);
+
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.details).toEqual(['Field Header expected object, got number']);
+  });
+
+  it('rejects an object where a scalar type is expected only in strict mode', () => {
+    const scalar = schemaFor({ Name: { type: 'string', required: true } });
+    const data: DataObject = { Name: { nested: 'x' } };
+
+    const strict = validateDataAgainstSchema(data, scalar);
+    const lenient = validateDataAgainstSchema(data, scalar, { strict: false });
+
+    expect(strict.success).toBe(false);
+    if (!strict.success)
+      expect(strict.error.details).toEqual(['Field Name expected string, got object']);
+    expect(lenient.success).toBe(true);
+  });
+
+  it('rejects non-string scalar values for string and anyURI fields', () => {
+    const types = schemaFor({
+      Name: { type: 'string', required: true },
+      Link: { type: 'anyURI', required: true },
+    });
+
+    const result = validateDataAgainstSchema({ Name: true, Link: false }, types);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.details).toEqual([
+        'Name: expected string, got boolean',
+        'Link: expected string, got boolean',
+      ]);
+    }
+  });
+
+  it('validates short ranges in strict mode and relaxes them when lenient', () => {
+    const shorts = schemaFor({ Code: { type: 'short', required: true } });
+
+    expect(validateDataAgainstSchema({ Code: 32767 }, shorts).success).toBe(true);
+    expect(validateDataAgainstSchema({ Code: -32768 }, shorts).success).toBe(true);
+    expect(validateDataAgainstSchema({ Code: 12.5 }, shorts, { strict: false }).success).toBe(true);
+
+    const invalid = validateDataAgainstSchema({ Code: 32768 }, shorts);
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.details).toEqual(['Code: expected short (-32768..32767), got "32768"']);
+    }
+  });
+
+  it('validates dateTime values regardless of strictness', () => {
+    const dateTimes = schemaFor({ Ts: { type: 'dateTime', required: true } });
+
+    expect(validateDataAgainstSchema({ Ts: '2026-06-03T14:30:00Z' }, dateTimes).success).toBe(true);
+    expect(validateDataAgainstSchema({ Ts: '2026-06-03T14:30' }, dateTimes).success).toBe(true);
+
+    const invalid = validateDataAgainstSchema({ Ts: '2026-06-03' }, dateTimes, { strict: false });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.details).toEqual(['Ts: expected dateTime (ISO 8601), got "2026-06-03"']);
+    }
+  });
+
+  it('uses a wider byte upper bound in lenient mode', () => {
+    const bytes = schemaFor({ Revision: { type: 'byte', required: true } });
+
+    expect(validateDataAgainstSchema({ Revision: 255 }, bytes, { strict: false }).success).toBe(
+      true
+    );
+
+    const tooWide = validateDataAgainstSchema({ Revision: 255 }, bytes);
+    expect(tooWide.success).toBe(false);
+    if (!tooWide.success) {
+      expect(tooWide.error.details).toEqual(['Revision: expected byte (-128..127), got "255"']);
+    }
+
+    const tooLow = validateDataAgainstSchema({ Revision: -129 }, bytes, { strict: false });
+    expect(tooLow.success).toBe(false);
+    if (!tooLow.success) {
+      expect(tooLow.error.details).toEqual(['Revision: expected byte (-128..255), got "-129"']);
+    }
+  });
+});

@@ -97,6 +97,11 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
   the rendered boxes must agree. Example-3 page 2 had 9.6pt value-cell borders
   in a 14.2pt row, leaving visible gaps under the values; Adobe draws all cells
   at the full row height.
+- **SubformSet row pitch:** a table `subformSet` advances by the shared content
+  height of its rows, never a hard-coded minimum. Example-2 EN previously used a
+  7mm (19.84pt) pitch while its cells were 17.2–17.9pt tall, leaving ~2pt gaps
+  that made vertical borders look dashed. `layoutSubformSetRows` now uses
+  `result.height` for both the row box and the next row's offset.
 - `flow-engine.ts` `declaredWidth()` swaps `w`/`h` for rotated nodes.
   `alignOffset()` honours `'middle'` as centre (only `'center'` worked before,
   which left short `vAlign="middle"` children top-aligned).
@@ -134,6 +139,18 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 - Font resolution: `ArialMT` must not resolve to a different face; Arial Narrow
   uses horizontal scaling (`Tz`), not a different font. Font resources are
   de-duplicated per page.
+- **CFF subset header:** `@pdf-lib/fontkit@1.1.1` writes `offSize: cff.length`
+  instead of `cff.offSize` in `CFFSubset.encode()`, producing an invalid
+  `/FontFile3` for every CFF/OpenType face. `createPatchedFontkit()`
+  (`cff-subset-patch.ts`) patches the first emitted CFF stream byte for CFF
+  subsets; TrueType subsets are untouched. Without this, SimSun resolves
+  correctly to Adobe Song Std but CJK glyphs render as tofu boxes.
+- **Rich-text paragraph CSS:** XFA stores label styling on `<p style>` (e.g.
+  `font-weight:bold`, `text-decoration:underline`, `font-size:12pt`,
+  `font-family:'Arial Narrow'`), not on `<span>` or `<b>`. `parseRichText()`
+  applies CSS from `p`/`div`/`body`/`span` through the state stack, so nested
+  spans override and closing tags restore. `TextRun.fontFamily` drives both
+  font selection and `Tz` horizontal scaling.
 - Caption/value baselines: both use `layoutLines()` on the full value box so a
   caption and its value share one baseline. Clipping the caption to its strip
   prevents "Pos." painting over "Machine location".
@@ -151,6 +168,11 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 - Edges: dash patterns scaled by thickness; cap/join map to PDF `J`/`j`; corner
   radius clamped to `min(w,h)/2`. Stroke widths are quantized to 3 decimals
   for layout/dash purposes (`quantizeStrokeWidth`).
+- `collapseTinyGapEdges()` only suppresses a coincident parent edge when the
+  visible child edges cover the parent's full x-span (3pt tolerance) and are at
+  least as thick. Example-2 EN had a row separator disappear across the last
+  column because one partial child edge was enough to prune the full-width
+  parent edge.
 - **PDF output stroke grid:** Adobe reference PDFs are Microsoft Print To PDF
   output at 600 dpi. Every emitted stroke width is an integer number of
   1/600in = 0.12pt device pixels, rounded **up** (`quantizeDeviceStrokeWidth`):
@@ -181,10 +203,15 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 
 ## 8. Pagination — known divergence
 
-`apply-pagination.ts` is a coordinate-bucketing approximation of
+`apply-pagination.ts` remains a coordinate-bucketing approximation of
 `contentBlockToPage`, not a faithful port. Example-3 page 0 keeps one extra
 table row (`Dpmbtzs`) that Adobe moves to page 1. The break is unchanged by the
 ascent clamp, so the cause is row-height accumulation, not font metrics.
+Multi-line field/draw leaves are now split by whole wrapped lines: each page
+fragment carries `textLineRange` and the renderer slices lines while keeping
+baselines at their logical indices, so the same line is not drawn twice and a
+continuation is not shown as clipped ascender slivers. Coordinates are converted
+with the physical page height before comparing PDF baselines to page bands.
 Marked as Medium confidence in `reference/RENDERING_BEHAVIOR.md` §8.
 
 ## 9. Verification (all must pass)
@@ -192,7 +219,9 @@ Marked as Medium confidence in `reference/RENDERING_BEHAVIOR.md` §8.
 ```bash
 npm run lint
 npm run build
-npm run test:unit          # 63+ suites
+npm run format:check
+npm run test:unit          # 107 suites
+npm run test:coverage      # ≥90% lines (currently 96.5%)
 npm run test:integration   # 17 suites
 node scripts/render-sample-forms.mjs
 ```
@@ -206,6 +235,12 @@ fixture-specific code to make a diff disappear.
 
 | Test file | Protects |
 | --- | --- |
+| `test/unit/adobe/*` | Adobe PDF feature helpers, metadata, security, fonts, namespaces |
+| `test/unit/domain/scripting/*` | SOM/proxy/dependency/FormCalc/JS engine internals |
+| `test/unit/domain/mapping/*`, `test/unit/domain/validation/*` | Repeat expansion, binding and schema/structure validation |
+| `test/unit/rendering/*`, `test/unit/lib/*` | Image/fill/font/border/geometry helpers and value formatting |
+| `test/unit/workflows/render-pdf.test.ts`, `test/unit/cli.test.ts`, `test/unit/barrels.test.ts` | Workflow options/branches, CLI wiring, public exports |
+| Coverage gate | `npm run test:coverage`: 96.5% lines, 94.44% statements, 95.67% functions, 84.66% branches |
 | `test/unit/lib/xpath-resolver.test.ts` | Repeat-scoped binding fallback |
 | `test/unit/domain/parsing/parse-xml-data.test.ts` | Lexical decimals / `0,006` |
 | `test/unit/rendering/line-metrics.test.ts` | Ascent clamp, line advance |
@@ -216,10 +251,61 @@ fixture-specific code to make a diff disappear.
 | `test/unit/rendering/adobe-livecycle-parity.test.ts` | Script colour writes, rotation origin, master-page minW/minH |
 | `test/unit/rendering/line-breaker.test.ts` | Slash-preferred wrapping |
 | `test/unit/rendering/stroke-width.test.ts` | 3-decimal layout width + 0.12pt output grid |
-| `test/unit/rendering/border-parity.test.ts` | Per-corner fill/stroke, lone corner gate, thick-edge survival, table cell width and shared row height |
+| `test/unit/rendering/border-parity.test.ts` | Per-corner fill/stroke, lone corner gate, thick-edge survival, table cell width and shared row height, full-width edge coverage |
+| `test/unit/rendering/cff-subset.test.ts` | Valid CFF `offSize` in embedded subsets |
+| `test/unit/domain/layout/engines.test.ts` | SubformSet row pitch equals shared cell height |
+| `test/unit/domain/layout/apply-pagination.test.ts` | Multi-line fields split by line range across pages |
+| `test/unit/rendering/rich-text-parser.test.ts` | Paragraph-level CSS, nested span overrides |
 | `test/unit/domain/scripting/formcalc-golden.test.ts` | FormCalc property access / resolveNode |
 
 ## 11. Change ledger (append newest first)
+
+### 2026-11-21 — comprehensive unit coverage
+- Added `npm run test:coverage` (Jest unit coverage with `json-summary` and
+  `text-summary`) and documented it in `README.md`.
+- Added/expanded 42 unit suites covering every behavior-bearing source module,
+  including Adobe helpers, scripting proxies/engines, mapping/validation,
+  image/fill/font helpers, layout helpers, workflow branches, CLI wiring and
+  barrel exports. Type-only modules (`engine-types.ts`, `script-types.ts`,
+  `formcalc/ast.ts`, `types.ts`) are intentionally exempt.
+- Coverage moved from 71.45% to **96.5% lines** (statements 94.44%, functions
+  95.67%, branches 84.66%). Unit suite count 65 → 107; tests 778 → 1399.
+- Research/plan: `docs/02-research/2026-11-21-unit-coverage-all-source.md`,
+  `docs/03-plans/2026-11-21-unit-coverage-all-source.md`.
+- Remaining uncovered lines are defensive/unreachable guards (e.g. union
+  exhaustiveness fallbacks); branch coverage is deliberately not gated at 100%.
+
+### 2026-11-21 — Example-2 EN/CN parity defects
+- `cff-subset-patch.ts` wraps the registered fontkit instance so CFF subsets
+  emit a valid `offSize` byte. Reason: `@pdf-lib/fontkit@1.1.1` writes
+  `cff.length` into the CFF header, so every Adobe CFF face produced an invalid
+  `/FontFile3`; Example-2-CN showed tofu boxes while Latin spans rendered.
+  Verified by patching the byte: the rendered CJK font now loads without errors.
+- `table-engine.ts` no longer forces a 7mm pitch in `layoutSubformSetRows`.
+  Evidence: Example-2 EN sub-item rows had 19.84pt pitch vs ~17.2pt cells,
+  leaving ~2pt gaps that looked like dashed vertical borders. After the change
+  the measured column border is one continuous run.
+- `pdf-renderer.ts` `collapseTinyGapEdges()` now suppresses a parent edge only
+  when visible child edges cover the full x-span (3pt tolerance). Evidence: the
+  last column's hidden cell borders left a ~100pt gap in the row separator.
+- `apply-pagination.ts` + `pdf-renderer.ts` split multi-line leaves by whole
+  wrapped lines via `textLineRange`, with PDF y-up baseline conversion. The
+  item-2 field in Example-2 EN no longer duplicates its first line across pages
+  or clips the continuation to ascender slivers; the continuation now starts the
+  next page before item 3.
+- `rich-text-parser.ts` now applies `p`/`div` CSS styles through the state stack
+  and adds `TextRun.fontFamily`; `pdf-renderer.ts` consumes it for per-run
+  `Tz`. Evidence: ~15 Example-2 labels use `<p style="font-weight:bold">` and
+  rendered 10pt regular before the fix; they now render bold/underlined with
+  Arial Narrow compression.
+- Tests: added `cff-subset.test.ts`, a subformSet row test in `engines.test.ts`,
+  a coverage test in `border-parity.test.ts`, a line-range test in
+  `apply-pagination.test.ts`, and paragraph-CSS tests in
+  `rich-text-parser.test.ts`. Research/plan:
+  `docs/02-research/2026-11-21-example2-en-cn-parity.md`,
+  `docs/03-plans/2026-11-21-example2-en-cn-parity.md`.
+- Residual: Adobe's leading `-` on the continuation line is not reproduced; the
+  Adobe PDF is vectorized so its exact semantics remain unproven.
 
 ### 2026-11-21 — rotated text inset axis corrected
 - `src/rendering/pdf-renderer.ts` vertical text anchor now uses
@@ -429,7 +515,8 @@ fixture-specific code to make a diff disappear.
 
 1. Effective base-14 ascent after the CoolType clamp (§5).
 2. Whether flag `0x1000` suppresses advance quantization (§5).
-3. Pagination fidelity (§8).
-4. `spaceAbove`/`spaceBelow` interaction with rich-text pagination splitting.
+3. Pagination fidelity beyond line-level leaf splitting (§8).
+4. `spaceAbove`/`spaceBelow` interaction with rich-text pagination splitting;
+   line ranges now slice lines, but paragraph spacing at a break is unvalidated.
 5. `lineHeight` percentage interpretation.
 6. Lone-corner stamp rule rests on one fixture only.

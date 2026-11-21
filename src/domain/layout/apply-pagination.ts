@@ -14,8 +14,15 @@ import {
   KeepSpec,
 } from '../../types';
 import { success } from '../../lib/result-type';
+import { paraMetrics, layoutLines, VerticalAlign } from '../../rendering/text/line-metrics';
+import { breakLinesInfo } from '../../rendering/text/line-breaker';
+import { measureLayoutText } from './text-measure';
+import { formatValue } from '../../lib/value-format';
+import { resolveChoiceText } from '../../rendering/ui-values';
+import { parseRichText, textRunsToPlainText } from '../../rendering/rich-text-parser';
 
 const EPS = 1e-6;
+const DEFAULT_FONT_SIZE = 10;
 
 interface WalkState {
   cursorBottom: number;
@@ -46,6 +53,7 @@ export function applyPagination(
   }
 
   const first = layout.pages[0];
+  const flipHeight = first.medium.long;
   const state: WalkState = {
     cursorBottom: first.contentArea.y,
     pageH: pageHeightPts ?? first.contentArea.h,
@@ -77,7 +85,7 @@ export function applyPagination(
     for (let p = kStart; p <= kEnd; p++) {
       const top = p === kStart ? y0 : state.ca1.y + p * state.pageH;
       const bottom = p === kEnd ? y1 : state.ca1.y + (p + 1) * state.pageH;
-      const frag = clipSubtree(child, top, bottom);
+      const frag = clipSubtree(child, top, bottom, flipHeight);
       if (frag) push(p, frag);
     }
   }
@@ -267,7 +275,68 @@ function shiftPos(pos: Position | undefined, dx: number, dy: number): Position |
   };
 }
 
-function clipSubtree(node: LayoutNode, top: number, bottom: number): LayoutNode | null {
+function leafTextValue(node: FieldNode | DrawNode): string {
+  if (node.type === 'field') {
+    if (node.ui?.type === 'choiceList') {
+      return resolveChoiceText(node.resolvedValue, node.ui.items);
+    }
+    return formatValue(node.resolvedValue, node.formatPicture);
+  }
+  const value = node.value;
+  if (!value) return '';
+  if (value.type === 'richText') return textRunsToPlainText(parseRichText(value.content ?? ''));
+  if (value.type === 'text') return value.content ?? '';
+  return '';
+}
+
+function verticalAlignOf(para: { vAlign?: string } | undefined): VerticalAlign {
+  if (para?.vAlign === 'middle') return 'middle';
+  if (para?.vAlign === 'bottom') return 'bottom';
+  return 'top';
+}
+
+function leafLineBaselines(
+  node: FieldNode | DrawNode,
+  pos: Position,
+  flipHeight: number
+): number[] | undefined {
+  const text = leafTextValue(node);
+  if (!text) return undefined;
+  const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
+  const pm = paraMetrics(node.para, fontSize);
+  const left = node.margin?.leftInset ?? 0;
+  const right = node.margin?.rightInset ?? 0;
+  const innerWidth = Math.max((pos.w ?? 0) - left - right - pm.marginLeft - pm.marginRight, 0);
+  const wrapWidth = node.type === 'field' && node.ui?.multiLine !== true ? Infinity : innerWidth;
+  const lines = breakLinesInfo(text, wrapWidth, (s) => measureLayoutText(s, fontSize, node.font), {
+    firstLineIndent: pm.textIndent,
+  });
+  if (lines.length === 0) return undefined;
+  const topInset = node.margin?.topInset ?? 0;
+  const bottomInset = node.margin?.bottomInset ?? 0;
+  const boxTop = flipHeight - (pos.y ?? 0) - topInset;
+  const boxBottom = flipHeight - ((pos.y ?? 0) + (pos.h ?? 0)) + bottomInset;
+  const { baselines } = layoutLines(
+    lines.length,
+    fontSize,
+    { top: boxTop, bottom: boxBottom },
+    verticalAlignOf(node.para),
+    undefined,
+    {
+      lineAdvance: pm.lineAdvance,
+      paddingTop: pm.spaceAbove,
+      paddingBottom: pm.spaceBelow,
+    }
+  );
+  return baselines;
+}
+
+function clipSubtree(
+  node: LayoutNode,
+  top: number,
+  bottom: number,
+  flipHeight: number
+): LayoutNode | null {
   const pos = node.position;
   if (!pos || pos.y == null) return node;
   const y0 = pos.y;
@@ -283,19 +352,38 @@ function clipSubtree(node: LayoutNode, top: number, bottom: number): LayoutNode 
   if (node.type === 'subform') {
     const sub = node as SubformNode;
     const children = sub.children
-      .map((c) => clipSubtree(c, top, bottom))
+      .map((c) => clipSubtree(c, top, bottom, flipHeight))
       .filter((c): c is LayoutNode => c != null);
     return { ...sub, position: newPos, children } as SubformNode;
   }
   if (node.type === 'exclGroup') {
     const ex = node as ExclGroupNode;
     const children = ex.children
-      .map((c) => clipSubtree(c, top, bottom))
+      .map((c) => clipSubtree(c, top, bottom, flipHeight))
       .filter((c): c is LayoutNode => c != null);
     return { ...ex, position: newPos, children } as ExclGroupNode;
   }
-  if (node.type === 'field') return { ...(node as FieldNode), position: newPos } as FieldNode;
-  if (node.type === 'draw') return { ...(node as DrawNode), position: newPos } as DrawNode;
+  if (node.type === 'field' || node.type === 'draw') {
+    const leaf = node as FieldNode | DrawNode;
+    const baselines = leafLineBaselines(leaf, pos, flipHeight);
+    if (!baselines) return { ...leaf, position: newPos } as FieldNode | DrawNode;
+    const yUpLow = flipHeight - bottom;
+    const yUpHigh = flipHeight - top;
+    let start = -1;
+    let end = -1;
+    for (let i = 0; i < baselines.length; i++) {
+      if (baselines[i] >= yUpLow - EPS && baselines[i] <= yUpHigh + EPS) {
+        if (start < 0) start = i;
+        end = i + 1;
+      }
+    }
+    if (start < 0) return null;
+    return {
+      ...leaf,
+      position: newPos,
+      textLineRange: { start, end },
+    } as FieldNode | DrawNode;
+  }
   return node;
 }
 

@@ -1,15 +1,23 @@
+import { PDFDocument, PDFName, PDFDict, PDFArray, PDFHexString, PDFNumber, PDFRef } from 'pdf-lib';
+import type { PDFObject } from 'pdf-lib';
 import {
   rc4,
   aesCbcEncrypt,
   aesCbcDecrypt,
   objectKey,
-  authenticateUserPassword,
   computeEncryptionKey,
   computeOwnerEntry,
   computeUserEntry,
 } from '../../../src/adobe/crypto-utils';
+import {
+  applyPdfSecurity,
+  securityDisablesObjectStreams,
+  authenticateUserPassword,
+} from '../../../src/adobe/pdf-security';
 
 const bytes = (...b: number[]) => new Uint8Array(b);
+const decoded = (value: PDFObject | undefined): string => (value as PDFName).decodeText();
+const numbered = (value: PDFObject | undefined): number => (value as PDFNumber).asNumber();
 
 describe('G9 — crypto primitives', () => {
   it('RC4 is symmetric and deterministic', () => {
@@ -66,5 +74,101 @@ describe('G9 — standard security handler key entries', () => {
     const key = new Uint8Array(16).fill(1);
     expect(computeUserEntry(key, new Uint8Array(16), 3).length).toBe(32);
     expect(computeUserEntry(key, new Uint8Array(16), 2).length).toBe(32);
+  });
+});
+
+describe('G9 — PDF security application', () => {
+  const methods = {
+    rc4_40: { v: 1, r: 2, keyLength: 5 },
+    rc4_128: { v: 2, r: 3, keyLength: 16 },
+    aes_128: { v: 4, r: 4, keyLength: 16 },
+  } as const;
+
+  it('reports that any security configuration disables object streams', () => {
+    expect(securityDisablesObjectStreams(undefined)).toBe(false);
+    expect(securityDisablesObjectStreams({})).toBe(true);
+    expect(securityDisablesObjectStreams({ userPassword: 'user' })).toBe(true);
+  });
+
+  for (const name of Object.keys(methods) as Array<keyof typeof methods>) {
+    it(`writes a standard encrypt dictionary for ${name}`, async () => {
+      const params = methods[name];
+      const doc = await PDFDocument.create();
+      doc.addPage();
+      doc.setTitle('protected');
+
+      applyPdfSecurity(doc, {
+        userPassword: 'user',
+        ownerPassword: 'owner',
+        encryptionMethod: name,
+      });
+
+      expect(doc.context.trailerInfo.Encrypt).toBeInstanceOf(PDFRef);
+      const encrypt = doc.context.lookup(doc.context.trailerInfo.Encrypt, PDFDict);
+      expect(decoded(encrypt.get(PDFName.of('Filter')))).toBe('Standard');
+      expect(numbered(encrypt.get(PDFName.of('V')))).toBe(params.v);
+      expect(numbered(encrypt.get(PDFName.of('R')))).toBe(params.r);
+      expect(numbered(encrypt.get(PDFName.of('P')))).toBe(4092);
+      if (params.v > 1) {
+        expect(numbered(encrypt.get(PDFName.of('Length')))).toBe(params.keyLength * 8);
+      } else {
+        expect(encrypt.get(PDFName.of('Length'))).toBeUndefined();
+      }
+
+      const o = encrypt.lookup(PDFName.of('O'), PDFHexString).asBytes();
+      const u = encrypt.lookup(PDFName.of('U'), PDFHexString).asBytes();
+      const id = doc.context.trailerInfo.ID as PDFArray;
+      expect(id.size()).toBe(2);
+      const id0 = id.lookup(0, PDFHexString).asBytes();
+
+      expect(
+        authenticateUserPassword('user', o, u, 4092, id0, params.r, params.keyLength)
+      ).toBeInstanceOf(Uint8Array);
+      expect(
+        authenticateUserPassword('wrong', o, u, 4092, id0, params.r, params.keyLength)
+      ).toBeNull();
+
+      if (name === 'aes_128') {
+        const cf = encrypt.lookup(PDFName.of('CF'), PDFDict);
+        const stdcf = cf.lookup(PDFName.of('StdCF'), PDFDict);
+        expect(decoded(stdcf.lookup(PDFName.of('CFM'), PDFName))).toBe('AESV2');
+        expect(decoded(encrypt.lookup(PDFName.of('StmF'), PDFName))).toBe('StdCF');
+        expect(decoded(encrypt.lookup(PDFName.of('StrF'), PDFName))).toBe('StdCF');
+      } else {
+        expect(encrypt.get(PDFName.of('CF'))).toBeUndefined();
+      }
+    });
+  }
+
+  it('defaults the owner password to the user password', async () => {
+    const doc = await PDFDocument.create();
+
+    applyPdfSecurity(doc, { userPassword: 'same', encryptionMethod: 'rc4_128' });
+
+    const encrypt = doc.context.lookup(doc.context.trailerInfo.Encrypt, PDFDict);
+    const o = encrypt.lookup(PDFName.of('O'), PDFHexString).asBytes();
+    expect(Array.from(o)).toEqual(Array.from(computeOwnerEntry('same', 'same', 3, 16)));
+  });
+
+  it('maps denied permissions to the remaining permission bits', async () => {
+    const doc = await PDFDocument.create();
+
+    applyPdfSecurity(doc, {
+      userPassword: 'user',
+      permissions: {
+        print: false,
+        modify: false,
+        copy: false,
+        annotate: false,
+        fillForms: false,
+        extract: false,
+        assemble: false,
+        printHighQuality: false,
+        highPrint: false,
+      },
+    });
+
+    const encrypt = doc.context.lookup(doc.context.trailerInfo.Encrypt, PDFDict);
+    expect(numbered(encrypt.get(PDFName.of('P')))).toBe((1 << 6) | (1 << 7));
   });
 });

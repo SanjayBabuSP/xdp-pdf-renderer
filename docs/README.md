@@ -24,6 +24,10 @@ This is the entry point for humans and AI agents. Read in this order.
   — expected versus current output comparison.
 - [`02-research/pdf-output-issues.md`](02-research/pdf-output-issues.md) —
   observed PDF output defects.
+- [`02-research/2026-11-21-example2-en-cn-parity.md`](02-research/2026-11-21-example2-en-cn-parity.md)
+  — Example-2 EN/CN defect evidence.
+- [`02-research/2026-11-21-unit-coverage-all-source.md`](02-research/2026-11-21-unit-coverage-all-source.md)
+  — Unit coverage baseline and gap analysis.
 - [`02-research/_TEMPLATE.md`](02-research/_TEMPLATE.md) — template for new
   research notes.
 
@@ -33,6 +37,10 @@ This is the entry point for humans and AI agents. Read in this order.
   implementation plan.
 - [`03-plans/mechanicalseal-adobe-parity-plan.md`](03-plans/mechanicalseal-adobe-parity-plan.md)
   — Mechanicalseal parity plan.
+- [`03-plans/2026-11-21-example2-en-cn-parity.md`](03-plans/2026-11-21-example2-en-cn-parity.md)
+  — Example-2 EN/CN implementation plan.
+- [`03-plans/2026-11-21-unit-coverage-all-source.md`](03-plans/2026-11-21-unit-coverage-all-source.md)
+  — Comprehensive unit coverage plan.
 - [`03-plans/_TEMPLATE.md`](03-plans/_TEMPLATE.md) — template for new plans.
 
 ## 5. Decisions

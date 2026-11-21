@@ -172,3 +172,50 @@ describe('PDF417 — rendering to PDF', () => {
     expect(wide.toString()).not.toBe(narrow.toString());
   });
 });
+
+describe('PDF417 — compaction modes and validation', () => {
+  it('rejects an error-correction level above eight', () => {
+    expect(() => ecCountForLevel(9)).toThrow('PDF417 EC level 9 out of range (0-8)');
+  });
+
+  it('shifts binary-only characters in text mode', () => {
+    const symbol = encodePdf417('é');
+    expect(symbol.codewords).toContain(913);
+    expect(symbol.codewords).toContain(233);
+  });
+
+  it('packs long digit strings into base-900 numeric codewords', () => {
+    expect(encodePdf417('1234567890123').codewords.slice(1, 4)).toEqual([17, 110, 836]);
+    expect(encodePdf417('1'.repeat(50)).codewords[1]).toBe(485);
+  });
+
+  it('packs binary-heavy payloads into base-900 byte codewords', () => {
+    expect(encodePdf417(String.fromCharCode(255).repeat(6)).codewords.slice(1, 6)).toEqual([
+      429, 11, 71, 222, 855,
+    ]);
+  });
+
+  it('shifts trailing bytes when the byte payload is not a multiple of six', () => {
+    expect(encodePdf417(String.fromCharCode(255).repeat(7)).codewords.slice(1, 7)).toEqual([
+      429, 11, 71, 222, 855, 913,
+    ]);
+  });
+
+  it('rejects out-of-range explicit dimensions', () => {
+    expect(() => encodePdf417('X', { columns: -1, rows: 5 })).toThrow(
+      'PDF417 columns out of range (1-30)'
+    );
+    expect(() => encodePdf417('X', { columns: 5, rows: 2 })).toThrow(
+      'PDF417 rows out of range (3-90)'
+    );
+    expect(() => encodePdf417('X', { columns: 30, rows: 90 })).toThrow(
+      'PDF417 symbol exceeds ISO capacity'
+    );
+  });
+
+  it('rejects an explicit symbol smaller than the message', () => {
+    expect(() => encodePdf417('X', { columns: 1, rows: 3 })).toThrow(
+      'PDF417 symbol too small for message'
+    );
+  });
+});

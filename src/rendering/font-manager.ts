@@ -1,8 +1,8 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { PDFDocument, PDFFont } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
 import { RenderOptions, FontEquateRule } from '../types';
+import { createPatchedFontkit } from './cff-subset-patch';
 import { FontSubstitution } from './font-substitution';
 import {
   BASE14_FAMILIES,
@@ -64,7 +64,7 @@ export class FontManager {
     this.customFonts = options?.fonts ?? {};
     this.fontDirs = options?.fontDirs ?? [];
     this.fontSubstitution = new FontSubstitution(fontEquateRules);
-    this.doc.registerFontkit(fontkit);
+    this.doc.registerFontkit(createPatchedFontkit());
   }
 
   async getFont(family?: string, weight?: string, posture?: string): Promise<PDFFont> {

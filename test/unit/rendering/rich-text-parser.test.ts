@@ -109,6 +109,30 @@ describe('RichTextParser', () => {
       expect(sizedRun).toBeDefined();
       expect(sizedRun!.fontSize).toBe(12);
     });
+
+    it('applies paragraph CSS and restores state after the closing p', () => {
+      const runs = parseRichText(
+        '<p style="font-weight:bold;text-decoration:underline;font-size:12pt;font-family:\'Arial Narrow\'">Title</p><p>Normal</p>'
+      );
+      const title = runs.find((r) => r.text === 'Title');
+      expect(title?.bold).toBe(true);
+      expect(title?.underline).toBe(true);
+      expect(title?.fontSize).toBe(12);
+      expect(title?.fontFamily).toBe('Arial Narrow');
+      const normal = runs.find((r) => r.text === 'Normal');
+      expect(normal?.bold).toBeUndefined();
+      expect(normal?.underline).toBeUndefined();
+      expect(normal?.fontFamily).toBeUndefined();
+    });
+
+    it('lets a nested span override paragraph font-weight', () => {
+      const runs = parseRichText(
+        '<p style="font-weight:bold">A<span style="font-weight:normal">B</span>C</p>'
+      );
+      expect(runs.find((r) => r.text === 'A')?.bold).toBe(true);
+      expect(runs.find((r) => r.text === 'B')?.bold).toBeUndefined();
+      expect(runs.find((r) => r.text === 'C')?.bold).toBe(true);
+    });
   });
 
   describe('textRunsToPlainText', () => {

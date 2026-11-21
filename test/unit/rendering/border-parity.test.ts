@@ -115,6 +115,32 @@ describe('tiny-gap double lines collapse to one (no 1.4pt gaps)', () => {
     const lines = hLines(content);
     expect(lines.length).toBe(1);
   });
+
+  it('keeps a full-width parent edge when a coincident child covers only part of it', async () => {
+    const body = `
+      <subform name="row" layout="position" x="10pt" y="10pt" w="200pt" h="20pt">
+        <border>
+          <edge presence="hidden"/><edge presence="hidden"/>
+          <edge thickness="0.5pt"/><edge presence="hidden"/>
+        </border>
+        <field name="a" x="0pt" y="0pt" w="100pt" h="20pt">
+          <ui><textEdit><border>
+            <edge presence="hidden"/><edge presence="hidden"/>
+            <edge thickness="0.5pt"/><edge presence="hidden"/>
+          </border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+        <field name="b" x="100pt" y="0pt" w="100pt" h="20pt">
+          <ui><textEdit><border><edge presence="hidden"/></border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+      </subform>`;
+    const content = await render(body);
+    const lines = hLines(content);
+    expect(lines.some((line) => line.x2 - line.x1 > 190)).toBe(true);
+  });
 });
 
 describe('per-corner radii (precise boxes, hidden corners square)', () => {
@@ -241,8 +267,7 @@ describe('subform thick edge wins over a coincident thin child edge', () => {
 </xdp:xdp>`;
     const result = await renderFormToPdf(doc, XSD, DATA, {});
     if (!result.success) throw new Error(`[${result.error.code}] ${result.error.message}`);
-    const raw = await contentStream(result.data);
-    const content = raw.toString('latin1');
+    const content = await contentStream(result.data);
     expect(content).toMatch(/\n2\.04 w\n/);
   });
 

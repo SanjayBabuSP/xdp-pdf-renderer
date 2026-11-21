@@ -392,6 +392,7 @@ npm run build              # prettier --write src/ test/ → tsc → dist/
 npm run lint               # eslint src --ext .ts --max-warnings 0
 npm run test:unit          # fast unit + focused rendering regressions
 npm run test:integration   # workflow-level tests
+npm run test:coverage      # unit coverage summary (≥90% lines)
 npm test                   # all suites
 
 npm run sample-forms       # build + render sanitized fixtures

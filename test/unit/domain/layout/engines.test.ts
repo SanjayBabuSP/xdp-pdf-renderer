@@ -196,4 +196,18 @@ describe('layout engines (dispatcher)', () => {
     const out = run([field('a', { x: 0, y: 0, w: 100, minH: 40 })]);
     expect(out[0].position!.h).toBe(40);
   });
+
+  it('subformSet rows use the shared cell height without a minimum pitch', () => {
+    const rows = [10, 12, 9].map((h, i) =>
+      subform(`r${i}`, 'row', { h }, [field(`a${i}`, { w: 100, h }), field(`b${i}`, { w: 100, h })])
+    );
+    const set = { ...subform('set', 'position', {}, rows), isSubformSet: true };
+    const tbl = subform('tbl', 'table', { x: 0, y: 0, w: 200 }, [set]);
+    tbl.columnWidths = [100, 100];
+    const out = run([tbl]);
+    const laidSet = (out[0] as SubformNode).children[0] as SubformNode;
+    expect(laidSet.children.map((c) => c.position!.h)).toEqual([10, 12, 9]);
+    expect(laidSet.children.map((c) => c.position!.y)).toEqual([54, 64, 76]);
+    expect((laidSet.children[0] as SubformNode).children[0].position!.h).toBe(10);
+  });
 });

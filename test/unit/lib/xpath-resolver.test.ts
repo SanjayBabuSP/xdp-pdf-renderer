@@ -74,4 +74,50 @@ describe('xpath-resolver', () => {
       expect(resolveXPathRelative('$.Records.Amount', scope)).toBeUndefined();
     });
   });
+
+  describe('path traversal edge cases', () => {
+    it('returns undefined for a single-segment relative ref with no match', () => {
+      expect(resolveXPathRelative('$.Missing', { Other: 'x' } as DataObject)).toBeUndefined();
+    });
+
+    it('returns the data itself for an empty path', () => {
+      expect(resolveXPath('', data)).toBe(data);
+    });
+
+    it('returns undefined for a bare dollar ref', () => {
+      expect(resolveXPath('$', data)).toBeUndefined();
+      expect(resolveXPathRelative('$', data)).toBeUndefined();
+    });
+
+    it('returns a scalar value for a numeric subscript on a non-array', () => {
+      expect(resolveXPath('$.Name[0]', data)).toBe('Acme Corp');
+    });
+
+    it('projects a property across every array element', () => {
+      const projected = resolveXPath('$.revisionHistory[*].date', data);
+      expect(projected).toEqual(['2026-05-01', '2026-06-01']);
+    });
+
+    it('skips array elements where the projected property is absent', () => {
+      const source: DataObject = {
+        rows: [{ code: 'a' }, { other: 'b' }, { code: 'c' }],
+      };
+      expect(resolveXPath('$.rows[*].code', source)).toEqual(['a', 'c']);
+    });
+
+    it('flattens nested arrays produced during projection', () => {
+      const source: DataObject = {
+        rows: [{ tags: ['x', 'y'] }, { tags: ['z'] }],
+      };
+      expect(resolveXPath('$.rows[*].tags', source)).toEqual(['x', 'y', 'z']);
+    });
+
+    it('returns undefined when no array element yields a value', () => {
+      expect(resolveXPath('$.revisionHistory[*].absent', data)).toBeUndefined();
+    });
+
+    it('handles dotted paths after an indexed array segment', () => {
+      expect(resolveXPath('$.nested.to_Perf[1].Value', data)).toBe('200');
+    });
+  });
 });
