@@ -174,7 +174,8 @@ function serializeElement(name: string, value: unknown): string {
 }
 
 function escapeAttrValue(value: string): string {
-  return value.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+  return value
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
     .replace(/"/g, '&quot;');
 }
 

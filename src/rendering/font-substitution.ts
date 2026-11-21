@@ -19,7 +19,11 @@ const DEFAULT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Myriad Pro Black_normal_*', to: 'Myriad Pro Black_bold_*', force: false },
   { from: 'MyriadPro_bold_normal', to: 'Myriad Pro_bold_normal', force: true },
   { from: 'Adobe Gothic Std B_normal_normal', to: 'Adobe Gothic Std B_bold_normal', force: true },
-  { from: 'Adobe Fan Heiti Std B_normal_normal', to: 'Adobe Fan Heiti Std B_bold_normal', force: true },
+  {
+    from: 'Adobe Fan Heiti Std B_normal_normal',
+    to: 'Adobe Fan Heiti Std B_bold_normal',
+    force: true,
+  },
   { from: 'Kozuka Gothic Pr6N B_*_*', to: 'Kozuka Gothic Pr6N B_bold_normal', force: true },
   { from: 'Kozuka Gothic Pr6N EL_*_*', to: 'Kozuka Gothic Pr6N EL_*_*', force: false },
   { from: 'Kozuka Gothic Pr6N H_*_*', to: 'Kozuka Gothic Pr6N H_bold_normal', force: true },

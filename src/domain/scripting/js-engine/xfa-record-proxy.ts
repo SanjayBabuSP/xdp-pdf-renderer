@@ -1,4 +1,3 @@
-
 function scalarText(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
@@ -123,7 +122,8 @@ export function createRecordNode(value: unknown): Record<string, unknown> {
             },
           };
         case 'isNull':
-          return () => scalarText(value) === '' && !Array.isArray(value) && typeof value !== 'object';
+          return () =>
+            scalarText(value) === '' && !Array.isArray(value) && typeof value !== 'object';
         case 'isHidden':
           return () => false;
         case 'isVisible':
@@ -143,9 +143,7 @@ export function createRecordNode(value: unknown): Record<string, unknown> {
             const parts = rest.split('.').filter(Boolean);
             let current: unknown = value;
             for (const part of parts) current = childAt(current, part);
-            return current === undefined
-              ? createNullRecordNode()
-              : createRecordNode(current);
+            return current === undefined ? createNullRecordNode() : createRecordNode(current);
           };
         default: {
           if (Array.isArray(value) && /^\d+$/.test(prop)) {

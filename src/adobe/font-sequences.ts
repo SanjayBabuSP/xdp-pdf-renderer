@@ -1,4 +1,3 @@
-
 import { familyKey } from '../rendering/font-registry';
 export interface FontSequenceRule {
   fromFamily: string;
@@ -74,7 +73,8 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
   {
     fromFamily: 'MS Mincho',
     sequence: ['Yu Mincho', 'Hiragino Mincho Pro', 'Noto Serif CJK JP', 'serif'],
-  },  {
+  },
+  {
     fromFamily: 'MS Gothic',
     sequence: ['Yu Gothic', 'Hiragino Kaku Gothic Pro', 'Noto Sans CJK JP', 'sans-serif'],
   },
@@ -88,7 +88,13 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
   },
   {
     fromFamily: 'SimHei',
-    sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Microsoft YaHei', 'Noto Sans CJK SC', 'sans-serif'],
+    sequence: [
+      'Adobe Heiti Std R',
+      'Kozuka Gothic Pr6N R',
+      'Microsoft YaHei',
+      'Noto Sans CJK SC',
+      'sans-serif',
+    ],
   },
   {
     fromFamily: 'Microsoft YaHei',
@@ -168,14 +174,20 @@ export function addFontSequenceRule(rules: FontSequenceRule[], rule: FontSequenc
 
 export function parseFontSequenceString(input: string): FontSequenceRule[] {
   const rules: FontSequenceRule[] = [];
-  const entries = input.split(';').map((s) => s.trim()).filter(Boolean);
+  const entries = input
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   for (const entry of entries) {
     const parts = entry.split('*');
     const family = parts[0].trim();
     const weight = parts[1]?.trim();
     const posture = parts[2]?.trim();
-    const sequence = parts.slice(3).map((s) => s.trim()).filter(Boolean);
+    const sequence = parts
+      .slice(3)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     if (family && sequence.length) {
       rules.push({

@@ -1,4 +1,3 @@
-
 import { FontEquateRule, ConfigSpec } from '../../types';
 import { parseXml, getChild, toArray, attr, textContent } from '../../lib/xml-utils';
 
@@ -52,7 +51,10 @@ export function parseXci(xciXml: string): XciConfig {
   const fontEquateRules = parseFontEquateRulesFromXci(agentPdf ?? presentPdf);
 
   const pdfVersion = textContent(getChild(presentPdf ?? agentPdf, 'version'));
-  const adobeExtensionLevel = parseInt(textContent(getChild(presentPdf ?? agentPdf, 'adobeExtensionLevel')) ?? '0', 10);
+  const adobeExtensionLevel = parseInt(
+    textContent(getChild(presentPdf ?? agentPdf, 'adobeExtensionLevel')) ?? '0',
+    10
+  );
 
   const scriptEl = getChild(present, 'script');
   const scriptConfig = parseScriptConfig(scriptEl);
@@ -146,9 +148,7 @@ function parseScriptEvents(scriptEl: unknown): string[] {
   }
 
   const eventEls = toArray<unknown>(getChild(eventsEl, 'event'));
-  return eventEls
-    .map((e) => textContent(e) ?? attr(e, 'name'))
-    .filter(Boolean) as string[];
+  return eventEls.map((e) => textContent(e) ?? attr(e, 'name')).filter(Boolean) as string[];
 }
 
 function defaultXciConfig(): XciConfig {

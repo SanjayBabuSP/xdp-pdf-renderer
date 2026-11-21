@@ -2,9 +2,7 @@ import { parseXml, firstChild, extractRichTextContent } from '../../../src/lib/x
 
 describe('xml-utils robustness (ADS parity)', () => {
   it('firstChild unwraps duplicated singular children (Example-1 draw)', () => {
-    const doc = parseXml(
-      `<draw><value><text>A</text></value><value><text>B</text></value></draw>`
-    );
+    const doc = parseXml(`<draw><value><text>A</text></value><value><text>B</text></value></draw>`);
     const draw = (doc as Record<string, unknown>).draw;
     expect(firstChild(draw, 'value')).toEqual({ text: 'A' });
   });

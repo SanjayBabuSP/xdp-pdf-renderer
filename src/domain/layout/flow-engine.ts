@@ -15,7 +15,12 @@ function childVAlign(node: LayoutNode): string | undefined {
   return undefined;
 }
 
-function alignOffset(align: string | undefined, slot: number, extent: number, axis: 'h' | 'v'): number {
+function alignOffset(
+  align: string | undefined,
+  slot: number,
+  extent: number,
+  axis: 'h' | 'v'
+): number {
   const free = slot - extent;
   if (free <= 0) return 0;
   const a = (align ?? (axis === 'h' ? 'left' : 'top')).toLowerCase();
@@ -59,7 +64,11 @@ export function layoutFlowSubform(
     for (const child of node.children) {
       const cw = declaredWidth(child) ?? contentW;
       const childX = baseX + alignOffset(childHAlign(child), contentW, cw, 'h');
-      const result = layoutChild(child, { x: childX, y: baseY + yOffset, availableWidth: contentW });
+      const result = layoutChild(child, {
+        x: childX,
+        y: baseY + yOffset,
+        availableWidth: contentW,
+      });
       children.push(result.node);
       yOffset += result.height;
     }
@@ -85,7 +94,12 @@ export function layoutFlowSubform(
         widthFromText: authored === undefined,
       };
       let result = layoutChild(child, childCtx);
-      const vOff = alignOffset(childVAlign(child), Math.max(result.height, lineHeight), result.height, 'v');
+      const vOff = alignOffset(
+        childVAlign(child),
+        Math.max(result.height, lineHeight),
+        result.height,
+        'v'
+      );
       if (vOff > 0) {
         result = layoutChild(child, { ...childCtx, y: baseY + yOffset + vOff });
       }

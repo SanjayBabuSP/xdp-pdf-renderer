@@ -1,4 +1,3 @@
-
 import { PDFDocument, PDFName } from 'pdf-lib';
 
 export type TabOrder = 'documents' | 'fields' | 'structure' | 'appearance';

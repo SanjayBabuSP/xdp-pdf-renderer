@@ -109,9 +109,7 @@ describe('parse-xdp', () => {
       expect(result.success).toBe(true);
       if (!result.success) return;
 
-      const field = result.data.children.find(
-        (n) => n.type === 'field' && n.name === 'Name'
-      );
+      const field = result.data.children.find((n) => n.type === 'field' && n.name === 'Name');
       expect(field).toBeDefined();
       if (field?.type === 'field') {
         expect(field.bindRef).toBe('$.Name');
@@ -124,9 +122,7 @@ describe('parse-xdp', () => {
       expect(result.success).toBe(true);
       if (!result.success) return;
 
-      const table = result.data.children.find(
-        (n) => n.type === 'subform' && n.name === 'Table'
-      );
+      const table = result.data.children.find((n) => n.type === 'subform' && n.name === 'Table');
       expect(table).toBeDefined();
       if (table?.type === 'subform') {
         expect(table.layout).toBe('table');
@@ -136,14 +132,15 @@ describe('parse-xdp', () => {
     });
 
     it('preserves -1 columnWidths tokens as auto markers (xfalayout:97860)', () => {
-      const raw = XDP_WITH_TABLE.replace('columnWidths="50mm 50mm 50mm"', 'columnWidths="50mm -1 50mm"');
+      const raw = XDP_WITH_TABLE.replace(
+        'columnWidths="50mm 50mm 50mm"',
+        'columnWidths="50mm -1 50mm"'
+      );
       const result = parseXdp(raw);
       expect(result.success).toBe(true);
       if (!result.success) return;
 
-      const table = result.data.children.find(
-        (n) => n.type === 'subform' && n.name === 'Table'
-      );
+      const table = result.data.children.find((n) => n.type === 'subform' && n.name === 'Table');
       expect(table?.type).toBe('subform');
       if (table?.type === 'subform') {
         expect(table.columnWidths).toHaveLength(3);
@@ -176,7 +173,12 @@ describe('parse-xdp', () => {
       expect(border.fill.fillType).toBe('toRight');
       expect(border.fill.color).toEqual({ r: 255, g: 0, b: 0 });
       expect(border.cornerRadius).toBeCloseTo(4);
-      expect(border.cornerRadii).toEqual([expect.closeTo(4, 6), expect.closeTo(4, 6), expect.closeTo(4, 6), expect.closeTo(4, 6)]);
+      expect(border.cornerRadii).toEqual([
+        expect.closeTo(4, 6),
+        expect.closeTo(4, 6),
+        expect.closeTo(4, 6),
+        expect.closeTo(4, 6),
+      ]);
     });
 
     it('leaves a lone unindexed radius corner square (Designer default stamp)', () => {

@@ -7,11 +7,11 @@ and so were the names of form objects and data elements. Layout, fonts, data
 bindings and script logic are unchanged, so the forms render like the originals
 (same pages, images, fonts and script outcomes).
 
-| Form | Template (`.xdp`) | Schema (`.xsd`) | Data (`.xml`) | Pages |
-|---|---|---|---|---|
-| Example-1 (datasheet) | `Example-1/Example-Datasheet.xdp` | `Example-1/Example-Schema.xsd` | `Example-1/Example-Test-data.xml` | 2 |
-| Example-2 EN / CN / ESP (cover letter) | `Example-2/Example-Datasheet-{EN,CN,ESP}.xdp` | `Example-2/Example-Schema.xsd` | `Example-2/Example-Test-Data.xml` | 5 |
-| Example-3 (datasheet) | `Example-3/Example-Datasheet.xdp` | `Example-3/Example-Schema.xsd` | `Example-3/Example-Test-Data.xml` | 2 |
+| Form                                   | Template (`.xdp`)                             | Schema (`.xsd`)                | Data (`.xml`)                     | Pages |
+| -------------------------------------- | --------------------------------------------- | ------------------------------ | --------------------------------- | ----- |
+| Example-1 (datasheet)                  | `Example-1/Example-Datasheet.xdp`             | `Example-1/Example-Schema.xsd` | `Example-1/Example-Test-data.xml` | 2     |
+| Example-2 EN / CN / ESP (cover letter) | `Example-2/Example-Datasheet-{EN,CN,ESP}.xdp` | `Example-2/Example-Schema.xsd` | `Example-2/Example-Test-Data.xml` | 5     |
+| Example-3 (datasheet)                  | `Example-3/Example-Datasheet.xdp`             | `Example-3/Example-Schema.xsd` | `Example-3/Example-Test-Data.xml` | 2     |
 
 [`forms.json`](forms.json) lists the combinations the tests use.
 

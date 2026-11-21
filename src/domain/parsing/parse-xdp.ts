@@ -34,7 +34,17 @@ import {
 } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { XMLParser } from 'fast-xml-parser';
-import { parseXml, getChild, toArray, attr, textContent, serializeHtmlFragment, stripProcessingInstructions, firstChild, extractRichTextContent } from '../../lib/xml-utils';
+import {
+  parseXml,
+  getChild,
+  toArray,
+  attr,
+  textContent,
+  serializeHtmlFragment,
+  stripProcessingInstructions,
+  firstChild,
+  extractRichTextContent,
+} from '../../lib/xml-utils';
 import { toPointsOrZero, stockSizePoints } from '../../lib/unit-converter';
 import { parseOpacityValue } from '../../lib/opacity';
 import { ERROR_CODES } from '../../errors/error-codes';
@@ -60,7 +70,11 @@ const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Myriad Pro Black_normal_*', to: 'Myriad Pro Black_bold_*', force: false },
   { from: 'MyriadPro_bold_normal', to: 'Myriad Pro_bold_normal', force: true },
   { from: 'Adobe Gothic Std B_normal_normal', to: 'Adobe Gothic Std B_bold_normal', force: true },
-  { from: 'Adobe Fan Heiti Std B_normal_normal', to: 'Adobe Fan Heiti Std B_bold_normal', force: true },
+  {
+    from: 'Adobe Fan Heiti Std B_normal_normal',
+    to: 'Adobe Fan Heiti Std B_bold_normal',
+    force: true,
+  },
   { from: 'Kozuka Gothic Pr6N B_*_*', to: 'Kozuka Gothic Pr6N B_bold_normal', force: true },
   { from: 'Kozuka Gothic Pr6N EL_*_*', to: 'Kozuka Gothic Pr6N EL_*_*', force: false },
   { from: 'Kozuka Gothic Pr6N H_*_*', to: 'Kozuka Gothic Pr6N H_bold_normal', force: true },
@@ -98,21 +112,23 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   if (!root) return failure(ERROR_CODES.INVALID_XDP.code, ERROR_CODES.INVALID_XDP.message);
 
   const template = findTemplate(root as Record<string, unknown>);
-  if (!template) return failure(ERROR_CODES.MISSING_TEMPLATE.code, ERROR_CODES.MISSING_TEMPLATE.message);
+  if (!template)
+    return failure(ERROR_CODES.MISSING_TEMPLATE.code, ERROR_CODES.MISSING_TEMPLATE.message);
 
   const namespaceResult = validateXfaNamespaces(
     collectNamespaces(root as Record<string, unknown>, template),
-    options.strict === true,
+    options.strict === true
   );
   if (!namespaceResult.valid) {
     return failure(
       'XDP_UNSUPPORTED_XFA_VERSION',
-      namespaceResult.errors.join('; ') || 'Unsupported XFA template namespace',
+      namespaceResult.errors.join('; ') || 'Unsupported XFA template namespace'
     );
   }
 
   const rootSubform = findRootSubform(template);
-  if (!rootSubform) return failure(ERROR_CODES.MISSING_ROOT_SUBFORM.code, ERROR_CODES.MISSING_ROOT_SUBFORM.message);
+  if (!rootSubform)
+    return failure(ERROR_CODES.MISSING_ROOT_SUBFORM.code, ERROR_CODES.MISSING_ROOT_SUBFORM.message);
 
   const orderedRootKids = orderedTemplateKids(xdpXml);
   const orderedRootSubformKids = firstOrderedSubformKids(orderedRootKids);
@@ -155,7 +171,7 @@ function parseVariables(variables: unknown): Record<string, string> | undefined 
 
 function parseDocumentMetadata(
   root: Record<string, unknown>,
-  rootSubform: unknown,
+  rootSubform: unknown
 ): DocumentMetadata | undefined {
   const title = readXmpLiteral(root, 'dc:title') ?? readDescText(rootSubform);
   const description = readXmpLiteral(root, 'dc:description');
@@ -205,7 +221,7 @@ function readDescText(rootSubform: unknown): string | undefined {
 
 function collectNamespaces(
   root: Record<string, unknown>,
-  template: unknown,
+  template: unknown
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const element of [root, template]) {
@@ -380,7 +396,9 @@ function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
   }
 }
 
-function firstOrderedSubformKids(templateKids: OrderedItem[] | undefined): OrderedItem[] | undefined {
+function firstOrderedSubformKids(
+  templateKids: OrderedItem[] | undefined
+): OrderedItem[] | undefined {
   if (!templateKids) return undefined;
   const first = templateKids.find((i) => i.tag === 'subform');
   return first?.kids;
@@ -400,7 +418,14 @@ function toOrderedItems(node: unknown): OrderedItem[] {
   for (const entry of node) {
     if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) continue;
     for (const [key, value] of Object.entries(entry as Record<string, unknown>)) {
-      if (key === ':@' || key.startsWith('?') || key === '#text' || key === '__cdata' || key === '__comment') continue;
+      if (
+        key === ':@' ||
+        key.startsWith('?') ||
+        key === '#text' ||
+        key === '__cdata' ||
+        key === '__comment'
+      )
+        continue;
       if (!Array.isArray(value)) continue;
       const tag = key.includes(':') ? key.slice(key.lastIndexOf(':') + 1) : key;
       const index = counters.get(tag) ?? 0;
@@ -683,8 +708,12 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
     const aspectRaw = attr(image, 'aspect');
     const xdpiRaw = attr(image, 'xdpi') ?? attr(image, 'xres');
     const ydpiRaw = attr(image, 'ydpi') ?? attr(image, 'yres');
-    const hAlignRaw = attr(image, 'hAlign') as DrawNode['value'] extends { hAlign?: infer T } ? T : never;
-    const vAlignRaw = attr(image, 'vAlign') as DrawNode['value'] extends { vAlign?: infer T } ? T : never;
+    const hAlignRaw = attr(image, 'hAlign') as DrawNode['value'] extends { hAlign?: infer T }
+      ? T
+      : never;
+    const vAlignRaw = attr(image, 'vAlign') as DrawNode['value'] extends { vAlign?: infer T }
+      ? T
+      : never;
     return {
       type: 'image',
       contentType: attr(image, 'contentType') ?? 'image/png',
@@ -706,9 +735,7 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
     return {
       type: 'richText',
       contentType: attr(exData, 'contentType') ?? 'text/html',
-      content: hasNestedMarkup
-        ? serializeHtmlFragment(exData)
-        : textContent(exData) ?? '',
+      content: hasNestedMarkup ? serializeHtmlFragment(exData) : (textContent(exData) ?? ''),
     };
   }
   const rectangle = getChild(value, 'rectangle');
@@ -779,36 +806,37 @@ function parseBorder(el: unknown): BorderSpec | undefined {
       }
     : undefined;
   const scopeCorners = toArray<unknown>(getChild(scope, 'corner'));
-  const cornerEls = scope !== el
-    ? [...scopeCorners, ...toArray<unknown>(getChild(el, 'corner'))]
-    : scopeCorners;
+  const cornerEls =
+    scope !== el ? [...scopeCorners, ...toArray<unknown>(getChild(el, 'corner'))] : scopeCorners;
   const cornerSlots: Array<number | undefined> = [];
   cornerEls.forEach((corner, i) => {
     const presence = attr(corner, 'presence');
     const radiusRaw = attr(corner, 'radius');
     const radius = radiusRaw ? toPointsOrZero(radiusRaw) : undefined;
-    const value = presence === 'hidden' || presence === 'invisible' || presence === 'inactive'
-      ? undefined
-      : radius;
+    const value =
+      presence === 'hidden' || presence === 'invisible' || presence === 'inactive'
+        ? undefined
+        : radius;
     const indexRaw = attr(corner, 'index');
     const index = indexRaw != null ? Number.parseInt(indexRaw, 10) : i;
     if (Number.isInteger(index) && index >= 0 && index <= 3) cornerSlots[index] = value;
     else cornerSlots.push(value);
   });
   const multiCornerSet = cornerEls.length > 1;
-  const loneIndexed =
-    cornerEls.length === 1 && attr(cornerEls[0], 'index') != null;
+  const loneIndexed = cornerEls.length === 1 && attr(cornerEls[0], 'index') != null;
   const loneUnindexedStamp = cornerEls.length === 1 && !loneIndexed;
-  const cornerRadii = (multiCornerSet || loneIndexed) &&
-    cornerSlots.some((v) => v != null && v > 0)
-    ? cornerSlots
-    : undefined;
+  const cornerRadii =
+    (multiCornerSet || loneIndexed) && cornerSlots.some((v) => v != null && v > 0)
+      ? cornerSlots
+      : undefined;
   const firstCorner = cornerEls[0];
-  const cornerRadius = !loneUnindexedStamp && firstCorner && attr(firstCorner, 'radius')
-    ? toPointsOrZero(attr(firstCorner, 'radius'))
-    : undefined;
+  const cornerRadius =
+    !loneUnindexedStamp && firstCorner && attr(firstCorner, 'radius')
+      ? toPointsOrZero(attr(firstCorner, 'radius'))
+      : undefined;
 
-  if (compacted.length === 0 && !fill && cornerRadius == null && cornerRadii == null) return undefined;
+  if (compacted.length === 0 && !fill && cornerRadius == null && cornerRadii == null)
+    return undefined;
   return {
     presence: attr(scope, 'presence') ?? attr(el, 'presence'),
     edges: compacted.length ? edges : undefined,
@@ -828,7 +856,12 @@ function fieldBorderWithUiFallback(outerEl: unknown, uiBorderEl: unknown): Borde
 
 function isEffectivelyHiddenBorder(border: BorderSpec | undefined): boolean {
   if (!border) return true;
-  if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return true;
+  if (
+    border.presence === 'hidden' ||
+    border.presence === 'invisible' ||
+    border.presence === 'inactive'
+  )
+    return true;
   const edges = border.edges ?? [];
   const visibleEdge = edges.some(
     (e) => e && e.presence !== 'hidden' && e.presence !== 'invisible' && e.style !== 'none'
@@ -982,6 +1015,7 @@ function parsePosition(el: unknown): Position {
 }
 
 const BREAK_VALUES = ['contentArea', 'pageArea', 'pageEven', 'pageFront', 'pageOdd'] as const;
+const BREAK_VALUE_SET: ReadonlySet<string> = new Set(BREAK_VALUES);
 
 function parseBreaks(el: unknown): {
   breakBefore?: BreakValue;
@@ -990,7 +1024,7 @@ function parseBreaks(el: unknown): {
 } {
   const parseBreak = (v: string | undefined): BreakValue | undefined => {
     if (!v || v === 'auto') return undefined;
-    return (BREAK_VALUES as readonly string[]).includes(v) ? (v as BreakValue) : undefined;
+    return BREAK_VALUE_SET.has(v) ? (v as BreakValue) : undefined;
   };
   const out: { breakBefore?: BreakValue; breakAfter?: BreakValue; keep?: KeepSpec } = {};
   const bb = parseBreak(attr(el, 'breakBefore'));
@@ -1098,38 +1132,38 @@ function normalizeEventActivity(activity?: string, name?: string): string | unde
   if (activity) {
     const lower = activity.toLowerCase();
     const activityMap: Record<string, string> = {
-      'initialize': 'initialize',
-      'calculate': 'calculate',
-      'validate': 'validate',
-      'click': 'click',
-      'change': 'change',
-      'enter': 'enter',
-      'exit': 'exit',
-      'mouseenter': 'mouseEnter',
-      'mouseexit': 'mouseExit',
-      'ready': 'ready',
-      'docready': 'docReady',
-      'docclose': 'docClose',
-      'presave': 'preSave',
-      'postsave': 'postSave',
-      'preprint': 'prePrint',
-      'postprint': 'postPrint',
-      'presubmit': 'preSubmit',
-      'postsubmit': 'postSubmit',
-      'preexecute': 'preExecute',
-      'postexecute': 'postExecute',
-      'presign': 'preSign',
-      'postsign': 'postSign',
-      'full': 'full',
-      'indexchange': 'indexChange',
-      'mouseup': 'mouseUp',
-      'mousedown': 'mouseDown',
-      'preopen': 'preOpen',
-      'postopen': 'postOpen',
-      'preclose': 'preClose',
-      'postclose': 'postClose',
-      'validationstate': 'validationState',
-      'overlay': 'overlay',
+      initialize: 'initialize',
+      calculate: 'calculate',
+      validate: 'validate',
+      click: 'click',
+      change: 'change',
+      enter: 'enter',
+      exit: 'exit',
+      mouseenter: 'mouseEnter',
+      mouseexit: 'mouseExit',
+      ready: 'ready',
+      docready: 'docReady',
+      docclose: 'docClose',
+      presave: 'preSave',
+      postsave: 'postSave',
+      preprint: 'prePrint',
+      postprint: 'postPrint',
+      presubmit: 'preSubmit',
+      postsubmit: 'postSubmit',
+      preexecute: 'preExecute',
+      postexecute: 'postExecute',
+      presign: 'preSign',
+      postsign: 'postSign',
+      full: 'full',
+      indexchange: 'indexChange',
+      mouseup: 'mouseUp',
+      mousedown: 'mouseDown',
+      preopen: 'preOpen',
+      postopen: 'postOpen',
+      preclose: 'preClose',
+      postclose: 'postClose',
+      validationstate: 'validationState',
+      overlay: 'overlay',
       'form:ready': 'ready',
       'layout:ready': 'layout:ready',
     };
@@ -1145,7 +1179,12 @@ function normalizeEventActivity(activity?: string, name?: string): string | unde
   return undefined;
 }
 
-function parseCalculate(calculate: unknown): { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } } | undefined {
+function parseCalculate(calculate: unknown):
+  | {
+      override?: string;
+      script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string };
+    }
+  | undefined {
   if (!calculate) return undefined;
   const override = attr(calculate, 'override');
   const scriptEl = getChild(calculate, 'script');
@@ -1153,19 +1192,35 @@ function parseCalculate(calculate: unknown): { override?: string; script?: { con
   const contentType = attr(scriptEl, 'contentType');
   const runAt = attr(scriptEl, 'runAt');
   const script = scriptContent
-    ? { content: scriptContent, contentType: (contentType?.toLowerCase().includes('javascript') ? 'javascript' : 'formcalc') as 'formcalc' | 'javascript', runAt: runAt ?? undefined }
+    ? {
+        content: scriptContent,
+        contentType: (contentType?.toLowerCase().includes('javascript')
+          ? 'javascript'
+          : 'formcalc') as 'formcalc' | 'javascript',
+        runAt: runAt ?? undefined,
+      }
     : undefined;
   return { override: override ?? undefined, script };
 }
 
-function parseValidate(validate: unknown): { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } } | undefined {
+function parseValidate(
+  validate: unknown
+):
+  | { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } }
+  | undefined {
   if (!validate) return undefined;
   const scriptEl = getChild(validate, 'script');
   const scriptContent = textContent(scriptEl);
   const contentType = attr(scriptEl, 'contentType');
   const runAt = attr(scriptEl, 'runAt');
   const script = scriptContent
-    ? { content: scriptContent, contentType: (contentType?.toLowerCase().includes('javascript') ? 'javascript' : 'formcalc') as 'formcalc' | 'javascript', runAt: runAt ?? undefined }
+    ? {
+        content: scriptContent,
+        contentType: (contentType?.toLowerCase().includes('javascript')
+          ? 'javascript'
+          : 'formcalc') as 'formcalc' | 'javascript',
+        runAt: runAt ?? undefined,
+      }
     : undefined;
   return { script };
 }
@@ -1270,7 +1325,16 @@ function parseUi(ui: unknown): UiSpec | undefined {
 }
 
 const CHOICE_ITEM_SCALARS = new Set([
-  'text', 'integer', 'float', 'decimal', 'boolean', 'dateTime', 'date', 'time', 'null', 'base64Binary',
+  'text',
+  'integer',
+  'float',
+  'decimal',
+  'boolean',
+  'dateTime',
+  'date',
+  'time',
+  'null',
+  'base64Binary',
 ]);
 
 function parseChoiceListItems(cl: unknown): ChoiceListItem[] {
@@ -1300,7 +1364,9 @@ function parseMargin(margin: unknown): MarginSpec | undefined {
   if (!margin) return undefined;
   return {
     topInset: attr(margin, 'topInset') ? toPointsOrZero(attr(margin, 'topInset')) : undefined,
-    bottomInset: attr(margin, 'bottomInset') ? toPointsOrZero(attr(margin, 'bottomInset')) : undefined,
+    bottomInset: attr(margin, 'bottomInset')
+      ? toPointsOrZero(attr(margin, 'bottomInset'))
+      : undefined,
     leftInset: attr(margin, 'leftInset') ? toPointsOrZero(attr(margin, 'leftInset')) : undefined,
     rightInset: attr(margin, 'rightInset') ? toPointsOrZero(attr(margin, 'rightInset')) : undefined,
   };
@@ -1356,7 +1422,10 @@ function parseFontEquateRules(pdf: unknown): FontEquateRule[] {
     .filter(Boolean) as FontEquateRule[];
 }
 
-function mergeFontEquateRules(xdpRules: FontEquateRule[], defaultRules: FontEquateRule[]): FontEquateRule[] {
+function mergeFontEquateRules(
+  xdpRules: FontEquateRule[],
+  defaultRules: FontEquateRule[]
+): FontEquateRule[] {
   const merged = [...xdpRules];
   const xdpFromPatterns = new Set(xdpRules.map((r) => r.from.toLowerCase()));
   for (const defaultRule of defaultRules) {

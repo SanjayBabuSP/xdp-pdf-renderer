@@ -23,7 +23,12 @@ function field(name: string, position: Position): FieldNode {
   return { type: 'field', name, position };
 }
 
-function subform(name: string, layout: SubformNode['layout'], position: Position, children: LayoutNode[]): SubformNode {
+function subform(
+  name: string,
+  layout: SubformNode['layout'],
+  position: Position,
+  children: LayoutNode[]
+): SubformNode {
   return { type: 'subform', name, layout, position, children };
 }
 
@@ -82,7 +87,12 @@ describe('Preview-as-PDF parity', () => {
   it('honours exclGroup x/y in position layout', () => {
     const out = run([
       subform('wrap', 'position', { w: 400, h: 400 }, [
-        { type: 'exclGroup', name: 'g', position: { x: 10, y: 20, w: 200 }, children: [field('a', { w: 200, h: 20 })] },
+        {
+          type: 'exclGroup',
+          name: 'g',
+          position: { x: 10, y: 20, w: 200 },
+          children: [field('a', { w: 200, h: 20 })],
+        },
       ]),
     ]);
     const g = (out[0] as SubformNode).children[0];
@@ -91,14 +101,7 @@ describe('Preview-as-PDF parity', () => {
   });
 
   it('lays flow children inside the container margin insets', () => {
-    const out = run([
-      subform(
-        'm',
-        'tb',
-        { w: 200 },
-        [field('b', { w: 100, h: 20 })]
-      ),
-    ]);
+    const out = run([subform('m', 'tb', { w: 200 }, [field('b', { w: 100, h: 20 })])]);
     const m = out[0] as SubformNode;
     expect(m.children[0].position!.x).toBe(54);
 

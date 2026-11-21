@@ -1,4 +1,9 @@
-import { toPoints, toPointsOrZero, stockSizePoints, stockMediumNames } from '../../../src/lib/unit-converter';
+import {
+  toPoints,
+  toPointsOrZero,
+  stockSizePoints,
+  stockMediumNames,
+} from '../../../src/lib/unit-converter';
 
 describe('unit-converter', () => {
   describe('toPoints', () => {

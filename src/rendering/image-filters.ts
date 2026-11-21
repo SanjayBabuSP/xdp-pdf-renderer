@@ -81,11 +81,22 @@ export function decodeLzw(data: Uint8Array, earlyChange = 1): Uint8Array {
 export function jpxDimensions(data: Uint8Array): { width: number; height: number } | null {
   if (
     data.length > 12 &&
-    data[0] === 0x00 && data[1] === 0x00 && data[2] === 0x00 && data[3] === 0x0c &&
-    data[4] === 0x6a && data[5] === 0x50 && data[6] === 0x20 && data[7] === 0x20
+    data[0] === 0x00 &&
+    data[1] === 0x00 &&
+    data[2] === 0x00 &&
+    data[3] === 0x0c &&
+    data[4] === 0x6a &&
+    data[5] === 0x50 &&
+    data[6] === 0x20 &&
+    data[7] === 0x20
   ) {
     for (let i = 0; i + 12 < data.length; i++) {
-      if (data[i] === 0x69 && data[i + 1] === 0x68 && data[i + 2] === 0x64 && data[i + 3] === 0x72) {
+      if (
+        data[i] === 0x69 &&
+        data[i + 1] === 0x68 &&
+        data[i + 2] === 0x64 &&
+        data[i + 3] === 0x72
+      ) {
         const height = readU32(data, i + 4);
         const width = readU32(data, i + 8);
         return { width, height };
@@ -110,7 +121,11 @@ export function jpxDimensions(data: Uint8Array): { width: number; height: number
 
 function readU32(data: Uint8Array, offset: number): number {
   return (
-    ((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]) >>> 0
+    ((data[offset] << 24) |
+      (data[offset + 1] << 16) |
+      (data[offset + 2] << 8) |
+      data[offset + 3]) >>>
+    0
   );
 }
 

@@ -1,4 +1,3 @@
-
 import {
   PDFArray,
   PDFDict,
@@ -148,7 +147,7 @@ function encryptObject(
   object: PDFObject,
   key: Uint8Array,
   useAES: boolean,
-  context: PDFContext,
+  context: PDFContext
 ): PDFObject {
   if (object instanceof PDFStream) return encryptStream(object, key, useAES, context);
   if (object instanceof PDFDict) return encryptDict(object, key, useAES, context);
@@ -163,7 +162,7 @@ function encryptStream(
   stream: PDFStream,
   key: Uint8Array,
   useAES: boolean,
-  context: PDFContext,
+  context: PDFContext
 ): PDFObject {
   const dict = encryptDict(stream.dict, key, useAES, context) as PDFDict;
   const contents = stream.getContents();
@@ -175,7 +174,7 @@ function encryptDict(
   dict: PDFDict,
   key: Uint8Array,
   useAES: boolean,
-  context: PDFContext,
+  context: PDFContext
 ): PDFDict {
   const out = PDFDict.withContext(context);
   for (const [name, value] of dict.entries()) {
@@ -188,14 +187,18 @@ function encryptArray(
   array: PDFArray,
   key: Uint8Array,
   useAES: boolean,
-  context: PDFContext,
+  context: PDFContext
 ): PDFArray {
   const out = PDFArray.withContext(context);
   for (const value of array.asArray()) out.push(encryptObject(value, key, useAES, context));
   return out;
 }
 
-function encryptString(value: PDFString | PDFHexString, key: Uint8Array, useAES: boolean): PDFHexString {
+function encryptString(
+  value: PDFString | PDFHexString,
+  key: Uint8Array,
+  useAES: boolean
+): PDFHexString {
   const raw =
     value instanceof PDFHexString
       ? hexToBytes((value as unknown as { value: string }).value)
@@ -204,9 +207,7 @@ function encryptString(value: PDFString | PDFHexString, key: Uint8Array, useAES:
   return PDFHexString.of(bytesToHex(encrypted));
 }
 
-export function securityDisablesObjectStreams(
-  security: PDFSecurityOptions | undefined,
-): boolean {
+export function securityDisablesObjectStreams(security: PDFSecurityOptions | undefined): boolean {
   return security != null;
 }
 

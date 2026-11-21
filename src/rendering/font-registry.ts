@@ -24,7 +24,10 @@ export function manifestPath(dir: string = adobeFontDir()): string {
 }
 
 export function familyKey(family: string): string {
-  return family.trim().toLowerCase().replace(/[\s_]+/g, '');
+  return family
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '');
 }
 
 export function loadManifest(dir: string = adobeFontDir()): FontManifest | null {
@@ -40,9 +43,7 @@ export function loadManifest(dir: string = adobeFontDir()): FontManifest | null 
       const norm = familyKey(key);
       const list = (fonts[norm] ??= []);
       for (const variant of variants ?? []) {
-        const file = path.isAbsolute(variant.file)
-          ? variant.file
-          : path.join(dir, variant.file);
+        const file = path.isAbsolute(variant.file) ? variant.file : path.join(dir, variant.file);
         if (!list.some((v) => v.file === file)) list.push({ ...variant, file });
       }
     }
@@ -158,7 +159,9 @@ const FONT_EXTENSIONS = new Set(['.otf', '.ttf', '.otc', '.ttc']);
 export function scanFontDir(dir: string): FontManifest {
   const manifest: FontManifest = { fonts: {}, source: dir };
   if (!fs.existsSync(dir)) return manifest;
-  const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  const entries = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const ext = path.extname(entry.name).toLowerCase();

@@ -1,4 +1,10 @@
-import { resolveExtent, resolveSubformHeight, clamp, isHeightGrowable, isWidthGrowable } from '../../../../src/domain/layout/sizing';
+import {
+  resolveExtent,
+  resolveSubformHeight,
+  clamp,
+  isHeightGrowable,
+  isWidthGrowable,
+} from '../../../../src/domain/layout/sizing';
 
 describe('layout/sizing', () => {
   describe('isHeightGrowable', () => {

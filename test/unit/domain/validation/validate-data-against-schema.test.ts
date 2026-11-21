@@ -87,19 +87,37 @@ describe('validate-data-against-schema', () => {
     });
 
     it('fails on wrong decimal type', () => {
-      const data: DataObject = { Name: 'X', Amount: 'not-a-number', Revision: 1, LeadID: 1, OfferDate: '2026-01-01' };
+      const data: DataObject = {
+        Name: 'X',
+        Amount: 'not-a-number',
+        Revision: 1,
+        LeadID: 1,
+        OfferDate: '2026-01-01',
+      };
       const result = validateDataAgainstSchema(data, schema);
       expect(result.success).toBe(false);
     });
 
     it('fails on byte out of range', () => {
-      const data: DataObject = { Name: 'X', Amount: 1, Revision: 200, LeadID: 1, OfferDate: '2026-01-01' };
+      const data: DataObject = {
+        Name: 'X',
+        Amount: 1,
+        Revision: 200,
+        LeadID: 1,
+        OfferDate: '2026-01-01',
+      };
       const result = validateDataAgainstSchema(data, schema);
       expect(result.success).toBe(false);
     });
 
     it('fails on invalid date format', () => {
-      const data: DataObject = { Name: 'X', Amount: 1, Revision: 1, LeadID: 1, OfferDate: '01-06-2026' };
+      const data: DataObject = {
+        Name: 'X',
+        Amount: 1,
+        Revision: 1,
+        LeadID: 1,
+        OfferDate: '01-06-2026',
+      };
       const result = validateDataAgainstSchema(data, schema);
       expect(result.success).toBe(false);
     });

@@ -1,5 +1,4 @@
-
-import { XfaNode, XfaEventObject, ScriptableNode } from './script-types';
+import { XfaNode, ScriptableNode } from './script-types';
 import { FieldAccessor } from './formcalc/evaluator';
 import { formatValue } from '../../lib/value-format';
 import type { RgbColor } from '../../types';
@@ -44,7 +43,10 @@ export function readLayoutColors(layoutNode: unknown): {
   borderColor?: string;
 } {
   const ln = layoutNode as
-    | { font?: { color?: RgbColor }; border?: { fill?: { color?: RgbColor }; edges?: Array<{ color?: RgbColor }> } }
+    | {
+        font?: { color?: RgbColor };
+        border?: { fill?: { color?: RgbColor }; edges?: Array<{ color?: RgbColor }> };
+      }
     | undefined;
   if (!ln) return {};
   const out: { fillColor?: string; fontColor?: string; borderColor?: string } = {};
@@ -58,11 +60,7 @@ export function readLayoutColors(layoutNode: unknown): {
   return out;
 }
 
-export function writeLayoutColor(
-  layoutNode: unknown,
-  attr: StyleAttr,
-  value: unknown
-): void {
+export function writeLayoutColor(layoutNode: unknown, attr: StyleAttr, value: unknown): void {
   const color = parseStyleColor(value);
   if (!color) return;
   const ln = layoutNode as unknown as Record<string, unknown>;
@@ -100,7 +98,10 @@ export function writeLayoutColor(
 
 const NODE_ATTRS = ['presence', 'access', 'rotate', 'x', 'y', 'w', 'h', 'name'] as const;
 
-function splitNodeAttribute(path: string): { base: string; attribute?: (typeof NODE_ATTRS)[number] } {
+function splitNodeAttribute(path: string): {
+  base: string;
+  attribute?: (typeof NODE_ATTRS)[number];
+} {
   const dot = path.lastIndexOf('.');
   if (dot < 0) return { base: path };
   const attr = path.slice(dot + 1);
@@ -113,8 +114,7 @@ function splitNodeAttribute(path: string): { base: string; attribute?: (typeof N
 function readCompoundAttribute(node: ScriptableNode, path: string): unknown | undefined {
   if (!path) return undefined;
   const layout = node.layoutNode as
-    | { assist?: Record<string, string | undefined>; extras?: Record<string, string> }
-    | undefined;
+    { assist?: Record<string, string | undefined>; extras?: Record<string, string> } | undefined;
   if (path === 'assist') return layout?.assist;
   if (path === 'extras') return layout?.extras;
   if (path.startsWith('assist.')) {
@@ -188,7 +188,7 @@ export function createFieldAccessor(
     const segments = ref.split('.');
     let scope: ScriptableNode | undefined = currentNode();
     while (scope) {
-      let current: ScriptableNode | undefined =
+      const current: ScriptableNode | undefined =
         scope.name === segments[0]
           ? scope
           : (scope.children ?? []).find((child) => child.name === segments[0]);
@@ -249,7 +249,9 @@ export function createFieldAccessor(
       const key = name === 'bgColor' ? 'fillColor' : name;
       const cached = (self as unknown as Record<string, unknown>)[key];
       if (typeof cached === 'string') return cached;
-      const fromLayout = readLayoutColors(self.layoutNode)[key as 'fillColor' | 'fontColor' | 'borderColor'];
+      const fromLayout = readLayoutColors(self.layoutNode)[
+        key as 'fillColor' | 'fontColor' | 'borderColor'
+      ];
       return fromLayout ?? null;
     }
     switch (name) {
@@ -325,11 +327,10 @@ export function createFieldAccessor(
         const num = Number(value);
         const next = Number.isFinite(num) ? num : 0;
         const layoutNode = self.layoutNode as
-          | { position?: Record<string, number | undefined> }
-          | undefined;
+          { position?: Record<string, number | undefined> } | undefined;
         const position =
           layoutNode && 'position' in layoutNode
-            ? layoutNode.position ?? (layoutNode.position = {})
+            ? (layoutNode.position ?? (layoutNode.position = {}))
             : (self.position as Record<string, number | undefined> | undefined);
         if (position) position[name] = next;
         if (self.position && self.position !== position) {
@@ -360,7 +361,10 @@ export function createFieldAccessor(
     return undefined;
   };
 
-  const accessor: FieldAccessor & { setCurrentKey(key: string | null): void; getCurrentKey(): string | null } = {
+  const accessor: FieldAccessor & {
+    setCurrentKey(key: string | null): void;
+    getCurrentKey(): string | null;
+  } = {
     getField(rawPath: string): unknown {
       const path = normalizeSomPath(rawPath);
       const { base, property } = splitValueProperty(path);
@@ -539,10 +543,7 @@ export interface ScriptEntry {
   ref?: string;
 }
 
-export function collectScripts(
-  nodes: ScriptableNode[],
-  parentPath = ''
-): ScriptEntry[] {
+export function collectScripts(nodes: ScriptableNode[], parentPath = ''): ScriptEntry[] {
   const entries: ScriptEntry[] = [];
 
   for (const node of nodes) {
@@ -592,7 +593,14 @@ function detectLanguage(contentType?: string): 'formcalc' | 'javascript' {
 }
 
 function stripRecordPrefix(path: string): { isRecord: boolean; rest: string } {
-  const prefixes = ['xfa.datasets.data.', 'xfa.datasets.', 'xfa.record.', 'xfa.form.record.', 'record.', '$record.'];
+  const prefixes = [
+    'xfa.datasets.data.',
+    'xfa.datasets.',
+    'xfa.record.',
+    'xfa.form.record.',
+    'record.',
+    '$record.',
+  ];
   for (const p of prefixes) {
     if (path === p.slice(0, -1)) return { isRecord: true, rest: '' };
     if (path.startsWith(p)) return { isRecord: true, rest: path.slice(p.length) };
@@ -602,7 +610,7 @@ function stripRecordPrefix(path: string): { isRecord: boolean; rest: string } {
 }
 
 function parseDataSegment(seg: string): { name: string; index?: number; wildcard?: boolean } {
-  const m = seg.match(/^([^\[]+)\[([^\]]*)\]$/);
+  const m = seg.match(/^([^[]+)\[([^\]]*)\]$/);
   if (!m) return { name: seg };
   const name = m[1];
   const inside = m[2].trim();
@@ -658,7 +666,8 @@ export function resolveRecordValue(rawPath: string, data: Record<string, unknown
     current = next;
   }
   if (wantScalar && current != null && typeof current === 'object') {
-    if (Array.isArray(current)) return current.map((v) => (typeof v === 'object' ? '' : String(v))).join('');
+    if (Array.isArray(current))
+      return current.map((v) => (typeof v === 'object' ? '' : String(v))).join('');
     return '';
   }
   return current;

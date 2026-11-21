@@ -13,7 +13,15 @@ import {
 } from '../../../src/rendering/font-registry';
 
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
-const DEJA_VU_BOLD = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+const DEJA_VU_BOLD = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'assets',
+  'fonts',
+  'DejaVuSans-Bold.ttf'
+);
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xdp-font-registry-'));
@@ -84,7 +92,12 @@ describe('font-registry — manifest IO', () => {
       JSON.stringify({
         fonts: {
           'myriad pro': [
-            { family: 'Myriad Pro', weight: 'bold', posture: 'normal', file: 'fonts/MyriadPro-Bold.otf' },
+            {
+              family: 'Myriad Pro',
+              weight: 'bold',
+              posture: 'normal',
+              file: 'fonts/MyriadPro-Bold.otf',
+            },
           ],
         },
         source: '/elsewhere',

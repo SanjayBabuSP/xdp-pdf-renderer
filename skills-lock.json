@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "skills": {
+    "architecture-doc": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/architecture-doc/SKILL.md",
+      "computedHash": "8e57c2775bfcd5b1eeeeb099f55639efbbffab8e6c6489eab84dce72597ca22a"
+    },
+    "readme-writer": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/readme-writer/SKILL.md",
+      "computedHash": "0e9e4475c0a242e39f71230b5eb1e982da8a0d815017e5ccdb855b4506cfaccf"
+    },
+    "audit-all-ts": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/audit-all-ts/SKILL.md",
+      "computedHash": "d3b2bdf89e316a8d272d8dc4953b45879119615b4095a89a8c9671c3211264c0"
+    },
+    "best-practices-ts": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/best-practices-ts/SKILL.md",
+      "computedHash": "c9ba07098be0ff7c7acffe8c80233178556303eeaf11ace7adcfbd644f3f0835"
+    },
+    "documentation-ts": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/documentation-ts/SKILL.md",
+      "computedHash": "6a1f2d303da29e73ca97cc86d20aa143178151a743b65315e19b44b24185113a"
+    },
+    "performance-ts": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/performance-ts/SKILL.md",
+      "computedHash": "3d59435b849a5fc05b0e11fb11cc784c62b2f7f8cc5a6511a40ddf43731b67a4"
+    },
+    "testing-ts": {
+      "source": "gohypergiant/agent-skills",
+      "commit": "666ea6599a607c09f041cdb9e3aa64232d0a5503",
+      "sourceType": "github",
+      "skillPath": "skills/testing-ts/SKILL.md",
+      "computedHash": "95444f04439deae6aa07663b5652d3dfa5120ded357b52861f6ac5352cd08a5b"
+    },
+    "linting-neostandard-eslint9": {
+      "source": "mcollina/skills",
+      "commit": "c75d70dbfbe991d8cec42aeda0b64ff14fbb9ac7",
+      "sourceType": "github",
+      "skillPath": "skills/linting-neostandard-eslint9/SKILL.md",
+      "computedHash": "5e3b9489737db079107a17129bfd9137c70239a3bbd2a592e143d6eb9b6f948a"
+    },
+    "node": {
+      "source": "mcollina/skills",
+      "commit": "c75d70dbfbe991d8cec42aeda0b64ff14fbb9ac7",
+      "sourceType": "github",
+      "skillPath": "skills/node/SKILL.md",
+      "computedHash": "00efdd7392ec937a8db0a33f5562a74af20e67504002ad18c83996b1726596e6"
+    }
+  }
+}

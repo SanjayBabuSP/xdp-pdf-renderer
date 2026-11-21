@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import { render } from './index';
+import { parseXdp } from './domain/parsing/parse-xdp';
 
 const program = new Command();
 
@@ -19,7 +20,11 @@ program
   .requiredOption('--xsd <file>', 'Path to the XSD schema file')
   .requiredOption('--data <file>', 'Path to the XML data file (use - for stdin)')
   .option('-o, --output <file>', 'Output PDF file path', 'output.pdf')
-  .option('--lenient', 'Tolerate missing required schema fields instead of failing (for real-world data exports with optional/unexpanded elements)', false)
+  .option(
+    '--lenient',
+    'Tolerate missing required schema fields instead of failing (for real-world data exports with optional/unexpanded elements)',
+    false
+  )
   .action(async (opts) => {
     const xdp = readFile(opts.xdp, '--xdp');
     const xsd = readFile(opts.xsd, '--xsd');
@@ -55,7 +60,9 @@ program
     const result = await render({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
 
     if (!result.success) {
-      process.stderr.write(`Validation failed: ${result.error.message}\nCode: ${result.error.code}\n`);
+      process.stderr.write(
+        `Validation failed: ${result.error.message}\nCode: ${result.error.code}\n`
+      );
       if (result.error.details?.length) {
         result.error.details.forEach((d) => process.stderr.write(`  - ${d}\n`));
       }
@@ -70,7 +77,6 @@ program
   .requiredOption('--xdp <file>', 'Path to the XDP template file')
   .option('-o, --output <format>', 'Output format (json)', 'json')
   .action((opts) => {
-    const { parseXdp } = require('./domain/parsing/parse-xdp');
     const xdp = readFile(opts.xdp, '--xdp');
     const result = parseXdp(xdp);
 

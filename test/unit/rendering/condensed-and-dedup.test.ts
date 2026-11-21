@@ -1,4 +1,3 @@
-
 import * as fs from 'fs';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
@@ -149,13 +148,14 @@ describe('font resource de-duplication', () => {
   const MANY_LINES = 40;
 
   function manyLinesXdp(): string {
-    const fields = Array.from({ length: MANY_LINES }, (_, i) => `      <field name="f${i}" x="10pt" y="${
-      10 + i * 12
-    }pt" w="300pt" h="10pt">
+    const fields = Array.from(
+      { length: MANY_LINES },
+      (_, i) => `      <field name="f${i}" x="10pt" y="${10 + i * 12}pt" w="300pt" h="10pt">
         <ui><textEdit/></ui>
         <font typeface="Helvetica" size="9pt"/>
         <bind match="dataRef" ref="$.v${i}"/>
-      </field>`).join('\n');
+      </field>`
+    ).join('\n');
     return `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
@@ -187,7 +187,9 @@ ${els}
   }
 
   function manyLinesData(): string {
-    const els = Array.from({ length: MANY_LINES }, (_, i) => `  <v${i}>row ${i}</v${i}>`).join('\n');
+    const els = Array.from({ length: MANY_LINES }, (_, i) => `  <v${i}>row ${i}</v${i}>`).join(
+      '\n'
+    );
     return `<?xml version="1.0" encoding="UTF-8"?><value>\n${els}\n</value>`;
   }
 
@@ -201,7 +203,9 @@ ${els}
       [...raw.matchAll(/\/(Helvetica[\w-]*)\s+\d+\s+0\s+R/g)].map((m) => m[1])
     );
     const selectors = new Set(
-      [...(await contentStream(result.data)).matchAll(/\/([A-Za-z0-9+.-]+) [\d.]+ Tf/g)].map((m) => m[1])
+      [...(await contentStream(result.data)).matchAll(/\/([A-Za-z0-9+.-]+) [\d.]+ Tf/g)].map(
+        (m) => m[1]
+      )
     );
     expect(selectors.size).toBeLessThanOrEqual(2);
     expect(fontNames.size).toBeLessThanOrEqual(2);

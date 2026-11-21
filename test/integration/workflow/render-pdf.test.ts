@@ -35,10 +35,7 @@ describe('render-pdf workflow (integration)', () => {
   it('renders despite data missing required fields (Adobe renders partial data)', async () => {
     const xdp = fs.readFileSync(path.join(FIXTURES, 'minimal.xdp'), 'utf8');
     const xsd = fs.readFileSync(path.join(FIXTURES, 'minimal.xsd'), 'utf8');
-    const invalidData = fs.readFileSync(
-      path.join(FIXTURES, 'invalid/missing-field.xml'),
-      'utf8'
-    );
+    const invalidData = fs.readFileSync(path.join(FIXTURES, 'invalid/missing-field.xml'), 'utf8');
 
     const result = await renderFormToPdf(xdp, xsd, invalidData);
     expect(result.success).toBe(true);
@@ -47,10 +44,7 @@ describe('render-pdf workflow (integration)', () => {
   it('returns structured error when data missing required fields and strictValidation is set', async () => {
     const xdp = fs.readFileSync(path.join(FIXTURES, 'minimal.xdp'), 'utf8');
     const xsd = fs.readFileSync(path.join(FIXTURES, 'minimal.xsd'), 'utf8');
-    const invalidData = fs.readFileSync(
-      path.join(FIXTURES, 'invalid/missing-field.xml'),
-      'utf8'
-    );
+    const invalidData = fs.readFileSync(path.join(FIXTURES, 'invalid/missing-field.xml'), 'utf8');
 
     const result = await renderFormToPdf(xdp, xsd, invalidData, {
       strictValidation: true,

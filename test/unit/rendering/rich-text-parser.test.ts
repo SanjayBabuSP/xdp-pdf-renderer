@@ -113,10 +113,7 @@ describe('RichTextParser', () => {
 
   describe('textRunsToPlainText', () => {
     it('concatenates all run texts', () => {
-      const result = textRunsToPlainText([
-        { text: 'Hello ' },
-        { text: 'World', bold: true },
-      ]);
+      const result = textRunsToPlainText([{ text: 'Hello ' }, { text: 'World', bold: true }]);
       expect(result).toBe('Hello World');
     });
 

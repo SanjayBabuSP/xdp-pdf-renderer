@@ -33,6 +33,7 @@ export function measureLayoutText(text: string, size: number, font?: FontSpec): 
         if (isCondensedFamily(family)) width *= NARROW_SCALE;
         return width;
       } catch {
+        return text.length * size * APPROX_CHAR_WIDTH_FACTOR;
       }
     }
   }

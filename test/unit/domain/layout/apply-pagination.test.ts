@@ -27,9 +27,24 @@ describe('applyPagination', () => {
               name: 'Row1',
               layout: 'row',
               children: [
-                { type: 'field', name: 'A', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
-                { type: 'field', name: 'B', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
-                { type: 'field', name: 'C', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
+                {
+                  type: 'field',
+                  name: 'A',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
+                {
+                  type: 'field',
+                  name: 'B',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
+                {
+                  type: 'field',
+                  name: 'C',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
               ],
             },
             {
@@ -37,9 +52,24 @@ describe('applyPagination', () => {
               name: 'Row2',
               layout: 'row',
               children: [
-                { type: 'field', name: 'D', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
-                { type: 'field', name: 'E', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
-                { type: 'field', name: 'F', bindMatch: 'none', position: { x: 0, y: 0, w: 30, h: 20 } },
+                {
+                  type: 'field',
+                  name: 'D',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
+                {
+                  type: 'field',
+                  name: 'E',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
+                {
+                  type: 'field',
+                  name: 'F',
+                  bindMatch: 'none',
+                  position: { x: 0, y: 0, w: 30, h: 20 },
+                },
               ],
             },
           ],

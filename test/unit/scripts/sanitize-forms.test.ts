@@ -208,14 +208,16 @@ function readAll(dir: string): string {
 }
 
 function pairTags(original: string, sanitized: string): Map<string, string> {
-  const tagsOf = (xml: string): string[] => [...xml.matchAll(/<([A-Za-z_][\w.-]*)[\s/>]/g)].map((m) => m[1]!);
+  const tagsOf = (xml: string): string[] =>
+    [...xml.matchAll(/<([A-Za-z_][\w.-]*)[\s/>]/g)].map((m) => m[1]!);
   const before = tagsOf(original);
   const after = tagsOf(sanitized);
   if (before.length !== after.length) throw new Error('data files differ in element count');
   const pairs = new Map<string, string>();
   before.forEach((name, i) => {
     const renamed = after[i]!;
-    if (pairs.has(name) && pairs.get(name) !== renamed) throw new Error(`inconsistent rename at element ${i}`);
+    if (pairs.has(name) && pairs.get(name) !== renamed)
+      throw new Error(`inconsistent rename at element ${i}`);
     pairs.set(name, renamed);
   });
   return pairs;
@@ -223,7 +225,11 @@ function pairTags(original: string, sanitized: string): Map<string, string> {
 
 async function renderedText(dir: string): Promise<string[][]> {
   const read = (file: string): string => fs.readFileSync(path.join(dir, 'form', file), 'utf8');
-  const result = await render({ xdp: read('Form.xdp'), xsd: read('Form.xsd'), data: read('Form.xml') });
+  const result = await render({
+    xdp: read('Form.xdp'),
+    xsd: read('Form.xsd'),
+    data: read('Form.xml'),
+  });
   if (!result.success) throw new Error(`[${result.error.code}] ${result.error.message}`);
   const pages = (await PDFDocument.load(result.data)).getPageCount();
   const text: string[][] = [];
@@ -239,7 +245,8 @@ describe('sanitize-forms script', () => {
   let outXml: string;
   let tags: Map<string, string>;
 
-  const readOut = (file: string): string => fs.readFileSync(path.join(output, 'form', file), 'utf8');
+  const readOut = (file: string): string =>
+    fs.readFileSync(path.join(output, 'form', file), 'utf8');
   const tag = (name: string): string => {
     const renamed = tags.get(name);
     if (renamed === undefined) throw new Error(`no data element ${name}`);
@@ -251,7 +258,8 @@ describe('sanitize-forms script', () => {
     input = makeInput(tmp);
     output = path.join(tmp, 'out');
     result = run('--in', input, '--out', output);
-    if (result.status !== 0) throw new Error(`sanitize-forms failed:\n${result.stdout}\n${result.stderr}`);
+    if (result.status !== 0)
+      throw new Error(`sanitize-forms failed:\n${result.stdout}\n${result.stderr}`);
     outXdp = readOut('Form.xdp');
     outXml = readOut('Form.xml');
     tags = pairTags(XML, outXml);
@@ -263,7 +271,11 @@ describe('sanitize-forms script', () => {
 
   it('succeeds and mirrors only the xdp/xsd/xml files', () => {
     expect(result.status).toBe(0);
-    expect(fs.readdirSync(path.join(output, 'form')).sort()).toEqual(['Form.xdp', 'Form.xml', 'Form.xsd']);
+    expect(fs.readdirSync(path.join(output, 'form')).sort()).toEqual([
+      'Form.xdp',
+      'Form.xml',
+      'Form.xsd',
+    ]);
   });
 
   it('never prints company text', () => {
@@ -349,7 +361,9 @@ describe('sanitize-forms script', () => {
   }, 30000);
 
   it('keeps length, spacing, case and script of replaced text', () => {
-    expect(value(outXml, tag('Customer'))).toMatch(/^[A-Z][a-z]{3} [A-Z][a-z]{6} [A-Z][a-z]{2}[A-Z]$/);
+    expect(value(outXml, tag('Customer'))).toMatch(
+      /^[A-Z][a-z]{3} [A-Z][a-z]{6} [A-Z][a-z]{2}[A-Z]$/
+    );
     expect(value(outXml, tag('Plant'))).toMatch(/^[A-Z][a-z]{10} [\u4e00-\u9fff]{4}$/);
     expect(outXdp).toMatch(/<text>[\u4e00-\u9fff]{7}<\/text>/);
     expect(outXdp).toMatch(/<text>[A-Z][a-z]{4} [a-z]{8}<\/text>/);
@@ -374,7 +388,9 @@ describe('sanitize-forms script', () => {
 
   it('scrambles script literals consistently with the data', () => {
     expect(/this\.rawValue == "([^"]*)"/.exec(outXdp)?.[1]).toBe(value(outXml, tag('Customer')));
-    expect(new RegExp(`\\$record\\.${tag('Flag')} == "([^"]*)"`).exec(outXdp)?.[1]).toBe(value(outXml, tag('Flag')));
+    expect(new RegExp(`\\$record\\.${tag('Flag')} == "([^"]*)"`).exec(outXdp)?.[1]).toBe(
+      value(outXml, tag('Flag'))
+    );
     expect(value(outXml, tag('Mode'))).toBe('hidden');
     expect(value(outXml, tag('Code'))).toBe('02');
     expect(value(outXml, tag('WidgetCount'))).toBe('250');
@@ -454,7 +470,9 @@ describe('sanitize-forms script', () => {
     const customer = tag('Customer');
     fs.writeFileSync(
       xmlPath,
-      fs.readFileSync(xmlPath, 'utf8').replace(new RegExp(`<${customer}>[^<]*<`), `<${customer}>Springfield<`)
+      fs
+        .readFileSync(xmlPath, 'utf8')
+        .replace(new RegExp(`<${customer}>[^<]*<`), `<${customer}>Springfield<`)
     );
     const check = run('--check', '--in', input, '--out', checked);
     expect(check.status).toBe(1);
@@ -482,14 +500,19 @@ describe('sanitize-forms script', () => {
     fs.cpSync(output, audited, { recursive: true });
     const xmlPath = path.join(audited, 'form', 'Form.xml');
     const clean = fs.readFileSync(xmlPath, 'utf8');
-    fs.writeFileSync(xmlPath, clean.replace('</Root>', '<Element_9999>someone@company.test</Element_9999></Root>'));
+    fs.writeFileSync(
+      xmlPath,
+      clean.replace('</Root>', '<Element_9999>someone@company.test</Element_9999></Root>')
+    );
     expect(run('--audit', audited).status).toBe(1);
 
     fs.writeFileSync(xmlPath, clean);
     const xdpPath = path.join(audited, 'form', 'Form.xdp');
     fs.writeFileSync(
       xdpPath,
-      fs.readFileSync(xdpPath, 'utf8').replace(/(<image contentType="image\/png">)[^<]+/, `$1${IMAGES.png}`)
+      fs
+        .readFileSync(xdpPath, 'utf8')
+        .replace(/(<image contentType="image\/png">)[^<]+/, `$1${IMAGES.png}`)
     );
     expect(run('--audit', audited).status).toBe(1);
   });
@@ -500,7 +523,9 @@ describe('sanitize-forms script', () => {
     const xmlPath = path.join(audited, 'form', 'Form.xml');
     fs.writeFileSync(
       xmlPath,
-      fs.readFileSync(xmlPath, 'utf8').replace('</Root>', '<SpringfieldPlant>1</SpringfieldPlant></Root>')
+      fs
+        .readFileSync(xmlPath, 'utf8')
+        .replace('</Root>', '<SpringfieldPlant>1</SpringfieldPlant></Root>')
     );
     const audit = run('--audit', audited);
     expect(audit.status).toBe(1);

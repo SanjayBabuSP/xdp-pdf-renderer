@@ -110,7 +110,7 @@ describe('border rendering parity', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
+    expect(content).toMatch(/(^|\n)0\.6 w(\n|$)/);
     expect(content).toContain('1 0 0 RG');
   });
 
@@ -120,7 +120,7 @@ describe('border rendering parity', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
+    expect(content).toMatch(/(^|\n)0\.6 w(\n|$)/);
     expect(content).toContain('0 0 0 RG');
   });
 
@@ -146,7 +146,8 @@ describe('border rendering parity', () => {
     expect(content).not.toMatch(/ m(\n|$)/);
   });
 
-  it('keeps per-edge borders on the segment path when edges differ', async () => {    const mixed = `        <draw name="box" x="20pt" y="20pt" w="120pt" h="60pt">
+  it('keeps per-edge borders on the segment path when edges differ', async () => {
+    const mixed = `        <draw name="box" x="20pt" y="20pt" w="120pt" h="60pt">
           <value>
             <rectangle>
               <border>

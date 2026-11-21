@@ -24,7 +24,9 @@ const FLAG_FIELD = `        <field name="flag" x="0" y="0" w="50pt" h="12pt">
           <bind match="dataRef" ref="$.flag"/>
         </field>`;
 
-const EXTRA_FIELD = (attrs: string): string => `        <field name="extra" x="0" y="20pt" w="50pt" h="12pt" ${attrs}>
+const EXTRA_FIELD = (
+  attrs: string
+): string => `        <field name="extra" x="0" y="20pt" w="50pt" h="12pt" ${attrs}>
           <ui><textEdit/></ui>
           <bind match="dataRef" ref="$.extra"/>
         </field>`;
@@ -58,7 +60,10 @@ ${body}
 const DATA = `<?xml version="1.0" encoding="UTF-8"?>
 <value><flag>yes</flag><extra>EXTRA</extra><other>OTHER</other></value>`;
 
-function prepare(xdpXml: string, dataXml = DATA): { layout: LayoutModel; data: Record<string, unknown> } {
+function prepare(
+  xdpXml: string,
+  dataXml = DATA
+): { layout: LayoutModel; data: Record<string, unknown> } {
   const parsed = parseXdp(xdpXml);
   expect(parsed.success).toBe(true);
   if (!parsed.success) throw new Error('parseXdp failed');
@@ -128,7 +133,10 @@ describe('G2 — @relevant conditional visibility', () => {
   describe('collectRelevantNodes', () => {
     it('finds fields and subforms carrying @relevant, with resolved keys', () => {
       const { layout } = prepare(
-        xdp(`${FLAG_FIELD}\n${EXTRA_FIELD(`relevant='flag.rawValue == "yes"'`)}`, `relevant='flag.rawValue == "yes"'`)
+        xdp(
+          `${FLAG_FIELD}\n${EXTRA_FIELD(`relevant='flag.rawValue == "yes"'`)}`,
+          `relevant='flag.rawValue == "yes"'`
+        )
       );
       const nodes = collectRelevantNodes(layout);
       expect(nodes.map((n) => n.node.name).sort()).toEqual(['content', 'extra']);
@@ -229,9 +237,7 @@ describe('G2 — @relevant conditional visibility', () => {
     });
 
     it('applies @relevant to <draw> nodes too', () => {
-      const { layout, data } = prepare(
-        xdp(`${FLAG_FIELD}\n${EXTRA_FIELD('')}\n${OTHER_DRAW}`)
-      );
+      const { layout, data } = prepare(xdp(`${FLAG_FIELD}\n${EXTRA_FIELD('')}\n${OTHER_DRAW}`));
       expect(names(layout)).toContain('draw:other');
       const result = evaluateConditions(layout, data);
       expect(result.success).toBe(true);

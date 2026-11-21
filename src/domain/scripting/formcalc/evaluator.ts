@@ -1,4 +1,3 @@
-
 import {
   Program,
   FormCalcNode,
@@ -26,8 +25,6 @@ import {
   AndExpr,
   NotExpr,
   ReturnStmt,
-  BreakStmt,
-  ContinueStmt,
 } from './ast';
 import { XfaNode } from '../script-types';
 import { FormCalcParser } from './parser';
@@ -218,9 +215,34 @@ function nonNullValues(args: unknown[]): unknown[] {
 
 const XFA_EPOCH_UTC = Date.UTC(1899, 11, 31);
 
-const MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-  'August', 'September', 'October', 'November', 'December'];
+const MONTHS_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+const MONTHS_FULL = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 const DAYS_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -282,7 +304,10 @@ function isoWeek(d: Date): number {
   const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
   const week1 = new Date(t.getFullYear(), 0, 4);
-  return 1 + Math.round(((t.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return (
+    1 +
+    Math.round(((t.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+  );
 }
 
 function formatWithPicture(d: Date, picture: string, ms = 0): string {
@@ -293,7 +318,8 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
   const mo = d.getMonth() + 1;
   const day = d.getDate();
   const dow = d.getDay();
-  const doy = Math.round((new Date(y, mo - 1, day).getTime() - new Date(y, 0, 1).getTime()) / 86400000) + 1;
+  const doy =
+    Math.round((new Date(y, mo - 1, day).getTime() - new Date(y, 0, 1).getTime()) / 86400000) + 1;
   const H = d.getHours();
   const Mi = d.getMinutes();
   const S = d.getSeconds();
@@ -388,14 +414,6 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
   return out;
 }
 
-function monthFromName(name: string): number | null {
-  const lower = name.toLowerCase();
-  for (let i = 0; i < 12; i++) {
-    if (MONTHS_FULL[i].toLowerCase() === lower || MONTHS_ABBR[i].toLowerCase() === lower) return i + 1;
-  }
-  return null;
-}
-
 function dayFromName(name: string): number | null {
   const lower = name.toLowerCase();
   for (let i = 0; i < 7; i++) {
@@ -446,11 +464,7 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
       si += lit.length;
       return true;
     }
-    if (
-      !/[A-Za-z0-9]/.test(lit) &&
-      si < s.length &&
-      !/[A-Za-z0-9]/.test(s[si])
-    ) {
+    if (!/[A-Za-z0-9]/.test(lit) && si < s.length && !/[A-Za-z0-9]/.test(s[si])) {
       si++;
       return true;
     }
@@ -510,12 +524,15 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
             if (v === null) return null;
             res.M = v;
           } else if (run >= 3) {
-            let saved = si;
+            const saved = si;
             let best: number | null = null;
             let bestLen = -1;
             for (let k = 0; k < 12; k++) {
               for (const nm of [MONTHS_FULL[k], MONTHS_ABBR[k]]) {
-                if (nm.length > bestLen && s.slice(saved).toLowerCase().startsWith(nm.toLowerCase())) {
+                if (
+                  nm.length > bestLen &&
+                  s.slice(saved).toLowerCase().startsWith(nm.toLowerCase())
+                ) {
                   best = k + 1;
                   bestLen = nm.length;
                 }
@@ -768,17 +785,70 @@ function parseUnitSpan(s: string): { value: number; unit: string } | null {
 }
 
 const HTML_NAMED_DECODE: Record<string, string> = {
-  AElig: 'Æ', Aacute: 'Á', Acirc: 'Â', Agrave: 'À', AMP: '&', amp: '&', apos: "'",
-  Aring: 'Å', Atilde: 'Ã', Auml: 'Ä', brvbar: '¦', ccedil: 'ç', cedil: '¸',
-  cent: '¢', copy: '©', curren: '¤', deg: '°', divide: '÷', eacute: 'é',
-  ecirc: 'ê', egrave: 'è', eth: 'ð', euml: 'ë', frac12: '½', frac14: '¼',
-  frac34: '¾', gt: '>', iacute: 'í', icirc: 'î', iexcl: '¡', igrave: 'ì',
-  iquest: '¿', iuml: 'ï', laquo: '«', lt: '<', macr: '¯', middot: '·',
-  nbsp: '\u00a0', not: '¬', ntilde: 'ñ', ordf: 'ª', ordm: 'º', para: '¶',
-  plusmn: '±', pound: '£', quot: '"', raquo: '»', reg: '®', sect: '§',
-  shy: '\u00ad', sup1: '¹', sup2: '²', sup3: '³', szlig: 'ß', thorn: 'þ',
-  times: '×', uacute: 'ú', ucirc: 'û', ugrave: 'ù', uml: '¨', uuml: 'ü',
-  yen: '¥', Yacute: 'Ý', yuml: 'ÿ',
+  AElig: 'Æ',
+  Aacute: 'Á',
+  Acirc: 'Â',
+  Agrave: 'À',
+  AMP: '&',
+  amp: '&',
+  apos: "'",
+  Aring: 'Å',
+  Atilde: 'Ã',
+  Auml: 'Ä',
+  brvbar: '¦',
+  ccedil: 'ç',
+  cedil: '¸',
+  cent: '¢',
+  copy: '©',
+  curren: '¤',
+  deg: '°',
+  divide: '÷',
+  eacute: 'é',
+  ecirc: 'ê',
+  egrave: 'è',
+  eth: 'ð',
+  euml: 'ë',
+  frac12: '½',
+  frac14: '¼',
+  frac34: '¾',
+  gt: '>',
+  iacute: 'í',
+  icirc: 'î',
+  iexcl: '¡',
+  igrave: 'ì',
+  iquest: '¿',
+  iuml: 'ï',
+  laquo: '«',
+  lt: '<',
+  macr: '¯',
+  middot: '·',
+  nbsp: '\u00a0',
+  not: '¬',
+  ntilde: 'ñ',
+  ordf: 'ª',
+  ordm: 'º',
+  para: '¶',
+  plusmn: '±',
+  pound: '£',
+  quot: '"',
+  raquo: '»',
+  reg: '®',
+  sect: '§',
+  shy: '\u00ad',
+  sup1: '¹',
+  sup2: '²',
+  sup3: '³',
+  szlig: 'ß',
+  thorn: 'þ',
+  times: '×',
+  uacute: 'ú',
+  ucirc: 'û',
+  ugrave: 'ù',
+  uml: '¨',
+  uuml: 'ü',
+  yen: '¥',
+  Yacute: 'Ý',
+  yuml: 'ÿ',
 };
 
 function encodeString(s: string, mode: string): string {
@@ -787,11 +857,21 @@ function encodeString(s: string, mode: string): string {
       let out = '';
       for (const ch of s) {
         switch (ch) {
-          case '&': out += '&amp;'; break;
-          case '<': out += '&lt;'; break;
-          case '>': out += '&gt;'; break;
-          case '"': out += '&quot;'; break;
-          case "'": out += '&#39;'; break;
+          case '&':
+            out += '&amp;';
+            break;
+          case '<':
+            out += '&lt;';
+            break;
+          case '>':
+            out += '&gt;';
+            break;
+          case '"':
+            out += '&quot;';
+            break;
+          case "'":
+            out += '&#39;';
+            break;
           default: {
             const code = ch.codePointAt(0)!;
             out += code > 127 ? `&#x${code.toString(16)};` : ch;
@@ -823,8 +903,15 @@ function encodeUrl(s: string): string {
     const bytes: number[] = [];
     if (cp <= 0x7f) bytes.push(cp);
     else if (cp <= 0x7ff) bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
-    else if (cp <= 0xffff) bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
-    else bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    else if (cp <= 0xffff)
+      bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    else
+      bytes.push(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f)
+      );
     for (const b of bytes) {
       const c = String.fromCharCode(b);
       if (b >= 0x20 && b <= 0x7f && safe.test(c)) out += c;
@@ -868,10 +955,40 @@ function decodeString(s: string, mode: string): string {
 
 function integerToWords(num: number, useAnd: boolean): string {
   if (num === 0) return 'Zero';
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen',
-    'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const ones = [
+    '',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+  const tens = [
+    '',
+    '',
+    'Twenty',
+    'Thirty',
+    'Forty',
+    'Fifty',
+    'Sixty',
+    'Seventy',
+    'Eighty',
+    'Ninety',
+  ];
   const convert = (n: number): string => {
     if (n === 0) return '';
     if (n < 20) return ones[n];
@@ -901,7 +1018,7 @@ function integerToWords(num: number, useAnd: boolean): string {
 function wordNum(n: number, fmt: number): string {
   if (isNaN(n)) return '*'.repeat(8);
   const intPart = Math.trunc(n);
-  if (intPart < 0 || intPart > 922337203685477550) {
+  if (intPart < 0 || intPart > Number.MAX_SAFE_INTEGER) {
     return '*'.repeat(Math.max(1, String(Math.abs(intPart)).length));
   }
   const useAnd = fmt !== 2;
@@ -1106,7 +1223,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return pos === -1 ? 0 : pos + 1;
   },
 
-  'date': (args) => {
+  date: (args) => {
     if (args.length === 0) {
       const now = new Date();
       return daysSinceXfaEpoch(now.getFullYear(), now.getMonth() + 1, now.getDate());
@@ -1122,18 +1239,29 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
       parsed = parseDateWithPicture(src, 'MMM D, YYYY');
       if (!parsed) {
         const d = parseDateHeuristic(src);
-        if (d) parsed = { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), H: null, M: null, S: null, ms: 0 };
+        if (d)
+          parsed = {
+            y: d.getFullYear(),
+            mo: d.getMonth() + 1,
+            d: d.getDate(),
+            H: null,
+            M: null,
+            S: null,
+            ms: 0,
+          };
       }
     }
     if (!parsed || parsed.y === null || parsed.mo === null || parsed.d === null) return 0;
     return daysSinceXfaEpoch(parsed.y, parsed.mo, parsed.d);
   },
-  'time': () => {
+  time: () => {
     const now = new Date();
-    return ((now.getUTCHours() * 60 + now.getUTCMinutes()) * 60 + now.getUTCSeconds()) * 1000
-      + now.getUTCMilliseconds();
+    return (
+      ((now.getUTCHours() * 60 + now.getUTCMinutes()) * 60 + now.getUTCSeconds()) * 1000 +
+      now.getUTCMilliseconds()
+    );
   },
-  'datetime': () => {
+  datetime: () => {
     const now = new Date();
     return `${formatISODate(now)}T${formatISOTime(now.getHours(), now.getMinutes(), now.getSeconds())}`;
   },
@@ -1172,48 +1300,59 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const d = parseDateHeuristic(strValue(args[0]));
     if (!d) return 0;
     const start = new Date(d.getFullYear(), 0, 1);
-    return Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) / 86400000) + 1;
+    return (
+      Math.floor(
+        (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) /
+          86400000
+      ) + 1
+    );
   },
 
-  'frac': (args) => {
+  frac: (args) => {
     const n = toNumber(args[0]);
     return n - Math.floor(n);
   },
-  'integer': (args) => Math.floor(toNumber(args[0])),
-  'float': (args) => toNumber(args[0]),
+  integer: (args) => Math.floor(toNumber(args[0])),
+  float: (args) => toNumber(args[0]),
 
-  'hasvalue': (args) => {
+  hasvalue: (args) => {
     const v = args[0];
     return v !== null && v !== undefined && strValue(v).trim() !== '' ? 1 : 0;
   },
-  'hasfinish': () => 0,
-  'isempty': (args) => (isNullish(args[0]) ? 1 : 0),
-  'isnan': (args) => (Number.isNaN(toNumber(args[0])) && typeof args[0] === 'number' ? 1 : 0),
-  'isnull': (args) => (args[0] === null || args[0] === undefined ? 1 : 0),
-  'issigned': () => 0,
+  hasfinish: () => 0,
+  isempty: (args) => (isNullish(args[0]) ? 1 : 0),
+  isnan: (args) => (Number.isNaN(toNumber(args[0])) && typeof args[0] === 'number' ? 1 : 0),
+  isnull: (args) => (args[0] === null || args[0] === undefined ? 1 : 0),
+  issigned: () => 0,
 
-  'null': () => null,
-  'appear': (args) => args[0] ?? args[1],
-  'oneof': (args) => {
+  null: () => null,
+  appear: (args) => args[0] ?? args[1],
+  oneof: (args) => {
     const flat = flattenArgs(args);
     const val = flat[0];
     for (let i = 1; i < flat.length; i++) {
       if (val === flat[i]) return 1;
-      if (!isNullish(val) && !isNullish(flat[i])
-        && typeof val !== 'string' && typeof flat[i] !== 'string'
-        && toNumber(val) === toNumber(flat[i]) && !isNullish(flat[i])) return 1;
+      if (
+        !isNullish(val) &&
+        !isNullish(flat[i]) &&
+        typeof val !== 'string' &&
+        typeof flat[i] !== 'string' &&
+        toNumber(val) === toNumber(flat[i]) &&
+        !isNullish(flat[i])
+      )
+        return 1;
     }
     return 0;
   },
-  'choose': (args) => {
+  choose: (args) => {
     if (args[0] === null || args[0] === undefined) return null;
     const n = Math.floor(toNumber(args[0]));
     if (n < 1 || n > args.length - 1) return '';
     return args[n];
   },
 
-  'concat': (args) => args.map((a) => strValue(a)).join(''),
-  'substr': (args) => {
+  concat: (args) => args.map((a) => strValue(a)).join(''),
+  substr: (args) => {
     const s = strValue(args[0]);
     let start = toNumber(args[1]);
     if (start < 1) start = 1;
@@ -1222,15 +1361,15 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const idx = start - 1;
     return s.substring(idx, Math.min(s.length, idx + len));
   },
-  'replace': (args) => {
+  replace: (args) => {
     const s = strValue(args[0]);
     const old = strValue(args[1]);
     const newStr = args.length > 3 || args[2] !== undefined ? strValue(args[2]) : '';
     if (old === '') return s;
     return s.split(old).join(newStr);
   },
-  'space': (args) => ' '.repeat(Math.max(0, Math.trunc(toNumber(args[0])))),
-  'str': (args) => {
+  space: (args) => ' '.repeat(Math.max(0, Math.trunc(toNumber(args[0])))),
+  str: (args) => {
     const num = toNumber(args[0]);
     const width = args.length > 1 && args[1] != null ? toNumber(args[1]) : 10;
     const precision = args.length > 2 && args[2] != null ? Math.trunc(toNumber(args[2])) : 0;
@@ -1238,7 +1377,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (formatted.length > width) return '*'.repeat(Math.max(0, Math.trunc(width)));
     return formatted;
   },
-  'stuff': (args) => {
+  stuff: (args) => {
     const source = strValue(args[0]);
     let start = toNumber(args[1]);
     if (start < 1) start = 1;
@@ -1248,7 +1387,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const idx = start - 1;
     return source.substring(0, idx) + insert + source.substring(idx + count);
   },
-  'uuid': (args) => {
+  uuid: (args) => {
     const dashed = args.length && args[0] != null && toNumber(args[0]) === 1;
     const hex = '0123456789abcdef';
     let out = '';
@@ -1256,39 +1395,38 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
       if (dashed && (i === 8 || i === 12 || i === 16 || i === 20)) out += '-';
       out += hex[(Math.random() * 16) | 0];
     }
-    if (dashed) out = out.replace(/-/g, '').replace(
-      /^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5'
-    );
+    if (dashed)
+      out = out.replace(/-/g, '').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
     return out;
   },
-  'len': (args) => {
+  len: (args) => {
     const v = args[0];
     if (Array.isArray(v)) return strValue(v[0] ?? '').length;
     return strValue(v).length;
   },
-  'left': (args) => {
+  left: (args) => {
     const s = strValue(args[0]);
     const n = Math.max(0, toNumber(args[1]));
     return s.substring(0, n);
   },
-  'right': (args) => {
+  right: (args) => {
     const s = strValue(args[0]);
     const n = toNumber(args[1]);
     if (n <= 0) return '';
     return s.substring(s.length - n);
   },
-  'lower': (args) => strValue(args[0]).toLowerCase(),
-  'upper': (args) => strValue(args[0]).toUpperCase(),
-  'ltrim': (args) => strValue(args[0]).replace(/^\s+/, ''),
-  'rtrim': (args) => strValue(args[0]).replace(/\s+$/, ''),
-  'at': (args) => {
+  lower: (args) => strValue(args[0]).toLowerCase(),
+  upper: (args) => strValue(args[0]).toUpperCase(),
+  ltrim: (args) => strValue(args[0]).replace(/^\s+/, ''),
+  rtrim: (args) => strValue(args[0]).replace(/\s+$/, ''),
+  at: (args) => {
     const s = strValue(args[0]);
     const sub = strValue(args[1]);
     const pos = s.indexOf(sub);
     return pos === -1 ? 0 : pos + 1;
   },
 
-  'unitvalue': (args) => {
+  unitvalue: (args) => {
     const raw = args[0];
     let value: number;
     let fromUnit: string;
@@ -1310,30 +1448,30 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const toPt = UNIT_TO_PT[toUnit] ?? 72;
     return (value * fromPt) / toPt;
   },
-  'unittype': (args) => {
+  unittype: (args) => {
     const span = parseUnitSpan(strValue(args[0]));
     return span ? span.unit : 'in';
   },
 
-  'exists': (args) => (args[0] !== null && args[0] !== undefined ? 1 : 0),
-  'within': (args) => {
+  exists: (args) => (args[0] !== null && args[0] !== undefined ? 1 : 0),
+  within: (args) => {
     const val = toNumber(args[0]);
     const low = toNumber(args[1]);
     const high = toNumber(args[2]);
     return val >= low && val <= high ? 1 : 0;
   },
 
-  'get': () => '',
-  'put': () => '',
-  'post': () => '',
+  get: () => '',
+  put: () => '',
+  post: () => '',
 
-  'num2date': (args) => {
+  num2date: (args) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'MMM D, YYYY';
     return formatWithPicture(xfaDateFromDays(num), picture);
   },
-  'date2num': (args) => {
+  date2num: (args) => {
     const dateStr = strValue(args[0]);
     if (args.length > 1 && args[1] != null) {
       const parsed = parseDateWithPicture(dateStr, strValue(args[1]));
@@ -1348,7 +1486,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (!d) return 0;
     return daysSinceXfaEpoch(d.getFullYear(), d.getMonth() + 1, d.getDate());
   },
-  'num2time': (args) => {
+  num2time: (args) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
@@ -1357,14 +1495,14 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const s = Math.floor(num / 1000) % 60;
     return formatWithPicture(new Date(2000, 0, 1, h, mi, s), picture, Math.floor(num) % 1000);
   },
-  'time2num': (args) => {
+  time2num: (args) => {
     const timeStr = strValue(args[0]);
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
     const parsed = parseDateWithPicture(timeStr, picture);
     if (!parsed || parsed.H === null) return 0;
     return ((parsed.H * 60 + (parsed.M ?? 0)) * 60 + (parsed.S ?? 0)) * 1000 + parsed.ms;
   },
-  'isodate2num': (args) => {
+  isodate2num: (args) => {
     const iso = strValue(args[0]);
     const m = iso.match(/^(\d{4})(?:-?(\d{2}))?(?:-?(\d{2}))?/);
     if (!m) return 0;
@@ -1374,14 +1512,17 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return 0;
     return daysSinceXfaEpoch(y, mo, d);
   },
-  'isotime2num': (args) => {
+  isotime2num: (args) => {
     const iso = strValue(args[0]);
     const m = iso.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (!m) return 0;
-    return (parseInt(m[1], 10) * 3600000) + (parseInt(m[2], 10) * 60000)
-      + (m[3] ? parseInt(m[3], 10) * 1000 : 0);
+    return (
+      parseInt(m[1], 10) * 3600000 +
+      parseInt(m[2], 10) * 60000 +
+      (m[3] ? parseInt(m[3], 10) * 1000 : 0)
+    );
   },
-  'num2gmtime': (args) => {
+  num2gmtime: (args) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
@@ -1393,63 +1534,72 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (/[Zz]/.test(picture) && !/GMT/.test(out)) out += out ? ' GMT' : 'GMT';
     return out;
   },
-  'localdatefmt': (args) => {
+  localdatefmt: (args) => {
     const locale = args.length && args[0] != null ? strValue(args[0]) : 'en_US';
     if (locale.startsWith('de')) return 'DD.MM.YYYY';
     if (locale.startsWith('fr')) return 'DD/MM/YYYY';
     if (locale.startsWith('ja') || locale.startsWith('zh')) return 'YYYY/MM/DD';
     return 'MM/DD/YYYY';
   },
-  'localtimefmt': (args) => {
+  localtimefmt: (args) => {
     const locale = args.length && args[0] != null ? strValue(args[0]) : 'en_US';
     if (locale.startsWith('de') || locale.startsWith('fr')) return 'HH:MM:SS';
     return 'h:MM:SS A';
   },
-  'datefmt': (args) => {
+  datefmt: (args) => {
     const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['MMM D, YYYY', 'M/D/YY', 'MMM D, YYYY', 'MMMM D, YYYY', 'EEEE, MMMM D, YYYY'];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  'timefmt': (args) => {
+  timefmt: (args) => {
     const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['h:mm:ss a', 'h:mm a', 'HH:mm:ss', 'HH:mm:ss z', "HH' h 'mm z"];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  'numfmt': (args) => {
+  numfmt: (args) => {
     const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['999,999.99', '9999', '999,999.999', '999999', '999,999.99'];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  'datetimefmt': (args) => {
+  datetimefmt: (args) => {
     const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const d = BUILTIN_FUNCTIONS['datefmt']!([n], new FormCalcEnv());
     const t = BUILTIN_FUNCTIONS['timefmt']!([n], new FormCalcEnv());
     return `${d} ${t}`;
   },
 
-  'format': (args) => applyPictureFormat(strValue(args[0]), args[1]),
-  'parse': (args) => parsePictureFormat(strValue(args[0]), strValue(args[1])),
+  format: (args) => applyPictureFormat(strValue(args[0]), args[1]),
+  parse: (args) => parsePictureFormat(strValue(args[0]), strValue(args[1])),
 
-  'encode': (args) => encodeString(strValue(args[0]), args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'),
-  'decode': (args) => decodeString(strValue(args[0]), args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'),
+  encode: (args) =>
+    encodeString(
+      strValue(args[0]),
+      args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'
+    ),
+  decode: (args) =>
+    decodeString(
+      strValue(args[0]),
+      args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'
+    ),
 
-  'throw': (args) => {
+  throw: (args) => {
     throw new FormCalcError(strValue(args[0]), 0x7800);
   },
-  'messagebox': () => null,
-  'ref': (args) => args[0] ?? null,
-  'pi': () => Math.PI,
-  'deg2rad': (args) => (toNumber(args[0]) * Math.PI) / 180,
-  'rad2deg': (args) => (toNumber(args[0]) * 180) / Math.PI,
+  messagebox: () => null,
+  ref: (args) => args[0] ?? null,
+  pi: () => Math.PI,
+  deg2rad: (args) => (toNumber(args[0]) * Math.PI) / 180,
+  rad2deg: (args) => (toNumber(args[0]) * 180) / Math.PI,
 
-  'page': () => 1,
-  'presence': () => 'visible',
+  page: () => 1,
+  presence: () => 'visible',
 
-  'if': (args) => (formCalcTruthy(args[0]) ? args[1] : args.length > 2 ? args[2] : null),
+  if: (args) => (formCalcTruthy(args[0]) ? args[1] : args.length > 2 ? args[2] : null),
 
-  'wordnum': (args) => wordNum(toNumber(args[0]), args.length > 1 && args[1] != null ? toNumber(args[1]) : 0),
+  wordnum: (args) =>
+    wordNum(toNumber(args[0]), args.length > 1 && args[1] != null ? toNumber(args[1]) : 0),
 
-  'apr': (args) => {
+  apr: (args) => {
     if (anyNull(args)) return null;
     const principal = toNumber(args[0]);
     const payment = toNumber(args[1]);
@@ -1457,7 +1607,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (principal <= 0 || payment <= 0 || !(Math.trunc(nper) >= 1)) return NaN;
     return aprFormula(principal, payment, nper);
   },
-  'cterm': (args) => {
+  cterm: (args) => {
     if (anyNull(args)) return null;
     const rate = toNumber(args[0]);
     const fv = toNumber(args[1]);
@@ -1465,7 +1615,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (rate <= 0 || fv <= 0 || pv <= 0) return NaN;
     return Math.log(fv / pv) / Math.log(1 + rate);
   },
-  'fv': (args) => {
+  fv: (args) => {
     if (anyNull(args)) return null;
     const payment = toNumber(args[0]);
     const rate = toNumber(args[1]);
@@ -1474,19 +1624,19 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (rate === 0) return payment * nper;
     return (payment * (Math.pow(1 + rate, nper) - 1)) / rate;
   },
-  'ipmt': (args) => {
+  ipmt: (args) => {
     if (anyNull(args)) return null;
     const [principal, rate, payment, firstMonth, months] = args.map(toNumber);
     if (principal <= 0 || rate <= 0 || payment <= 0 || firstMonth < 0 || months < 0) return NaN;
     return loanWindow(principal, rate, payment, firstMonth, months, 'interest');
   },
-  'ppmt': (args) => {
+  ppmt: (args) => {
     if (anyNull(args)) return null;
     const [principal, rate, payment, firstMonth, months] = args.map(toNumber);
     if (principal <= 0 || rate <= 0 || payment <= 0 || firstMonth < 0 || months < 0) return NaN;
     return loanWindow(principal, rate, payment, firstMonth, months, 'principal');
   },
-  'npv': (args) => {
+  npv: (args) => {
     if (anyNull(args)) return null;
     const rate = toNumber(args[0]);
     if (rate <= 0) return NaN;
@@ -1497,7 +1647,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     }
     return npv;
   },
-  'pmt': (args) => {
+  pmt: (args) => {
     if (anyNull(args)) return null;
     const principal = toNumber(args[0]);
     const rate = toNumber(args[1]);
@@ -1505,7 +1655,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (principal <= 0 || nper <= 0 || rate < 0) return NaN;
     return pmtFormula(principal, rate, nper);
   },
-  'pv': (args) => {
+  pv: (args) => {
     if (anyNull(args)) return null;
     const payment = toNumber(args[0]);
     const rate = toNumber(args[1]);
@@ -1514,7 +1664,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (rate === 0) return payment * nper;
     return (payment * (1 - Math.pow(1 + rate, -nper))) / rate;
   },
-  'rate': (args) => {
+  rate: (args) => {
     if (anyNull(args)) return null;
     const fv = toNumber(args[0]);
     const pv = toNumber(args[1]);
@@ -1522,7 +1672,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (fv <= 0 || pv <= 0 || nper <= 0) return NaN;
     return Math.pow(fv / pv, 1 / nper) - 1;
   },
-  'term': (args) => {
+  term: (args) => {
     if (anyNull(args)) return null;
     const payment = toNumber(args[0]);
     const rate = toNumber(args[1]);
@@ -1646,7 +1796,7 @@ export class FormCalcEvaluator {
     this.env.pushScope();
     const start = toNumber(this.evalSafe(node.start));
     const end = toNumber(this.evalSafe(node.end));
-    const step = node.step ? toNumber(this.evalSafe(node.step)) : (node.isDownto ? -1 : 1);
+    const step = node.step ? toNumber(this.evalSafe(node.step)) : node.isDownto ? -1 : 1;
 
     if (node.isDownto) {
       for (let i = start; i >= end; i += step) {
@@ -1676,11 +1826,7 @@ export class FormCalcEvaluator {
 
   private execForEach(node: ForEachStmt): void {
     const iterable = this.evalSafe(node.iterable);
-    const items = Array.isArray(iterable)
-      ? iterable
-      : isNullish(iterable)
-        ? []
-        : [iterable];
+    const items = Array.isArray(iterable) ? iterable : isNullish(iterable) ? [] : [iterable];
     this.env.pushScope();
     for (const item of items) {
       this.env.define(node.variable, item);
@@ -1699,7 +1845,8 @@ export class FormCalcEvaluator {
     this.env.pushScope();
     let iterations = 0;
     while (formCalcTruthy(this.evalSafe(node.condition))) {
-      if (++iterations > 100000) throw new FormCalcError('While loop exceeded maximum iterations', FORMCALC_ERR.ARITHMETIC);
+      if (++iterations > 100000)
+        throw new FormCalcError('While loop exceeded maximum iterations', FORMCALC_ERR.ARITHMETIC);
       try {
         this.execBlock(node.body);
       } catch (e) {
@@ -1715,7 +1862,8 @@ export class FormCalcEvaluator {
     this.env.pushScope();
     let iterations = 0;
     do {
-      if (++iterations > 100000) throw new FormCalcError('Repeat loop exceeded maximum iterations', FORMCALC_ERR.ARITHMETIC);
+      if (++iterations > 100000)
+        throw new FormCalcError('Repeat loop exceeded maximum iterations', FORMCALC_ERR.ARITHMETIC);
       try {
         this.execBlock(node.body);
       } catch (e) {
@@ -1748,7 +1896,11 @@ export class FormCalcEvaluator {
       this.modifiedFields.push(fr.path);
     } else if (node.target.type === 'Identifier') {
       const id = node.target as Identifier;
-      if (!this.env.has(id.name) && isSelfProperty(id.name) && this.fieldAccessor.getCurrentKey?.()) {
+      if (
+        !this.env.has(id.name) &&
+        isSelfProperty(id.name) &&
+        this.fieldAccessor.getCurrentKey?.()
+      ) {
         const current = this.fieldAccessor.getField(`.${id.name}`, '$');
         const newVal = this.computeAssignedValue(node.operator, current, value);
         this.fieldAccessor.setField(`.${id.name}`, '$', coerceScriptVar(newVal));
@@ -1792,14 +1944,24 @@ export class FormCalcEvaluator {
     value: unknown
   ): unknown {
     switch (operator) {
-      case '=': return value;
-      case '+=': return toNumber(current) + toNumber(value);
-      case '-=': return toNumber(current) - toNumber(value);
-      case '*=': return toNumber(current) * toNumber(value);
-      case '/=': return toNumber(current) / toNumber(value);
-      case '~=': case '&=': case '\\=': return strValue(current) + strValue(value);
-      case '^=': return Math.pow(toNumber(current), toNumber(value));
-      default: return value;
+      case '=':
+        return value;
+      case '+=':
+        return toNumber(current) + toNumber(value);
+      case '-=':
+        return toNumber(current) - toNumber(value);
+      case '*=':
+        return toNumber(current) * toNumber(value);
+      case '/=':
+        return toNumber(current) / toNumber(value);
+      case '~=':
+      case '&=':
+      case '\\=':
+        return strValue(current) + strValue(value);
+      case '^=':
+        return Math.pow(toNumber(current), toNumber(value));
+      default:
+        return value;
     }
   }
 
@@ -1837,8 +1999,10 @@ export class FormCalcEvaluator {
         return formCalcTruthy(l) || formCalcTruthy(r) ? 1 : 0;
       }
       case 'XorExpr':
-        return formCalcTruthy(this.eval((node as XorExpr).left))
-          !== formCalcTruthy(this.eval((node as XorExpr).right)) ? 1 : 0;
+        return formCalcTruthy(this.eval((node as XorExpr).left)) !==
+          formCalcTruthy(this.eval((node as XorExpr).right))
+          ? 1
+          : 0;
       case 'AndExpr': {
         const l = this.eval((node as AndExpr).left);
         const r = this.eval((node as AndExpr).right);
@@ -1868,11 +2032,20 @@ export class FormCalcEvaluator {
         const r = this.eval(me.right);
         let result: number;
         switch (me.operator) {
-          case '*': result = toNumber(l) * toNumber(r); break;
-          case '/': result = toNumber(l) / toNumber(r); break;
-          case '\\': result = Math.floor(toNumber(l) / toNumber(r)); break;
-          case 'mod': result = toNumber(l) % toNumber(r); break;
-          default: result = 0;
+          case '*':
+            result = toNumber(l) * toNumber(r);
+            break;
+          case '/':
+            result = toNumber(l) / toNumber(r);
+            break;
+          case '\\':
+            result = Math.floor(toNumber(l) / toNumber(r));
+            break;
+          case 'mod':
+            result = toNumber(l) % toNumber(r);
+            break;
+          default:
+            result = 0;
         }
         if (!Number.isFinite(result)) throw new ArithmeticSignal();
         return result;
@@ -1914,11 +2087,7 @@ export class FormCalcEvaluator {
   }
 
   private isXfaNodeHandle(v: unknown): v is { __xfaNode: true; som: string; value: unknown } {
-    return (
-      typeof v === 'object' &&
-      v !== null &&
-      (v as Record<string, unknown>).__xfaNode === true
-    );
+    return typeof v === 'object' && v !== null && (v as Record<string, unknown>).__xfaNode === true;
   }
 
   private evalPropAccess(object: FormCalcNode, property: string): unknown {
@@ -1949,13 +2118,27 @@ export class FormCalcEvaluator {
   private evalCompare(node: CompareExpr): number {
     let op = node.operator;
     switch (op) {
-      case '==': case 'eq': op = '='; break;
-      case 'ne': op = '<>'; break;
-      case 'gt': op = '>'; break;
-      case 'ge': op = '>='; break;
-      case 'lt': op = '<'; break;
-      case 'le': op = '<='; break;
-      default: break;
+      case '==':
+      case 'eq':
+        op = '=';
+        break;
+      case 'ne':
+        op = '<>';
+        break;
+      case 'gt':
+        op = '>';
+        break;
+      case 'ge':
+        op = '>=';
+        break;
+      case 'lt':
+        op = '<';
+        break;
+      case 'le':
+        op = '<=';
+        break;
+      default:
+        break;
     }
     const left = this.eval(node.left);
     const right = this.eval(node.right);
@@ -1965,35 +2148,47 @@ export class FormCalcEvaluator {
     if (lNull || rNull) {
       if (lNull && rNull) {
         switch (op) {
-          case '=': case '<=': case '>=': return 1;
-          case '<>': return 0;
-          default: return 0;
+          case '=':
+          case '<=':
+          case '>=':
+            return 1;
+          case '<>':
+            return 0;
+          default:
+            return 0;
         }
       }
       switch (op) {
-        case '=': case '<=': case '>=': return 0;
-        case '<>': return 1;
-        default: return 0;
+        case '=':
+        case '<=':
+        case '>=':
+          return 0;
+        case '<>':
+          return 1;
+        default:
+          return 0;
       }
     }
 
     if (typeof left === 'string' && typeof right === 'string') {
       const numeric = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
-      if (
-        (op === '=' || op === '<>') &&
-        numeric.test(left.trim()) &&
-        numeric.test(right.trim())
-      ) {
+      if ((op === '=' || op === '<>') && numeric.test(left.trim()) && numeric.test(right.trim())) {
         const equal = Number(left.trim()) === Number(right.trim());
-        return op === '=' ? (equal ? 1 : 0) : (equal ? 0 : 1);
+        return op === '=' ? (equal ? 1 : 0) : equal ? 0 : 1;
       }
       switch (op) {
-        case '=': return left === right ? 1 : 0;
-        case '<>': return left !== right ? 1 : 0;
-        case '<': return left < right ? 1 : 0;
-        case '<=': return left <= right ? 1 : 0;
-        case '>': return left > right ? 1 : 0;
-        case '>=': return left >= right ? 1 : 0;
+        case '=':
+          return left === right ? 1 : 0;
+        case '<>':
+          return left !== right ? 1 : 0;
+        case '<':
+          return left < right ? 1 : 0;
+        case '<=':
+          return left <= right ? 1 : 0;
+        case '>':
+          return left > right ? 1 : 0;
+        case '>=':
+          return left >= right ? 1 : 0;
       }
     }
 
@@ -2004,19 +2199,30 @@ export class FormCalcEvaluator {
     if (lNaN || rNaN) {
       const bothNaN = lNaN && rNaN;
       switch (op) {
-        case '=': return bothNaN ? 1 : 0;
-        case '<>': return bothNaN ? 0 : 1;
-        case '<=': case '>=': return bothNaN ? 1 : 0;
-        default: return 0;
+        case '=':
+          return bothNaN ? 1 : 0;
+        case '<>':
+          return bothNaN ? 0 : 1;
+        case '<=':
+        case '>=':
+          return bothNaN ? 1 : 0;
+        default:
+          return 0;
       }
     }
     switch (op) {
-      case '=': return l === r ? 1 : 0;
-      case '<>': return l !== r ? 1 : 0;
-      case '<': return l < r ? 1 : 0;
-      case '<=': return l <= r ? 1 : 0;
-      case '>': return l > r ? 1 : 0;
-      case '>=': return l >= r ? 1 : 0;
+      case '=':
+        return l === r ? 1 : 0;
+      case '<>':
+        return l !== r ? 1 : 0;
+      case '<':
+        return l < r ? 1 : 0;
+      case '<=':
+        return l <= r ? 1 : 0;
+      case '>':
+        return l > r ? 1 : 0;
+      case '>=':
+        return l >= r ? 1 : 0;
     }
     return 0;
   }
@@ -2043,8 +2249,9 @@ export class FormCalcEvaluator {
 
       let builtin = BUILTIN_FUNCTIONS[funcName];
       if (!builtin && funcName.includes('.')) {
-        builtin = BUILTIN_FUNCTIONS[funcName.replace(/\./g, '')]
-          ?? BUILTIN_FUNCTIONS[funcName.slice(funcName.lastIndexOf('.') + 1)];
+        builtin =
+          BUILTIN_FUNCTIONS[funcName.replace(/\./g, '')] ??
+          BUILTIN_FUNCTIONS[funcName.slice(funcName.lastIndexOf('.') + 1)];
       }
       if (builtin) {
         return builtin(args, this.env);

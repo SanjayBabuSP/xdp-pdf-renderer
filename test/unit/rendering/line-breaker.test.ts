@@ -1,7 +1,4 @@
-import {
-  breakLines,
-  LINE_BREAK_TOLERANCE,
-} from '../../../src/rendering/text/line-breaker';
+import { breakLines, LINE_BREAK_TOLERANCE } from '../../../src/rendering/text/line-breaker';
 
 const measure = (s: string): number => s.length;
 
@@ -11,20 +8,12 @@ describe('line-breaker', () => {
   });
 
   it('splits on hard line breaks first', () => {
-    expect(breakLines('LINE1\nLINE2\nLINE3', 1000, measure)).toEqual([
-      'LINE1',
-      'LINE2',
-      'LINE3',
-    ]);
+    expect(breakLines('LINE1\nLINE2\nLINE3', 1000, measure)).toEqual(['LINE1', 'LINE2', 'LINE3']);
     expect(breakLines('A\r\nB', 1000, measure)).toEqual(['A', 'B']);
   });
 
   it('wraps at whitespace when the limit is exceeded', () => {
-    expect(breakLines('aaaa bbbb cccc', 8, measure)).toEqual([
-      'aaaa',
-      'bbbb',
-      'cccc',
-    ]);
+    expect(breakLines('aaaa bbbb cccc', 8, measure)).toEqual(['aaaa', 'bbbb', 'cccc']);
     expect(breakLines('aaaa bbbb', 20, measure)).toEqual(['aaaa bbbb']);
   });
 
@@ -34,11 +23,12 @@ describe('line-breaker', () => {
   });
 
   it('splits a single token that exceeds the limit', () => {
-    expect(breakLines('abcdefghijklmnop', 6, measure)).toEqual([
-      'abcdef',
-      'ghijkl',
-      'mnop',
-    ]);
+    expect(breakLines('abcdefghijklmnop', 6, measure)).toEqual(['abcdef', 'ghijkl', 'mnop']);
+  });
+
+  it('breaks after a slash before discarding a whole token', () => {
+    expect(breakLines('aa bb cc/dd', 9, measure)).toEqual(['aa bb cc/', 'dd']);
+    expect(breakLines('aa bb cc/dd', 12, measure)).toEqual(['aa bb cc/dd']);
   });
 
   it('does not start a line with closing punctuation (break prohibition)', () => {
@@ -50,12 +40,7 @@ describe('line-breaker', () => {
   });
 
   it('preserves multiple hard-broken paragraphs', () => {
-    expect(breakLines('one two\n\nthree', 5, measure)).toEqual([
-      'one',
-      'two',
-      '',
-      'three',
-    ]);
+    expect(breakLines('one two\n\nthree', 5, measure)).toEqual(['one', 'two', '', 'three']);
   });
 
   it('keeps text as one line when maxWidth <= 0', () => {

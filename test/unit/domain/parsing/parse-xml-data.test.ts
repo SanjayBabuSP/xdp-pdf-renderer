@@ -34,10 +34,16 @@ const repeatingSchema: SchemaModel = {
   schemaAttributes: {},
   fields: {
     Title: { type: 'string', required: true },
-    item: { type: 'complex', required: false, repeating: true, maxOccurs: -1, fields: {
-      name: { type: 'string', required: true },
-      qty: { type: 'int', required: true },
-    }},
+    item: {
+      type: 'complex',
+      required: false,
+      repeating: true,
+      maxOccurs: -1,
+      fields: {
+        name: { type: 'string', required: true },
+        qty: { type: 'int', required: true },
+      },
+    },
   },
 };
 

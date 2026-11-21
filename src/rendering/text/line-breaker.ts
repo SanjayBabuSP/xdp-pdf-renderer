@@ -1,8 +1,24 @@
-
 export const LINE_BREAK_TOLERANCE = 0.5;
 
 export const NO_BREAK_BEFORE = new Set([
-  '.', ',', ';', ':', '!', '?', ')', ']', '}', '%', "'", '"', '’', '”', '…', '。', '，', '、',
+  '.',
+  ',',
+  ';',
+  ':',
+  '!',
+  '?',
+  ')',
+  ']',
+  '}',
+  '%',
+  "'",
+  '"',
+  '’',
+  '”',
+  '…',
+  '。',
+  '，',
+  '、',
 ]);
 
 export const NO_BREAK_AFTER = new Set(['(', '[', '{', '«', '“', '‘']);
@@ -91,6 +107,14 @@ function wrapParagraph(
       current = candidate;
       continue;
     }
+    const slashTail =
+      current.trim() !== ''
+        ? breakAtSlash(token, current, lineLimit, maxWidth, measure, tolerance, lines)
+        : null;
+    if (slashTail != null) {
+      current = slashTail;
+      continue;
+    }
     push();
     const trimmed = token.trimStart();
     if (measure(trimmed) <= lineLimit + tolerance) {
@@ -102,6 +126,27 @@ function wrapParagraph(
     }
   }
   push();
+}
+
+function breakAtSlash(
+  token: string,
+  current: string,
+  lineLimit: number,
+  maxWidth: number,
+  measure: (s: string) => number,
+  tolerance: number,
+  lines: string[]
+): string | null {
+  for (let i = token.length - 1; i > 0; i--) {
+    if (token[i - 1] !== '/') continue;
+    const head = token.slice(0, i);
+    const tail = token.slice(i);
+    if (measure(current + head) <= lineLimit + tolerance && measure(tail) <= maxWidth + tolerance) {
+      lines.push((current + head).trimEnd());
+      return tail;
+    }
+  }
+  return null;
 }
 
 function splitLongToken(

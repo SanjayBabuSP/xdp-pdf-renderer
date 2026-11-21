@@ -1,4 +1,3 @@
-
 import { PDFDocument, PDFImage } from 'pdf-lib';
 import { PNG } from 'pngjs';
 import { resolveImageFormat } from './image-sniff';
@@ -49,14 +48,21 @@ function gifToPng(buf: Buffer): Buffer {
 
   const flags = buf[10];
   const hasGct = (flags & 0x80) !== 0;
-  let r = 0xcc, g = 0xcc, b = 0xcc;
+  let r = 0xcc,
+    g = 0xcc,
+    b = 0xcc;
   if (hasGct && buf.length >= 13 + 3) {
-    r = buf[13]; g = buf[14]; b = buf[15];
+    r = buf[13];
+    g = buf[14];
+    b = buf[15];
   }
 
   const data = Buffer.alloc(width * height * 4);
   for (let i = 0; i < width * height; i++) {
-    data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = 0xff;
+    data[i * 4] = r;
+    data[i * 4 + 1] = g;
+    data[i * 4 + 2] = b;
+    data[i * 4 + 3] = 0xff;
   }
   return encodePng(width, height, data);
 }
@@ -65,8 +71,12 @@ function tiffToPng(buf: Buffer): Buffer {
   if (buf.length < 8) throw new Error('TIFF too short');
   const le = buf[0] === 0x49;
 
-  function r16(off: number) { return le ? buf.readUInt16LE(off) : buf.readUInt16BE(off); }
-  function r32(off: number) { return le ? buf.readUInt32LE(off) : buf.readUInt32BE(off); }
+  function r16(off: number) {
+    return le ? buf.readUInt16LE(off) : buf.readUInt16BE(off);
+  }
+  function r32(off: number) {
+    return le ? buf.readUInt32LE(off) : buf.readUInt32BE(off);
+  }
 
   const ifdOffset = r32(4);
   const entryCount = r16(ifdOffset);
@@ -89,12 +99,12 @@ function tiffToPng(buf: Buffer): Buffer {
     tags[tag] = vals;
   }
 
-  const width = (tags[256]?.[0]) ?? 0;
-  const height = (tags[257]?.[0]) ?? 0;
-  const spp = (tags[277]?.[0]) ?? 1;
-  const bps = (tags[258]?.[0]) ?? 8;
-  const compression = (tags[259]?.[0]) ?? 1;
-  const stripOffset = (tags[273]?.[0]) ?? 0;
+  const width = tags[256]?.[0] ?? 0;
+  const height = tags[257]?.[0] ?? 0;
+  const spp = tags[277]?.[0] ?? 1;
+  const bps = tags[258]?.[0] ?? 8;
+  const compression = tags[259]?.[0] ?? 1;
+  const stripOffset = tags[273]?.[0] ?? 0;
 
   if (width <= 0 || height <= 0 || compression !== 1 || bps !== 8) {
     throw new Error(`Unsupported TIFF variant (compression=${compression}, bps=${bps})`);
@@ -108,7 +118,7 @@ function tiffToPng(buf: Buffer): Buffer {
       data[dst] = buf[src] ?? 0;
       data[dst + 1] = (spp > 1 ? buf[src + 1] : buf[src]) ?? 0;
       data[dst + 2] = (spp > 2 ? buf[src + 2] : buf[src]) ?? 0;
-      data[dst + 3] = (spp > 3 ? buf[src + 3] : 0xff);
+      data[dst + 3] = spp > 3 ? buf[src + 3] : 0xff;
     }
   }
   return encodePng(width, height, data);
@@ -117,7 +127,7 @@ function tiffToPng(buf: Buffer): Buffer {
 export async function embedBase64Image(
   doc: PDFDocument,
   base64Content: string,
-  contentTypehint?: string,
+  contentTypehint?: string
 ): Promise<PDFImage> {
   const cleanBase64 = base64Content.replace(/\s+/g, '');
   const bytes = Buffer.from(cleanBase64, 'base64');
@@ -149,7 +159,9 @@ export async function embedBase64Image(
     }
 
     case 'pdf':
-      throw new Error(`${ERROR_CODES.IMAGE_LOAD_FAILED.message}: embedded PDF images not supported`);
+      throw new Error(
+        `${ERROR_CODES.IMAGE_LOAD_FAILED.message}: embedded PDF images not supported`
+      );
 
     default: {
       const png = await doc.embedPng(bytes).catch(() => undefined);

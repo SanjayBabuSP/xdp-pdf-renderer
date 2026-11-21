@@ -1,4 +1,3 @@
-
 import * as vm from 'vm';
 import { XfaNode, ScriptEngineConfig, ScriptableNode } from '../script-types';
 import { LayoutNode } from '../../../types';
@@ -49,7 +48,9 @@ function createNullProxy(): Record<string, unknown> {
       }
       return undefined;
     },
-    set() { return true; },
+    set() {
+      return true;
+    },
   });
 }
 
@@ -94,13 +95,7 @@ export class JavaScriptEngine {
     this.formDataForRecord = formData ?? {};
     const logs: string[] = [];
 
-    const context = this.createSandboxContext(
-      currentNode,
-      eventName,
-      formData,
-      logs,
-      currentKey
-    );
+    const context = this.createSandboxContext(currentNode, eventName, formData, logs, currentKey);
 
     setActiveProxyHooks(this.instanceHooks);
     try {
@@ -118,9 +113,7 @@ export class JavaScriptEngine {
       };
     } catch (e) {
       if (e instanceof Error && e.message.includes('timed out')) {
-        throw new JavaScriptEngineError(
-          `Script timed out after ${this.config.maxExecutionTime}ms`
-        );
+        throw new JavaScriptEngineError(`Script timed out after ${this.config.maxExecutionTime}ms`);
       }
       throw new JavaScriptEngineError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -135,8 +128,6 @@ export class JavaScriptEngine {
     logs: string[],
     currentKey?: string
   ): Record<string, unknown> {
-    const self = this;
-
     const dollarSign =
       currentKey !== undefined && this.nodeMap.has(currentKey)
         ? createXfaFormProxy(this.nodeMap, currentKey, this.modifiedFields)
@@ -149,13 +140,13 @@ export class JavaScriptEngine {
 
     const consoleObj = {
       log: (...args: unknown[]) => {
-        if (self.config.enableConsole) logs.push(args.map(String).join(' '));
+        if (this.config.enableConsole) logs.push(args.map(String).join(' '));
       },
       warn: (...args: unknown[]) => {
-        if (self.config.enableConsole) logs.push('[WARN] ' + args.map(String).join(' '));
+        if (this.config.enableConsole) logs.push('[WARN] ' + args.map(String).join(' '));
       },
       error: (...args: unknown[]) => {
-        if (self.config.enableConsole) logs.push('[ERROR] ' + args.map(String).join(' '));
+        if (this.config.enableConsole) logs.push('[ERROR] ' + args.map(String).join(' '));
       },
     };
 
@@ -193,8 +184,8 @@ export class JavaScriptEngine {
   }
 
   private createNodeProxy(node: XfaNode): Record<string, unknown> {
-    const self = this;
-    const childProxies = (node.children ?? []).map((child) => self.createNodeProxy(child));
+    const modifiedFields = this.modifiedFields;
+    const childProxies = (node.children ?? []).map((child) => this.createNodeProxy(child));
 
     const target: Record<string, unknown> = {
       name: node.name,
@@ -213,16 +204,19 @@ export class JavaScriptEngine {
       repeating: node.repeating ?? false,
       boundNode: node.boundNode ?? null,
       children: childProxies,
-      resolveNode: (somExpr: string) => self.resolveSomExpression(somExpr, node),
-      getAttribute: (attrName: string) => (node as unknown as Record<string, unknown>)[attrName] ?? null,
-      setAttribute: (attrName: string, val: unknown) => { (node as unknown as Record<string, unknown>)[attrName] = val; },
+      resolveNode: (somExpr: string) => this.resolveSomExpression(somExpr, node),
+      getAttribute: (attrName: string) =>
+        (node as unknown as Record<string, unknown>)[attrName] ?? null,
+      setAttribute: (attrName: string, val: unknown) => {
+        (node as unknown as Record<string, unknown>)[attrName] = val;
+      },
       getValue: () => node.value,
       setValue: (val: unknown) => {
         node.value = val;
         node.rawValue = val != null ? String(val) : null;
         target._value = val;
         target._rawValue = val != null ? String(val) : null;
-        self.modifiedFields.push(node.name ?? '<unknown>');
+        modifiedFields.push(node.name ?? '<unknown>');
       },
       getRawValue: () => node.rawValue,
       setRawValue: (val: string) => {
@@ -230,7 +224,7 @@ export class JavaScriptEngine {
         node.value = val;
         target._rawValue = val;
         target._value = val;
-        self.modifiedFields.push(node.name ?? '<unknown>');
+        modifiedFields.push(node.name ?? '<unknown>');
       },
       isNull: () => node.value == null,
       isHidden: () => node.presence === 'hidden',
@@ -257,7 +251,7 @@ export class JavaScriptEngine {
           node.value = val;
           node.rawValue = val != null ? String(val) : null;
           t._rawValue = val != null ? String(val) : null;
-          self.modifiedFields.push(node.name ?? '<unknown>');
+          modifiedFields.push(node.name ?? '<unknown>');
           return true;
         }
         if (prop === 'rawValue') {
@@ -265,7 +259,7 @@ export class JavaScriptEngine {
           node.rawValue = val as string | null;
           node.value = val;
           t._value = val;
-          self.modifiedFields.push(node.name ?? '<unknown>');
+          modifiedFields.push(node.name ?? '<unknown>');
           return true;
         }
         if (prop === 'presence') {
@@ -282,16 +276,14 @@ export class JavaScriptEngine {
   private createXfaObject(
     formData: unknown,
     currentKey: string | undefined,
-    eventObj: Record<string, unknown>,
+    eventObj: Record<string, unknown>
   ): Record<string, unknown> {
     const formProxy =
       this.nodeMap.size > 0
         ? createXfaFormProxy(this.nodeMap, currentKey ?? '', this.modifiedFields)
         : this.createFallbackFormProxy(formData);
 
-    const templateProxy = this.nodeMap.size > 0
-      ? this.createTemplateProxy()
-      : createNullProxy();
+    const templateProxy = this.nodeMap.size > 0 ? this.createTemplateProxy() : createNullProxy();
 
     const datasetsProxy = this.createDatasetsProxy(formData);
 
@@ -323,16 +315,15 @@ export class JavaScriptEngine {
   }
 
   private createLayoutObject(currentKey?: string): Record<string, unknown> {
-    const self = this;
     return {
       get ready() {
         return true;
       },
-      pageCount: () => self.layoutInfo.pageCount,
-      absPageCount: () => self.layoutInfo.pageCount,
-      page: (node?: unknown) => self.pageOfNode(node, currentKey),
-      absPage: (node?: unknown) => self.pageOfNode(node, currentKey),
-      pageContent: (page: unknown) => self.layoutInfo.pageContent.get(Number(page)) ?? 0,
+      pageCount: () => this.layoutInfo.pageCount,
+      absPageCount: () => this.layoutInfo.pageCount,
+      page: (node?: unknown) => this.pageOfNode(node, currentKey),
+      absPage: (node?: unknown) => this.pageOfNode(node, currentKey),
+      pageContent: (page: unknown) => this.layoutInfo.pageContent.get(Number(page)) ?? 0,
       relayout: () => true,
     };
   }
@@ -364,7 +355,7 @@ export class JavaScriptEngine {
   }
 
   private createTemplateProxy(): Record<string, unknown> {
-    const self = this;
+    const resolveSomExpression = this.resolveSomExpression.bind(this);
     const templateNodes: Record<string, unknown> = {};
 
     for (const [path, node] of this.nodeMap) {
@@ -388,7 +379,7 @@ export class JavaScriptEngine {
             if (path.endsWith(`.${prop}`) || path === prop) return node;
           }
           if (prop === 'resolveNode') {
-            return (somExpr: string) => self.resolveSomExpression(somExpr, null);
+            return (somExpr: string) => resolveSomExpression(somExpr, null);
           }
         }
         return undefined;
@@ -415,15 +406,14 @@ export class JavaScriptEngine {
     });
   }
 
-  private createFallbackFormProxy(formData: unknown): Record<string, unknown> {
-    const self = this;
+  private createFallbackFormProxy(_formData: unknown): Record<string, unknown> {
     return {
       value: null,
       rawValue: null,
       presence: 'visible',
       name: 'form',
       type: 'form',
-      resolveNode: (somExpr: string) => self.resolveSomExpression(somExpr, null),
+      resolveNode: (somExpr: string) => this.resolveSomExpression(somExpr, null),
     };
   }
 
@@ -438,8 +428,7 @@ export class JavaScriptEngine {
     const parent = this.nodeMap.get(parentPath);
     const layoutParent = parent?.layoutNode as { children?: LayoutNode[] } | undefined;
     const template = parent?.children?.[parent.children.length - 1]?.layoutNode as
-      | LayoutNode
-      | undefined;
+      LayoutNode | undefined;
     if (!parent || !layoutParent?.children || !template) return null;
 
     const clone = JSON.parse(JSON.stringify(template)) as LayoutNode;
@@ -502,13 +491,21 @@ export class JavaScriptEngine {
       path = `${basePath}#${suffix}`;
     }
 
-    const record = (key: string): unknown => (layoutNode as unknown as Record<string, unknown>)[key];
+    const record = (key: string): unknown =>
+      (layoutNode as unknown as Record<string, unknown>)[key];
     const ln = layoutNode as unknown as {
       font?: { color?: { r: number; g: number; b: number } };
-      border?: { fill?: { color?: { r: number; g: number; b: number } }; edges?: Array<{ color?: { r: number; g: number; b: number } }> };
+      border?: {
+        fill?: { color?: { r: number; g: number; b: number } };
+        edges?: Array<{ color?: { r: number; g: number; b: number } }>;
+      };
     };
-    const fillInit = ln.border?.fill?.color ? `${ln.border.fill.color.r},${ln.border.fill.color.g},${ln.border.fill.color.b}` : undefined;
-    const fontInit = ln.font?.color ? `${ln.font.color.r},${ln.font.color.g},${ln.font.color.b}` : undefined;
+    const fillInit = ln.border?.fill?.color
+      ? `${ln.border.fill.color.r},${ln.border.fill.color.g},${ln.border.fill.color.b}`
+      : undefined;
+    const fontInit = ln.font?.color
+      ? `${ln.font.color.r},${ln.font.color.g},${ln.font.color.b}`
+      : undefined;
     const edgeInit = ln.border?.edges?.find((e) => e?.color)?.color;
     const borderInit = edgeInit ? `${edgeInit.r},${edgeInit.g},${edgeInit.b}` : undefined;
     const scriptable: ScriptableNode = {
@@ -558,7 +555,10 @@ export class JavaScriptEngine {
     for (const child of scriptable.children ?? []) this.unregisterSubtree(child);
   }
 
-  private createEventObject(currentNode: XfaNode | null, eventName: string): Record<string, unknown> {
+  private createEventObject(
+    currentNode: XfaNode | null,
+    eventName: string
+  ): Record<string, unknown> {
     let _cancelAction = false;
     return {
       name: eventName,
@@ -576,8 +576,12 @@ export class JavaScriptEngine {
       modifier: false,
       keyDown: 0,
       shift: false,
-      get cancelAction() { return _cancelAction; },
-      set cancelAction(val: boolean) { _cancelAction = val; },
+      get cancelAction() {
+        return _cancelAction;
+      },
+      set cancelAction(val: boolean) {
+        _cancelAction = val;
+      },
       lock: () => {},
       unlock: () => {},
     };
@@ -588,7 +592,6 @@ export class JavaScriptEngine {
     let _calculationsEnabled = true;
     let _validationsEnabled = true;
     let _currentPage = 1;
-    const engine = this;
     return {
       name: 'Adobe LiveCycle Designer',
       appType: 'Exchange',
@@ -599,29 +602,41 @@ export class JavaScriptEngine {
       pathSeparator: '.',
 
       numPages: 1,
-      get currentPage() { return _currentPage; },
-      set currentPage(val: number) { _currentPage = val; },
+      get currentPage() {
+        return _currentPage;
+      },
+      set currentPage(val: number) {
+        _currentPage = val;
+      },
       title: '',
 
-      get calculationsEnabled() { return _calculationsEnabled; },
-      set calculationsEnabled(val: boolean) { _calculationsEnabled = val; },
-      get validationsEnabled() { return _validationsEnabled; },
-      set validationsEnabled(val: boolean) { _validationsEnabled = val; },
+      get calculationsEnabled() {
+        return _calculationsEnabled;
+      },
+      set calculationsEnabled(val: boolean) {
+        _calculationsEnabled = val;
+      },
+      get validationsEnabled() {
+        return _validationsEnabled;
+      },
+      set validationsEnabled(val: boolean) {
+        _validationsEnabled = val;
+      },
 
       now,
 
       alert: () => {},
-      messageBox: (msg: string, _title?: string, _icon?: number, _buttons?: number) => {
+      messageBox: (_msg: string, _title?: string, _icon?: number, _buttons?: number) => {
         return 1;
       },
       formatValue: (value: unknown, picture?: string) => {
         if (value == null) return '';
         if (!picture) return String(value);
-        return engine.formatWithPictureClause(value, picture);
+        return this.formatWithPictureClause(value, picture);
       },
       unformatValue: (value: string, picture?: string) => {
         if (!picture) return value;
-        return engine.unformatWithPictureClause(value, picture);
+        return this.unformatWithPictureClause(value, picture);
       },
       resetData: () => {},
       pageUp: () => {},
@@ -630,7 +645,8 @@ export class JavaScriptEngine {
       importData: (_path: string) => {},
       exportData: (_path: string) => {},
       print: (_startPage?: number, _endPage?: number) => {},
-      response: (_question: string, _title?: string, _default?: string, _hideAnswer?: boolean) => '',
+      response: (_question: string, _title?: string, _default?: string, _hideAnswer?: boolean) =>
+        '',
       setFocus: (_somExpr: string) => {},
       getFocus: () => null,
     };
@@ -707,20 +723,20 @@ export class JavaScriptEngine {
       const date = value instanceof Date ? value : new Date(String(value));
       if (isNaN(date.getTime())) return String(value);
       const replacements: Record<string, string> = {
-        'YYYY': String(date.getFullYear()),
-        'YY': String(date.getFullYear()).slice(-2),
-        'MM': String(date.getMonth() + 1).padStart(2, '0'),
-        'M': String(date.getMonth() + 1),
-        'DD': String(date.getDate()).padStart(2, '0'),
-        'D': String(date.getDate()),
-        'HH': String(date.getHours()).padStart(2, '0'),
-        'H': String(date.getHours()),
-        'mm': String(date.getMinutes()).padStart(2, '0'),
-        'm': String(date.getMinutes()),
-        'ss': String(date.getSeconds()).padStart(2, '0'),
-        's': String(date.getSeconds()),
-        'AMPM': date.getHours() >= 12 ? 'PM' : 'AM',
-        'am': date.getHours() >= 12 ? 'pm' : 'am',
+        YYYY: String(date.getFullYear()),
+        YY: String(date.getFullYear()).slice(-2),
+        MM: String(date.getMonth() + 1).padStart(2, '0'),
+        M: String(date.getMonth() + 1),
+        DD: String(date.getDate()).padStart(2, '0'),
+        D: String(date.getDate()),
+        HH: String(date.getHours()).padStart(2, '0'),
+        H: String(date.getHours()),
+        mm: String(date.getMinutes()).padStart(2, '0'),
+        m: String(date.getMinutes()),
+        ss: String(date.getSeconds()).padStart(2, '0'),
+        s: String(date.getSeconds()),
+        AMPM: date.getHours() >= 12 ? 'PM' : 'AM',
+        am: date.getHours() >= 12 ? 'pm' : 'am',
       };
       let formatted = trimmed;
       for (const [token, replacement] of Object.entries(replacements)) {
@@ -735,7 +751,9 @@ export class JavaScriptEngine {
       const suffix = mask.match(/[^0-9#.,]+$/)?.[0] ?? '';
       const digitsMask = mask.slice(prefix.length, mask.length - suffix.length);
       const hasDecimal = digitsMask.includes('.');
-      const decimalPlaces = hasDecimal ? digitsMask.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0 : 0;
+      const decimalPlaces = hasDecimal
+        ? (digitsMask.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0)
+        : 0;
       const hasGrouping = digitsMask.includes(',');
       const absValue = Math.abs(value);
       const rounded = absValue.toFixed(decimalPlaces);
@@ -762,7 +780,7 @@ export class JavaScriptEngine {
     }
 
     if (/[0#.,]/.test(trimmed)) {
-      const cleaned = value.replace(/[^0-9.\-]/g, '');
+      const cleaned = value.replace(/[^0-9.-]/g, '');
       const num = parseFloat(cleaned);
       if (!isNaN(num)) return num;
     }
@@ -770,7 +788,10 @@ export class JavaScriptEngine {
     return value;
   }
 
-  private resolveSomExpression(somExpr: string, contextNode: XfaNode | null): Record<string, unknown> | null {
+  private resolveSomExpression(
+    somExpr: string,
+    contextNode: XfaNode | null
+  ): Record<string, unknown> | null {
     const recordPrefix = somExpr.match(/^(?:xfa\.)?record\.(.*)$/);
     if (recordPrefix) {
       const rest = recordPrefix[1];
@@ -778,8 +799,10 @@ export class JavaScriptEngine {
       for (const part of rest.split('.').filter(Boolean)) {
         if (current == null) break;
         current = Array.isArray(current)
-          ? current[Number(part)] ??
-            (typeof current[0] === 'object' ? (current[0] as Record<string, unknown>)[part] : undefined)
+          ? (current[Number(part)] ??
+            (typeof current[0] === 'object'
+              ? (current[0] as Record<string, unknown>)[part]
+              : undefined))
           : (current as Record<string, unknown>)[part];
         if (current === undefined) break;
       }

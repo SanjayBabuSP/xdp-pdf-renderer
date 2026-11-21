@@ -5,7 +5,15 @@ import * as path from 'path';
 
 const SCRIPT = path.join(__dirname, '..', '..', '..', 'scripts', 'import-adobe-fonts.mjs');
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
-const DEJA_VU_BOLD = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+const DEJA_VU_BOLD = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'assets',
+  'fonts',
+  'DejaVuSans-Bold.ttf'
+);
 
 function tempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));

@@ -55,16 +55,44 @@ describe('G14 — LZWDecode', () => {
 describe('G14 — JPEG 2000 dimensions', () => {
   it('reads width/height from a JP2 ihdr box', () => {
     const data = Uint8Array.from([
-      0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a,
-      ...be32(22), ...ascii('ihdr'), ...be32(480), ...be32(640), 0, 0, 0, 0,
+      0x00,
+      0x00,
+      0x00,
+      0x0c,
+      0x6a,
+      0x50,
+      0x20,
+      0x20,
+      0x0d,
+      0x0a,
+      0x87,
+      0x0a,
+      ...be32(22),
+      ...ascii('ihdr'),
+      ...be32(480),
+      ...be32(640),
+      0,
+      0,
+      0,
+      0,
     ]);
     expect(jpxDimensions(data)).toEqual({ width: 640, height: 480 });
   });
 
   it('reads dimensions from a raw codestream SIZ segment', () => {
     const data = Uint8Array.from([
-      0xff, 0x4f, 0xff, 0x51, 0, 41, 0, 0,
-      ...be32(800), ...be32(600), ...be32(0), ...be32(0),
+      0xff,
+      0x4f,
+      0xff,
+      0x51,
+      0,
+      41,
+      0,
+      0,
+      ...be32(800),
+      ...be32(600),
+      ...be32(0),
+      ...be32(0),
     ]);
     expect(jpxDimensions(data)).toEqual({ width: 800, height: 600 });
   });

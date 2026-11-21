@@ -24,10 +24,8 @@ const LATCH_TO_PUNCT = 29;
 
 const TEXT_ALPHA_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ';
 const TEXT_LOWER_CHARS = 'abcdefghijklmnopqrstuvwxyz ';
-const TEXT_MIXED_CHARS =
-  '0123456789&\r#()*+,-./:;?@[\\_`~' + "'";
-const TEXT_PUNCT_CHARS =
-  ";<>=@[\\^_`~!\r\t,:#-.$/\"|*()?{}" + "'";
+const TEXT_MIXED_CHARS = '0123456789&\r#()*+,-./:;?@[\\_`~' + "'";
+const TEXT_PUNCT_CHARS = ';<>=@[\\^_`~!\r\t,:#-.$/"|*()?{}' + "'";
 
 export const PDF417_DEFAULT_EC_LEVEL = 5;
 
@@ -108,10 +106,13 @@ function encodeText(data: string): number[] {
       continue;
     }
     const target =
-      submodeIndexOf(TEXT_ALPHA, ch) >= 0 ? TEXT_ALPHA
-      : submodeIndexOf(TEXT_LOWER, ch) >= 0 ? TEXT_LOWER
-      : submodeIndexOf(TEXT_MIXED, ch) >= 0 ? TEXT_MIXED
-      : TEXT_PUNCT;
+      submodeIndexOf(TEXT_ALPHA, ch) >= 0
+        ? TEXT_ALPHA
+        : submodeIndexOf(TEXT_LOWER, ch) >= 0
+          ? TEXT_LOWER
+          : submodeIndexOf(TEXT_MIXED, ch) >= 0
+            ? TEXT_MIXED
+            : TEXT_PUNCT;
     flushPair();
     const latch = latchFor(submode, target);
     if (latch !== undefined) values.push(latch);
@@ -215,7 +216,7 @@ function reedSolomon(data: number[], level: number): number[] {
 function chooseDimensions(
   messageCount: number,
   options: Pdf417EncodeOptions,
-  ecLevel: number,
+  ecLevel: number
 ): { columns: number; rows: number } {
   const ecCount = ecCountForLevel(ecLevel);
   const needed = messageCount + 1 + ecCount;

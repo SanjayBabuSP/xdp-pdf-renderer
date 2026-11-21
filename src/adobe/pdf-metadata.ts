@@ -9,16 +9,17 @@ export interface MetadataOptions {
 }
 
 function xmpEscape(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function uuid(): string {
   const hex = (): string =>
     [...Array(4)]
-      .map(() => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0'))
+      .map(() =>
+        Math.floor(Math.random() * 0x10000)
+          .toString(16)
+          .padStart(4, '0')
+      )
       .join('');
   return `${hex()}${hex().slice(0, 4)}-4${hex().slice(1, 4)}-8${hex().slice(1, 4)}-${hex()}-${hex()}${hex()}`;
 }
@@ -68,7 +69,7 @@ function buildXmpPacket(meta: DocumentMetadata, options: MetadataOptions, now: D
 export function applyDocumentMetadata(
   doc: PDFDocument,
   meta: DocumentMetadata | undefined,
-  options: MetadataOptions = {},
+  options: MetadataOptions = {}
 ): void {
   const now = new Date();
   const title = meta?.title ?? '';

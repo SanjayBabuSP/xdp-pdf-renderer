@@ -45,7 +45,9 @@ describe('rotation', () => {
 
     it('returns null for non-vertical rotations', () => {
       expect(rotatedAnchor({ ...common, rotate: 0, box, align: 'left', valign: 'top' })).toBeNull();
-      expect(rotatedAnchor({ ...common, rotate: 180, box, align: 'left', valign: 'top' })).toBeNull();
+      expect(
+        rotatedAnchor({ ...common, rotate: 180, box, align: 'left', valign: 'top' })
+      ).toBeNull();
     });
 
     it('rotate 90: reading runs bottom→top; top-align starts line at box bottom + …', () => {
@@ -75,7 +77,13 @@ describe('rotation', () => {
     });
 
     it('rotate 90: multi-line stacks toward +x (right shift for right-align)', () => {
-      const single = rotatedAnchor({ ...common, rotate: 90, box, align: 'right', valign: 'bottom' });
+      const single = rotatedAnchor({
+        ...common,
+        rotate: 90,
+        box,
+        align: 'right',
+        valign: 'bottom',
+      });
       const multi = rotatedAnchor({
         ...common,
         rotate: 90,

@@ -1,4 +1,3 @@
-
 export enum TokenType {
   NUMBER = 'NUMBER',
   STRING = 'STRING',
@@ -166,7 +165,7 @@ const KEYWORDS: Record<string, TokenType> = {
   as: TokenType.as,
   fractional: TokenType.FRACTIONAL,
   integer: TokenType.INTEGER,
-  'string': TokenType.STRING_KEYWORD,
+  string: TokenType.STRING_KEYWORD,
   date: TokenType.DATE_KEYWORD,
   float: TokenType.FLOAT_KEYWORD,
   boolean: TokenType.BOOLEAN_KEYWORD,
@@ -315,33 +314,60 @@ export class FormCalcLexer {
     this.advance();
     switch (ch) {
       case '+':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.PLUS_ASSIGN, value: '+=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.PLUS_ASSIGN, value: '+=', line: startLine, column: startCol };
+        }
         return { type: TokenType.PLUS, value: '+', line: startLine, column: startCol };
       case '-':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.MINUS_ASSIGN, value: '-=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.MINUS_ASSIGN, value: '-=', line: startLine, column: startCol };
+        }
         return { type: TokenType.MINUS, value: '-', line: startLine, column: startCol };
       case '*':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.STAR_ASSIGN, value: '*=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.STAR_ASSIGN, value: '*=', line: startLine, column: startCol };
+        }
         return { type: TokenType.STAR, value: '*', line: startLine, column: startCol };
       case '/':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.SLASH_ASSIGN, value: '/=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.SLASH_ASSIGN, value: '/=', line: startLine, column: startCol };
+        }
         return { type: TokenType.SLASH, value: '/', line: startLine, column: startCol };
       case '\\':
         return { type: TokenType.BACKSLASH, value: '\\', line: startLine, column: startCol };
       case '^':
         return { type: TokenType.CARET, value: '^', line: startLine, column: startCol };
       case '~':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.CONCAT_ASSIGN, value: '~=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.CONCAT_ASSIGN, value: '~=', line: startLine, column: startCol };
+        }
         return { type: TokenType.TILDE, value: '~', line: startLine, column: startCol };
       case '=':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.EQUAL, value: '==', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.EQUAL, value: '==', line: startLine, column: startCol };
+        }
         return { type: TokenType.EQUAL, value: '=', line: startLine, column: startCol };
       case '<':
-        if (this.peek() === '>') { this.advance(); return { type: TokenType.NOT_EQUAL, value: '<>', line: startLine, column: startCol }; }
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.LESS_EQUAL, value: '<=', line: startLine, column: startCol }; }
+        if (this.peek() === '>') {
+          this.advance();
+          return { type: TokenType.NOT_EQUAL, value: '<>', line: startLine, column: startCol };
+        }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.LESS_EQUAL, value: '<=', line: startLine, column: startCol };
+        }
         return { type: TokenType.LESS, value: '<', line: startLine, column: startCol };
       case '>':
-        if (this.peek() === '=') { this.advance(); return { type: TokenType.GREATER_EQUAL, value: '>=', line: startLine, column: startCol }; }
+        if (this.peek() === '=') {
+          this.advance();
+          return { type: TokenType.GREATER_EQUAL, value: '>=', line: startLine, column: startCol };
+        }
         return { type: TokenType.GREATER, value: '>', line: startLine, column: startCol };
       case '&':
         return { type: TokenType.AMPERSAND, value: '&', line: startLine, column: startCol };

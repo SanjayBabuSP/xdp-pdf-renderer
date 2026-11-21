@@ -1,4 +1,3 @@
-
 import { FormCalcLexer, Token, TokenType } from './lexer';
 import {
   Program,
@@ -8,16 +7,17 @@ import {
   ForEachStmt,
   WhileStmt,
   RepeatStmt,
-  BreakStmt,
-  ContinueStmt,
   ReturnStmt,
   VarDecl,
-  AssignExpr,
   FormCalcNode,
 } from './ast';
 
 export class FormCalcParseError extends Error {
-  constructor(message: string, public line: number, public column: number) {
+  constructor(
+    message: string,
+    public line: number,
+    public column: number
+  ) {
     super(`FormCalc Parse Error (line ${line}, col ${column}): ${message}`);
   }
 }
@@ -90,8 +90,14 @@ export class FormCalcParser {
     if (this.check(TokenType.FOREACH)) return this.parseForEach();
     if (this.check(TokenType.WHILE)) return this.parseWhile();
     if (this.check(TokenType.REPEAT)) return this.parseRepeat();
-    if (this.check(TokenType.BREAK)) { this.advance(); return { type: 'BreakStmt' }; }
-    if (this.check(TokenType.CONTINUE)) { this.advance(); return { type: 'ContinueStmt' }; }
+    if (this.check(TokenType.BREAK)) {
+      this.advance();
+      return { type: 'BreakStmt' };
+    }
+    if (this.check(TokenType.CONTINUE)) {
+      this.advance();
+      return { type: 'ContinueStmt' };
+    }
     if (this.check(TokenType.RETURN)) return this.parseReturn();
     if (this.check(TokenType.VAR)) return this.parseVarDecl();
     return this.parseExprStmt();
@@ -273,14 +279,29 @@ export class FormCalcParser {
       const tok = this.current();
       let op: string | null = null;
       switch (tok.type) {
-        case TokenType.EQUAL: op = tok.value === '==' ? '==' : '='; break;
-        case TokenType.EQ: op = 'eq'; break;
-        case TokenType.NOT_EQUAL: op = tok.value === 'ne' || tok.value === 'NE' ? 'ne' : '<>'; break;
-        case TokenType.LESS: op = tok.value.toLowerCase() === 'lt' ? 'lt' : '<'; break;
-        case TokenType.LESS_EQUAL: op = tok.value.toLowerCase() === 'le' ? 'le' : '<='; break;
-        case TokenType.GREATER: op = tok.value.toLowerCase() === 'gt' ? 'gt' : '>'; break;
-        case TokenType.GREATER_EQUAL: op = tok.value.toLowerCase() === 'ge' ? 'ge' : '>='; break;
-        default: break;
+        case TokenType.EQUAL:
+          op = tok.value === '==' ? '==' : '=';
+          break;
+        case TokenType.EQ:
+          op = 'eq';
+          break;
+        case TokenType.NOT_EQUAL:
+          op = tok.value === 'ne' || tok.value === 'NE' ? 'ne' : '<>';
+          break;
+        case TokenType.LESS:
+          op = tok.value.toLowerCase() === 'lt' ? 'lt' : '<';
+          break;
+        case TokenType.LESS_EQUAL:
+          op = tok.value.toLowerCase() === 'le' ? 'le' : '<=';
+          break;
+        case TokenType.GREATER:
+          op = tok.value.toLowerCase() === 'gt' ? 'gt' : '>';
+          break;
+        case TokenType.GREATER_EQUAL:
+          op = tok.value.toLowerCase() === 'ge' ? 'ge' : '>=';
+          break;
+        default:
+          break;
       }
       if (op === null) break;
       this.advance();
@@ -302,7 +323,12 @@ export class FormCalcParser {
 
   private parseMul(): FormCalcNode {
     let left = this.parsePower();
-    while (this.check(TokenType.STAR) || this.check(TokenType.SLASH) || this.check(TokenType.BACKSLASH) || this.check(TokenType.MOD)) {
+    while (
+      this.check(TokenType.STAR) ||
+      this.check(TokenType.SLASH) ||
+      this.check(TokenType.BACKSLASH) ||
+      this.check(TokenType.MOD)
+    ) {
       const op = this.advance().value as '*' | '/' | '\\' | 'mod';
       const right = this.parsePower();
       left = { type: 'MulExpr', operator: op, left, right };

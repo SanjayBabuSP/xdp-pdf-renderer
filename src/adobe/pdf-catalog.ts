@@ -11,7 +11,7 @@ export function applyPdfVersion(doc: PDFDocument, version: string): void {
 export function applyAdobeExtensionLevel(
   doc: PDFDocument,
   extensionLevel: number,
-  baseVersion = '1.7',
+  baseVersion = '1.7'
 ): void {
   if (!Number.isFinite(extensionLevel) || extensionLevel <= 0) return;
   const base = VERSION_PATTERN.test(baseVersion.trim()) ? baseVersion.trim() : '1.7';

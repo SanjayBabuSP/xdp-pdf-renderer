@@ -1,4 +1,3 @@
-
 export function formatValue(value: unknown, picture?: string, locale?: string): string {
   if (value == null) return '';
   if (!picture) return String(value);
@@ -100,7 +99,10 @@ function parseDateByPicture(value: string, pattern: string): Date | null {
   }
   if (tokens.length !== 3) return null;
   if (/[hHkK]/.test(pattern.replace(/'[^']*'/g, '')) || /S\b/.test(pattern)) return null;
-  const groups = value.trim().split(/[^0-9]+/).filter(Boolean);
+  const groups = value
+    .trim()
+    .split(/[^0-9]+/)
+    .filter(Boolean);
   if (groups.length !== 3) return null;
   const parts: Record<'d' | 'm' | 'y', number> = { d: 0, m: 0, y: 0 };
   for (let i = 0; i < 3; i++) {
@@ -191,7 +193,9 @@ function monthName(date: Date, style: 'long' | 'short', locale?: string): string
 }
 
 function weekdayName(date: Date, style: 'long' | 'short', locale?: string): string {
-  return new Intl.DateTimeFormat(locale ?? 'en-US', { weekday: style, timeZone: 'UTC' }).format(date);
+  return new Intl.DateTimeFormat(locale ?? 'en-US', { weekday: style, timeZone: 'UTC' }).format(
+    date
+  );
 }
 
 function coerceDate(value: unknown): Date | null {
@@ -207,7 +211,9 @@ function coerceDate(value: unknown): Date | null {
 
   const timeOnly = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(normalized);
   if (timeOnly) {
-    const d = new Date(Date.UTC(1970, 0, 1, Number(timeOnly[1]), Number(timeOnly[2]), Number(timeOnly[3] ?? 0)));
+    const d = new Date(
+      Date.UTC(1970, 0, 1, Number(timeOnly[1]), Number(timeOnly[2]), Number(timeOnly[3] ?? 0))
+    );
     return Number.isNaN(d.getTime()) ? null : d;
   }
 

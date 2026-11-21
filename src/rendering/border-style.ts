@@ -1,11 +1,17 @@
-
 import { LineCapStyle, LineJoinStyle } from 'pdf-lib';
 
 export const DEFAULT_EDGE_THICKNESS_PT = 0.5;
+export const PDF_DEVICE_STROKE_GRID_PT = 0.12;
 
 export function quantizeStrokeWidth(width: number): number {
   if (!Number.isFinite(width) || width <= 0) return width;
   return Math.round(width * 1000) / 1000;
+}
+
+export function quantizeDeviceStrokeWidth(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return width;
+  const steps = Math.ceil((width - PDF_DEVICE_STROKE_GRID_PT * 0.001) / PDF_DEVICE_STROKE_GRID_PT);
+  return Math.round(steps * PDF_DEVICE_STROKE_GRID_PT * 1000) / 1000;
 }
 
 export const DASH_PATTERNS: Readonly<Record<string, readonly number[]>> = {
@@ -20,7 +26,10 @@ export const DASH_PATTERNS: Readonly<Record<string, readonly number[]>> = {
   lowered: [1, 0],
 };
 
-export function dashArrayForStyle(style: string | undefined, thickness: number): number[] | undefined {
+export function dashArrayForStyle(
+  style: string | undefined,
+  thickness: number
+): number[] | undefined {
   const ratios = DASH_PATTERNS[style ?? 'solid'] ?? DASH_PATTERNS.solid;
   if (ratios.length <= 1 || (ratios[0] === 1 && ratios[1] === 0)) return undefined;
   const t = Math.max(thickness, 0.5);
@@ -53,7 +62,10 @@ export function clampCornerRadius(radius: number, w: number, h: number): number 
   return Math.max(0, Math.min(radius, w / 2, h / 2));
 }
 
-export function cornerRadiiOf(border: { cornerRadius?: number; cornerRadii?: Array<number | undefined> }): Array<number | undefined> {
+export function cornerRadiiOf(border: {
+  cornerRadius?: number;
+  cornerRadii?: Array<number | undefined>;
+}): Array<number | undefined> {
   if (border.cornerRadii && border.cornerRadii.some((v) => v != null && v > 0)) {
     return [0, 1, 2, 3].map((i) => border.cornerRadii![i]);
   }
@@ -83,10 +95,14 @@ export function rotateCornersForAngle<T>(corners: [T, T, T, T], rotate: number):
   return [tl, tr, br, bl];
 }
 
-export function isBottomUnderlineOnly(edges: Array<{ presence?: string; style?: string } | undefined> | undefined): boolean {
+export function isBottomUnderlineOnly(
+  edges: Array<{ presence?: string; style?: string } | undefined> | undefined
+): boolean {
   if (!edges || edges.length === 0) return false;
   const norm: Array<{ presence?: string; style?: string } | undefined> =
-    edges.length === 1 ? [undefined, undefined, edges[0], undefined] : [edges[0], edges[1], edges[2], edges[3]];
+    edges.length === 1
+      ? [undefined, undefined, edges[0], undefined]
+      : [edges[0], edges[1], edges[2], edges[3]];
   const visible = (e: { presence?: string; style?: string } | undefined): boolean =>
     !!e && e.presence !== 'hidden' && e.presence !== 'invisible' && e.style !== 'none';
   return !visible(norm[0]) && !visible(norm[1]) && visible(norm[2]) && !visible(norm[3]);

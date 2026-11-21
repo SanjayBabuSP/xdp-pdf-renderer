@@ -50,7 +50,7 @@ describe('G4 — xfa.layout page queries', () => {
   it('reports the page a node lives on', () => {
     const layout = twoPageLayout(
       [pageSubform('p1', [scriptedField('first', '$.rawValue = xfa.layout.page(this);')])],
-      [pageSubform('p2', [scriptedField('second', '$.rawValue = xfa.layout.page(this);')])],
+      [pageSubform('p2', [scriptedField('second', '$.rawValue = xfa.layout.page(this);')])]
     );
     const result = dispatchPostLayoutScripts(layout, {});
     expect(result.success).toBe(true);
@@ -62,7 +62,7 @@ describe('G4 — xfa.layout page queries', () => {
   it('reports the total page count', () => {
     const layout = twoPageLayout(
       [pageSubform('p1', [scriptedField('total', '$.rawValue = xfa.layout.pageCount();')])],
-      [],
+      []
     );
     dispatchPostLayoutScripts(layout, {});
     expect(findField(layout.pages[0].children, 'total')?.resolvedValue).toBe(2);
@@ -74,11 +74,11 @@ describe('G4 — xfa.layout page queries', () => {
         pageSubform('p1', [
           scriptedField(
             'stats',
-            '$.rawValue = xfa.layout.pageContent(1) + ":" + xfa.layout.ready;',
+            '$.rawValue = xfa.layout.pageContent(1) + ":" + xfa.layout.ready;'
           ),
         ]),
       ],
-      [pageSubform('p2', [scriptedField('a', ''), scriptedField('b', '')])],
+      [pageSubform('p2', [scriptedField('a', ''), scriptedField('b', '')])]
     );
     dispatchPostLayoutScripts(layout, {});
     expect(findField(layout.pages[0].children, 'stats')?.resolvedValue).toBe('2:true');

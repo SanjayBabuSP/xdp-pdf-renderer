@@ -9,7 +9,9 @@ function model(children: LayoutNode[], templateCount = 1): LayoutModel {
     name: `Page${i + 1}`,
     medium: { stock: 'a4', short: 595.28, long: 841.89 },
     contentArea: { ...CA },
-    masterPageChildren: [{ type: 'draw' as const, name: `master${i}`, position: { x: 1, y: 2, w: 3, h: 4 } }],
+    masterPageChildren: [
+      { type: 'draw' as const, name: `master${i}`, position: { x: 1, y: 2, w: 3, h: 4 } },
+    ],
   }));
   return { rootSubformName: 'form', pages: templates, children };
 }
@@ -71,7 +73,9 @@ describe('applyPagination (coordinate-based)', () => {
   });
 
   it('treats breakBefore on the very first node as a no-op', () => {
-    const out = run([{ ...subform('first', { x: 54, y: 54, w: 100, h: 10 }), breakBefore: 'contentArea' }]);
+    const out = run([
+      { ...subform('first', { x: 54, y: 54, w: 100, h: 10 }), breakBefore: 'contentArea' },
+    ]);
     expect(out.pages).toHaveLength(1);
     expect(out.pages[0].children[0].position!.y).toBe(54);
   });
@@ -85,7 +89,10 @@ describe('applyPagination (coordinate-based)', () => {
 
   it('honors explicit keep: unit-shifts a kept subform instead of splitting', () => {
     const out = run([
-      { ...subform('kept', { x: 54, y: 760, w: 200, h: 100 }), keep: { contentArea: 'contentArea' } },
+      {
+        ...subform('kept', { x: 54, y: 760, w: 200, h: 100 }),
+        keep: { contentArea: 'contentArea' },
+      },
     ]);
     expect(out.pages).toHaveLength(2);
     expect(out.pages[1].children[0].position).toMatchObject({ x: 54, y: 54, h: 100 });
@@ -157,7 +164,10 @@ describe('applyPagination (coordinate-based)', () => {
   it('preserves a trailing breakBefore section as its own last page', () => {
     const out = run([
       subform('body', { x: 54, y: 54, w: 200, h: 5 * 734 }),
-      { ...subform('revision', { x: 54, y: 54 + 5 * 734, w: 200, h: 30 }), breakBefore: 'contentArea' },
+      {
+        ...subform('revision', { x: 54, y: 54 + 5 * 734, w: 200, h: 30 }),
+        breakBefore: 'contentArea',
+      },
     ]);
     expect(out.pages).toHaveLength(6);
     const last = out.pages[5].children[0] as SubformNode;

@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 import {
   layoutLines,
@@ -148,9 +147,7 @@ describe('caption/value collision safety', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    const ys = [...content.matchAll(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/g)].map((m) =>
-      Number(m[2])
-    );
+    const ys = [...content.matchAll(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/g)].map((m) => Number(m[2]));
     expect(ys.length).toBeGreaterThanOrEqual(2);
     expect(new Set(ys.map((y) => y.toFixed(3))).size).toBe(1);
   });

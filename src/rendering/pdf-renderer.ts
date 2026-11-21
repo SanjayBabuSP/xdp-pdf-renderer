@@ -62,13 +62,7 @@ import {
   runBlockHeight,
   type StyledRun,
 } from './text/run-flow';
-import {
-  alignClassOf,
-  horizontalOffsetX,
-  justifyLine,
-  mapJustH,
-  mapJustV,
-} from './text/justifier';
+import { alignClassOf, horizontalOffsetX, justifyLine, mapJustH, mapJustV } from './text/justifier';
 import { isVerticalRotation, normalizeRotation, rotatedAnchor } from './text/rotation';
 import {
   applyPageTransparencyGroup,
@@ -83,6 +77,7 @@ import {
   dashArrayForStyle,
   hasRoundedCorners,
   isBottomUnderlineOnly,
+  quantizeDeviceStrokeWidth,
   quantizeStrokeWidth,
   rotateCornersForAngle,
   rotateEdgesForAngle,
@@ -135,7 +130,7 @@ async function renderPage(
   fontManager: FontManager,
   options: RenderOptions,
   pageIndex: number,
-  totalPages: number,
+  totalPages: number
 ): Promise<void> {
   const pageH = page.medium.long;
 
@@ -157,14 +152,16 @@ async function renderNode(
   fontManager: FontManager,
   options: RenderOptions,
   pageIndex = 0,
-  totalPages = 1,
+  totalPages = 1
 ): Promise<void> {
   if (!options.previewMode) {
-    if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive') return;
+    if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive')
+      return;
   }
   if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager, pageIndex);
   if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager);
-  if (node.type === 'subform') return renderSubform(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
+  if (node.type === 'subform')
+    return renderSubform(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
   if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager, options);
 }
 
@@ -175,7 +172,7 @@ async function renderSubform(
   fontManager: FontManager,
   options: RenderOptions,
   pageIndex = 0,
-  totalPages = 1,
+  totalPages = 1
 ): Promise<void> {
   if (node.border) {
     const collapsed = collapseTinyGapEdges(node);
@@ -190,11 +187,14 @@ function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
   const border = node.border;
   if (!border || !node.position) return border;
   const pos = node.position;
-  if (pos.x === undefined || pos.y === undefined || pos.w === undefined || pos.h === undefined) return border;
+  if (pos.x === undefined || pos.y === undefined || pos.w === undefined || pos.h === undefined)
+    return border;
   const edges = border.edges;
   if (!edges || edges.length === 0) return border;
   const norm: Array<EdgeSpec | undefined> =
-    edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
+    edges.length === 1
+      ? [edges[0], edges[0], edges[0], edges[0]]
+      : [edges[0], edges[1], edges[2], edges[3]];
   const visible = (e: EdgeSpec | undefined): boolean =>
     !!e && e.presence !== 'hidden' && e.presence !== 'invisible' && e.style !== 'none';
   const subBottomVisible = visible(norm[2]);
@@ -207,8 +207,16 @@ function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
   if (subBottomVisible) {
     const subBottom = (pos.y ?? 0) + (pos.h ?? 0);
     for (const child of node.children) {
-      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } }).position;
-      if (!cp || cp.x === undefined || cp.y === undefined || cp.w === undefined || cp.h === undefined) continue;
+      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } })
+        .position;
+      if (
+        !cp ||
+        cp.x === undefined ||
+        cp.y === undefined ||
+        cp.w === undefined ||
+        cp.h === undefined
+      )
+        continue;
       const childBottom = cp.y + cp.h;
       const gap = subBottom - childBottom;
       if (gap < -0.5 || gap > TOL) continue;
@@ -221,7 +229,8 @@ function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
   if (subTopVisible) {
     const subTop = pos.y ?? 0;
     for (const child of node.children) {
-      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } }).position;
+      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } })
+        .position;
       if (!cp || cp.x === undefined || cp.y === undefined) continue;
       const childTop = cp.y;
       const gap = childTop - subTop;
@@ -249,13 +258,18 @@ function edgeThickness(edge: EdgeSpec | undefined): number {
   return edge?.thickness ?? 0.5;
 }
 
-function childEdgeVisible(child: LayoutNode, index: number, parentThickness: number | undefined): boolean {
+function childEdgeVisible(
+  child: LayoutNode,
+  index: number,
+  parentThickness: number | undefined
+): boolean {
   const border = (child as { border?: BorderSpec }).border;
   if (!border || border.presence === 'hidden' || border.presence === 'invisible') return false;
   const edges = border.edges;
   if (!edges || edges.length === 0) return false;
   const edge: EdgeSpec | undefined = edges.length === 1 ? edges[0] : edges[index];
-  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return false;
+  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none')
+    return false;
   return edgeThickness(edge) >= (parentThickness ?? 0.5);
 }
 
@@ -298,7 +312,12 @@ function drawBorderBox(
   pos: { x?: number; y?: number; w?: number; h?: number; rotate?: number } | undefined,
   pageH: number
 ): void {
-  if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return;
+  if (
+    border.presence === 'hidden' ||
+    border.presence === 'invisible' ||
+    border.presence === 'inactive'
+  )
+    return;
   if (pos?.x === undefined || pos?.y === undefined) return;
 
   const w = pos.w ?? 0;
@@ -311,8 +330,15 @@ function drawBorderBox(
   let edges: Array<EdgeSpec | undefined> | undefined = border.edges;
   let radii = cornerRadiiOf(border);
   if (isRotated && edges && edges.length) {
-    const quad: [EdgeSpec | undefined, EdgeSpec | undefined, EdgeSpec | undefined, EdgeSpec | undefined] =
-      edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
+    const quad: [
+      EdgeSpec | undefined,
+      EdgeSpec | undefined,
+      EdgeSpec | undefined,
+      EdgeSpec | undefined,
+    ] =
+      edges.length === 1
+        ? [edges[0], edges[0], edges[0], edges[0]]
+        : [edges[0], edges[1], edges[2], edges[3]];
     const rotated = rotateEdgesForAngle<EdgeSpec | undefined>(quad, rotate);
     edges = [rotated[0], rotated[1], rotated[2], rotated[3]];
   }
@@ -346,7 +372,12 @@ function drawBorderBox(
   if (rounded && uniformEdge) {
     strokeRoundedRectPerCorner(pdfPage, pos.x, y, w, h, radii, uniformEdge);
   } else {
-    drawBorderEdges(pdfPage, { ...border, edges: edges as EdgeSpec[] | undefined }, { x: pos.x, y: pos.y, w, h }, pageH);
+    drawBorderEdges(
+      pdfPage,
+      { ...border, edges: edges as EdgeSpec[] | undefined },
+      { x: pos.x, y: pos.y, w, h },
+      pageH
+    );
   }
 }
 
@@ -400,7 +431,12 @@ function drawBorderEdges(
   pos: { x?: number; y?: number; w?: number; h?: number } | undefined,
   pageH: number
 ): void {
-  if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return;
+  if (
+    border.presence === 'hidden' ||
+    border.presence === 'invisible' ||
+    border.presence === 'inactive'
+  )
+    return;
   if (pos?.x === undefined || pos?.y === undefined) return;
 
   const w = pos.w ?? 0;
@@ -413,14 +449,15 @@ function drawBorderEdges(
 
   const uniform = uniformEdgeOf(edges);
   const anyRounding =
-    (border.cornerRadius ?? 0) > 0 ||
-    (border.cornerRadii ?? []).some((r) => (r ?? 0) > 0);
+    (border.cornerRadius ?? 0) > 0 || (border.cornerRadii ?? []).some((r) => (r ?? 0) > 0);
   if (uniform && !anyRounding) {
     strokeUniformRect(pdfPage, uniform, pos.x, y, w, h);
     return;
   }
   const [top, right, bottom, left] =
-    edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
+    edges.length === 1
+      ? [edges[0], edges[0], edges[0], edges[0]]
+      : [edges[0], edges[1], edges[2], edges[3]];
 
   drawEdge(pdfPage, top, pos.x, y + h, pos.x + w, y + h);
   drawEdge(pdfPage, bottom, pos.x, y, pos.x + w, y);
@@ -436,11 +473,13 @@ function drawEdge(
   x2: number,
   y2: number
 ): void {
-  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none')
+    return;
+  const authoredThickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const thickness = quantizeDeviceStrokeWidth(authoredThickness);
   if (thickness <= 0) return;
 
-  const dashArray = dashArrayForStyle(edge.style, thickness);
+  const dashArray = dashArrayForStyle(edge.style, authoredThickness);
 
   const lineCap = xfaCapToPdf(edge.cap);
 
@@ -470,7 +509,8 @@ function strokeUniformRect(
   h: number
 ): void {
   if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const authoredThickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const thickness = quantizeDeviceStrokeWidth(authoredThickness);
   if (thickness <= 0) return;
   const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
 
@@ -481,7 +521,7 @@ function strokeUniformRect(
     setLineWidth(thickness),
     setLineCap(xfaCapToPdf(edge.cap)),
     setLineJoin(xfaJoinToPdf(edge.join)),
-    setDashPattern(dashArrayForStyle(edge.style, thickness) ?? [], 0),
+    setDashPattern(dashArrayForStyle(edge.style, authoredThickness) ?? [], 0),
     rectangle(x, y, w, h),
     strokePath(),
     popGraphicsState()
@@ -543,7 +583,8 @@ function strokeRoundedRectPerCorner(
   edge: EdgeSpec
 ): void {
   if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const authoredThickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const thickness = quantizeDeviceStrokeWidth(authoredThickness);
   if (thickness <= 0) return;
   const [tl0, tr0, br0, bl0] = radii;
   const tl = clampCornerRadius(tl0 ?? 0, w, h);
@@ -551,7 +592,7 @@ function strokeRoundedRectPerCorner(
   const br = clampCornerRadius(br0 ?? 0, w, h);
   const bl = clampCornerRadius(bl0 ?? 0, w, h);
   const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
-  const dashArray = dashArrayForStyle(edge.style, thickness);
+  const dashArray = dashArrayForStyle(edge.style, authoredThickness);
   const ops = [
     pushGraphicsState(),
     setStrokingRgbColor(red / 255, green / 255, blue / 255),
@@ -602,11 +643,20 @@ function drawUnderlineInValueArea(
   const edges = border.edges ?? [];
   const bottom: EdgeSpec | undefined =
     edges.length === 1 ? edges[0] : edges.length >= 3 ? edges[2] : undefined;
-  if (!bottom || bottom.presence === 'hidden' || bottom.presence === 'invisible' || bottom.style === 'none') {
+  if (
+    !bottom ||
+    bottom.presence === 'hidden' ||
+    bottom.presence === 'invisible' ||
+    bottom.style === 'none'
+  ) {
     drawBorderBox(pdfPage, border, pos, pageH);
     return;
   }
-  if (border.fill?.color && border.fill.presence !== 'hidden' && border.fill.presence !== 'invisible') {
+  if (
+    border.fill?.color &&
+    border.fill.presence !== 'hidden' &&
+    border.fill.presence !== 'invisible'
+  ) {
     drawBorderBox(pdfPage, { ...border, edges: [] }, pos, pageH);
   }
   const y = flipY(pos.y, h, pageH);
@@ -636,9 +686,10 @@ async function renderField(
   const innerHeight = Math.max(height - margins.top - margins.bottom, 0);
   const fontSize = node.font?.size ?? 10;
   const fontColor = toPdfColor(node.font?.color);
-  const valueText = node.ui?.type === 'choiceList'
-    ? resolveChoiceText(node.resolvedValue, node.ui.items)
-    : formatValue(node.resolvedValue, node.formatPicture);
+  const valueText =
+    node.ui?.type === 'choiceList'
+      ? resolveChoiceText(node.resolvedValue, node.ui.items)
+      : formatValue(node.resolvedValue, node.formatPicture);
   const justH = mapJustH(node.para?.hAlign ?? node.ui?.hAlign);
   const valueAlign = alignClassOf(justH);
   const justV = mapJustV(node.para?.vAlign ?? node.ui?.vAlign);
@@ -646,7 +697,17 @@ async function renderField(
     justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
 
   if (node.ui?.type === 'checkButton') {
-    return renderCheckButton(pdfPage, node, pos.x, flipY(pos.y, height, pageH), pos.w ?? 0, height, fontSize, fontManager, fontColor);
+    return renderCheckButton(
+      pdfPage,
+      node,
+      pos.x,
+      flipY(pos.y, height, pageH),
+      pos.w ?? 0,
+      height,
+      fontSize,
+      fontManager,
+      fontColor
+    );
   }
 
   if (node.imageValue?.type === 'image' && node.imageValue.content) {
@@ -670,7 +731,18 @@ async function renderField(
   }
 
   if (node.ui?.type === 'button') {
-    await renderButton(pdfPage, node, x, y, width, innerHeight, fontSize, fontManager, fontColor, valueText);
+    await renderButton(
+      pdfPage,
+      node,
+      x,
+      y,
+      width,
+      innerHeight,
+      fontSize,
+      fontManager,
+      fontColor,
+      valueText
+    );
     return;
   }
   if (node.ui?.type === 'signature') {
@@ -703,7 +775,12 @@ async function renderField(
     let captionX = x;
     let captionY = y;
 
-    const captionWidth = measureTextWidth(node.caption.text, captionSize, captionFont, captionScale);
+    const captionWidth = measureTextWidth(
+      node.caption.text,
+      captionSize,
+      captionFont,
+      captionScale
+    );
     const captionStrip =
       placement === 'left' || placement === 'right'
         ? Math.max(Math.min(reserve || captionWidth, width), 0)
@@ -731,9 +808,7 @@ async function renderField(
       const symW = measureTextWidth(richSymbol.symbol, captionSize, captionFont, captionScale);
       const labelX = placement === 'right' ? x + width - captionStrip : x;
       const symX =
-        placement === 'right'
-          ? x + width - symW
-          : x + Math.max(captionStrip - symW, labelW + 1);
+        placement === 'right' ? x + width - symW : x + Math.max(captionStrip - symW, labelW + 1);
       const clipped = clipOverflow(
         pdfPage,
         placement === 'left' ? x : x + width - captionStrip,
@@ -745,13 +820,27 @@ async function renderField(
       drawScaledText(
         pdfPage,
         richSymbol.label,
-        { x: labelX, y: symY, size: captionSize, font: captionFont, color: captionColor, rotate: rotation },
+        {
+          x: labelX,
+          y: symY,
+          size: captionSize,
+          font: captionFont,
+          color: captionColor,
+          rotate: rotation,
+        },
         captionScale
       );
       drawScaledText(
         pdfPage,
         richSymbol.symbol,
-        { x: symX, y: symY, size: captionSize, font: captionFont, color: captionColor, rotate: rotation },
+        {
+          x: symX,
+          y: symY,
+          size: captionSize,
+          font: captionFont,
+          color: captionColor,
+          rotate: rotation,
+        },
         captionScale
       );
       if (richSymbol.underline) {
@@ -827,9 +916,19 @@ async function renderField(
   }
 
   if (node.ui?.type === 'barcode') {
-    await renderBarcodeValue(pdfPage, node, valueText, {
-      x, y, w: width, h: innerHeight,
-    }, fontManager, { fontSize, fontColor, align: valueAlign });
+    await renderBarcodeValue(
+      pdfPage,
+      node,
+      valueText,
+      {
+        x,
+        y,
+        w: width,
+        h: innerHeight,
+      },
+      fontManager,
+      { fontSize, fontColor, align: valueAlign }
+    );
     return;
   }
 
@@ -889,8 +988,7 @@ async function renderField(
 
     const textX = x + reserve + pm.marginLeft;
     const textW = Math.max(valueAreaWidth - pm.marginLeft - pm.marginRight, 0);
-    const measure = (s: string): number =>
-      measureTextWidth(s, fontSize, valueFont, valueScale);
+    const measure = (s: string): number => measureTextWidth(s, fontSize, valueFont, valueScale);
     const wrapWidth = node.ui?.multiLine === true ? textW : Number.POSITIVE_INFINITY;
     const lines = breakLinesInfo(valueText, wrapWidth, measure, {
       firstLineIndent: pm.textIndent,
@@ -907,9 +1005,7 @@ async function renderField(
 
     const verticalOverflow =
       lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow > innerHeight + 0.5;
-    const horizontalOverflow = lines.some(
-      (line) => measure(line.text) > textW + 0.5
-    );
+    const horizontalOverflow = lines.some((line) => measure(line.text) > textW + 0.5);
     const clipped = clipOverflow(
       pdfPage,
       textX,
@@ -1025,14 +1121,25 @@ async function renderCheckButton(
 
   const { baselines } = layoutLines(1, fontSize, { top: y + height, bottom: y }, 'middle', font);
 
-  drawScaledText(pdfPage, checkChar, { x, y: baselines[0], size: fontSize, font, color: fontColor }, scale);
+  drawScaledText(
+    pdfPage,
+    checkChar,
+    { x, y: baselines[0], size: fontSize, font, color: fontColor },
+    scale
+  );
 
   if (node.caption?.text) {
     const captionFont = await fontManager.getSafeFont(node.caption.text, family, weight, posture);
     drawScaledText(
       pdfPage,
       node.caption.text,
-      { x: x + fontSize * 1.5, y: baselines[0], size: fontSize, font: captionFont, color: fontColor },
+      {
+        x: x + fontSize * 1.5,
+        y: baselines[0],
+        size: fontSize,
+        font: captionFont,
+        color: fontColor,
+      },
       scale
     );
   }
@@ -1051,7 +1158,8 @@ async function renderDraw(
   const margins = getMargins(node.margin);
   const width = Math.max((pos.w ?? pos.minW ?? 0) - margins.left - margins.right, 0);
   const measuredHeight =
-    pos.h == null && pos.minH == null &&
+    pos.h == null &&
+    pos.minH == null &&
     (node.value?.type === 'richText' || node.value?.type === 'text')
       ? drawValueHeight(node, width)
       : undefined;
@@ -1062,9 +1170,7 @@ async function renderDraw(
 
   const borderRotate = normalizeRotation(pos.rotate ?? 0);
   const borderPos =
-    (borderRotate === 90 || borderRotate === 270) &&
-    pos.w != null &&
-    pos.h != null
+    (borderRotate === 90 || borderRotate === 270) && pos.w != null && pos.h != null
       ? { ...pos, w: pos.h, h: pos.w }
       : pos;
   if (node.border) drawBorderBox(pdfPage, node.border, borderPos, pageH);
@@ -1119,7 +1225,7 @@ async function renderDraw(
         (m, l) => Math.max(m, measureTextWidth(l, fontSize, font, drawScale)),
         0
       );
-      const rotatedY = flipY(pos.y ?? 0, width, pageH) + margins.bottom;
+      const rotatedY = flipY(pos.y ?? 0, width, pageH) - margins.top;
       const anchor = rotatedAnchor({
         rotate,
         box: { x, y: rotatedY, w: height, h: width },
@@ -1216,11 +1322,12 @@ function renderArcOrCircle(
 
   const edge = node.value?.shapeBorder?.edges?.[0] ?? {};
   const fillColor = node.value?.shapeBorder?.fill?.color;
-  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const authoredThickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  const thickness = quantizeDeviceStrokeWidth(authoredThickness);
   const strokeVisible =
     edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none';
 
-  const dashArray = strokeVisible ? dashArrayForStyle(edge.style, thickness) : undefined;
+  const dashArray = strokeVisible ? dashArrayForStyle(edge.style, authoredThickness) : undefined;
   const lineJoin = xfaJoinToPdf(edge.join);
   const lineCap = xfaCapToPdf(edge.cap);
 
@@ -1236,7 +1343,10 @@ function renderArcOrCircle(
   if (dashArray) drawOptions.borderDashArray = dashArray;
   if (edge?.cap) drawOptions.borderLineCap = lineCap;
 
-  const started = beginOpacityScope(pdfPage, { fill: node.value?.shapeBorder?.fill?.opacity, stroke: edge?.opacity });
+  const started = beginOpacityScope(pdfPage, {
+    fill: node.value?.shapeBorder?.fill?.opacity,
+    stroke: edge?.opacity,
+  });
   pdfPage.pushOperators(pushGraphicsState(), setLineJoin(lineJoin));
   pdfPage.drawEllipse(drawOptions);
   pdfPage.pushOperators(popGraphicsState());
@@ -1350,7 +1460,13 @@ async function renderRichText(
       run.bold ? 'bold' : node.font?.weight,
       run.italic ? 'italic' : node.font?.posture
     );
-    styled.push({ text: run.text, size: run.fontSize ?? baseFontSize, font, color: run.color, underline: run.underline });
+    styled.push({
+      text: run.text,
+      size: run.fontSize ?? baseFontSize,
+      font,
+      color: run.color,
+      underline: run.underline,
+    });
   }
 
   const lines = layoutRunLines(styled, {
@@ -1467,12 +1583,7 @@ function clipOverflow(
   exceeds: boolean
 ): boolean {
   if (!exceeds) return false;
-  pdfPage.pushOperators(
-    pushGraphicsState(),
-    rectangle(x, y, w, h),
-    clip(),
-    endPath()
-  );
+  pdfPage.pushOperators(pushGraphicsState(), rectangle(x, y, w, h), clip(), endPath());
   return true;
 }
 
@@ -1481,10 +1592,18 @@ function endOverflowClip(pdfPage: PDFPage, active: boolean): void {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function getMargins(margin?: MarginSpec): { top: number; right: number; bottom: number; left: number } {
+function getMargins(margin?: MarginSpec): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
   if (!margin) return { top: 0, right: 0, bottom: 0, left: 0 };
   return {
     top: margin.topInset ?? 0,
@@ -1538,8 +1657,7 @@ function wrapText(
 ): string[] {
   if (!text) return [text];
   if (maxWidth <= 0) return text.split(/\r\n|\r|\n/);
-  const measure = (s: string): number =>
-    measureTextWidth(s, fontSize, font, opts.horizontalScale);
+  const measure = (s: string): number => measureTextWidth(s, fontSize, font, opts.horizontalScale);
   return breakLines(text, maxWidth, measure, { firstLineIndent: opts.firstLineIndent });
 }
 
@@ -1582,7 +1700,7 @@ async function renderBarcodeValue(
     moduleW,
     opts.align,
     ratio,
-    { errorCorrectionLevel: parseErrorCorrectionLevel(ui.errorCorrectionLevel) },
+    { errorCorrectionLevel: parseErrorCorrectionLevel(ui.errorCorrectionLevel) }
   );
 
   if (hasHri && data) {
@@ -1590,9 +1708,7 @@ async function renderBarcodeValue(
     const textW = measureTextWidth(data, hriSize, hriFont);
     const slack = Math.max(box.w - textW, 0);
     const hriX =
-      opts.align === 'center' ? box.x + slack / 2
-      : opts.align === 'right' ? box.x + slack
-      : box.x;
+      opts.align === 'center' ? box.x + slack / 2 : opts.align === 'right' ? box.x + slack : box.x;
     const hriY = above ? box.y + box.h - hriSize : box.y;
     pdfPage.drawText(data, {
       x: hriX,

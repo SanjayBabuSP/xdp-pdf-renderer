@@ -4,12 +4,14 @@ import { LayoutModel, DataObject } from '../../../../src/types';
 function makeLayout(bindRef: string): LayoutModel {
   return {
     rootSubformName: 'value',
-    pages: [{
-      name: 'Page1',
-      medium: { stock: 'a4', short: 595.28, long: 841.89 },
-      contentArea: { x: 54, y: 54, w: 487, h: 734 },
-      masterPageChildren: [],
-    }],
+    pages: [
+      {
+        name: 'Page1',
+        medium: { stock: 'a4', short: 595.28, long: 841.89 },
+        contentArea: { x: 54, y: 54, w: 487, h: 734 },
+        masterPageChildren: [],
+      },
+    ],
     children: [
       {
         type: 'field',
@@ -71,17 +73,21 @@ describe('resolve-bindings', () => {
   it('skips fields with bindMatch=none', () => {
     const layout: LayoutModel = {
       rootSubformName: 'value',
-      pages: [{
-        name: 'Page1',
-        medium: { stock: 'a4', short: 595.28, long: 841.89 },
-        contentArea: { x: 0, y: 0, w: 595, h: 841 },
-        masterPageChildren: [],
-      }],
-      children: [{
-        type: 'field',
-        name: 'Static',
-        bindMatch: 'none',
-      }],
+      pages: [
+        {
+          name: 'Page1',
+          medium: { stock: 'a4', short: 595.28, long: 841.89 },
+          contentArea: { x: 0, y: 0, w: 595, h: 841 },
+          masterPageChildren: [],
+        },
+      ],
+      children: [
+        {
+          type: 'field',
+          name: 'Static',
+          bindMatch: 'none',
+        },
+      ],
     };
     const data: DataObject = { Static: 'should not resolve' };
 

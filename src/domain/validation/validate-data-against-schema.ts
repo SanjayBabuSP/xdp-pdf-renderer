@@ -4,7 +4,6 @@ import { ERROR_CODES } from '../../errors/error-codes';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/;
-const URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/;
 
 export interface ValidateOptions {
   strict?: boolean;
@@ -20,7 +19,11 @@ export function validateDataAgainstSchema(
   walkFields(data, schema.fields, '', errors, strict);
 
   if (errors.length) {
-    return failure(ERROR_CODES.VALIDATION_FAILED.code, ERROR_CODES.VALIDATION_FAILED.message, errors);
+    return failure(
+      ERROR_CODES.VALIDATION_FAILED.code,
+      ERROR_CODES.VALIDATION_FAILED.message,
+      errors
+    );
   }
   return success(data);
 }
@@ -79,7 +82,13 @@ function validateField(
   validateType(value, fieldDef.type, path, errors, strict);
 }
 
-function validateType(value: unknown, type: string, path: string, errors: string[], strict: boolean): void {
+function validateType(
+  value: unknown,
+  type: string,
+  path: string,
+  errors: string[],
+  strict: boolean
+): void {
   const strVal = String(value);
 
   switch (type) {
@@ -87,8 +96,6 @@ function validateType(value: unknown, type: string, path: string, errors: string
     case 'anyURI':
       if (typeof value !== 'string' && typeof value !== 'number') {
         errors.push(`${path}: expected string, got ${typeof value}`);
-      }
-      if (type === 'anyURI' && !URI_PATTERN.test(strVal) && !strVal.startsWith('/') && !strVal.startsWith('.')) {
       }
       break;
     case 'int':
@@ -119,10 +126,12 @@ function validateType(value: unknown, type: string, path: string, errors: string
       }
       break;
     case 'date':
-      if (!DATE_PATTERN.test(strVal)) errors.push(`${path}: expected date (YYYY-MM-DD), got "${value}"`);
+      if (!DATE_PATTERN.test(strVal))
+        errors.push(`${path}: expected date (YYYY-MM-DD), got "${value}"`);
       break;
     case 'dateTime':
-      if (!DATETIME_PATTERN.test(strVal)) errors.push(`${path}: expected dateTime (ISO 8601), got "${value}"`);
+      if (!DATETIME_PATTERN.test(strVal))
+        errors.push(`${path}: expected dateTime (ISO 8601), got "${value}"`);
       break;
   }
 }

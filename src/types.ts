@@ -1,5 +1,3 @@
-
-
 export interface ErrorResult {
   code: string;
   message: string;
@@ -115,7 +113,17 @@ export interface ChoiceListItem {
 }
 
 export interface UiSpec {
-  type: 'textEdit' | 'numericEdit' | 'dateTimeEdit' | 'imageEdit' | 'checkButton' | 'choiceList' | 'barcode' | 'button' | 'signature' | 'unknown';
+  type:
+    | 'textEdit'
+    | 'numericEdit'
+    | 'dateTimeEdit'
+    | 'imageEdit'
+    | 'checkButton'
+    | 'choiceList'
+    | 'barcode'
+    | 'button'
+    | 'signature'
+    | 'unknown';
   multiLine?: boolean;
   allowRichText?: boolean;
   borderPresence?: string;
@@ -226,8 +234,13 @@ export interface FieldNode {
   access?: string;
   position?: Position;
   events?: EventSpec[];
-  calculate?: { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
-  validate?: { script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } };
+  calculate?: {
+    override?: string;
+    script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string };
+  };
+  validate?: {
+    script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string };
+  };
   formatPicture?: string;
   presence?: PresenceValue;
   resolvedValue?: unknown;

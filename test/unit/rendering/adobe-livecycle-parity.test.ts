@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
@@ -25,7 +24,9 @@ function fieldXdp(opts: {
 }): string {
   const para = opts.para ?? `<para vAlign="middle"/>`;
   const size = opts.fontSize ?? '6.5pt';
-  const script = opts.script ? `<event activity="initialize"><script>${opts.script}</script></event>` : '';
+  const script = opts.script
+    ? `<event activity="initialize"><script>${opts.script}</script></event>`
+    : '';
   const reserve = opts.captionReserve ?? '56mm';
   const w = opts.fieldW ?? '96mm';
   const h = opts.fieldH ?? '4mm';
@@ -158,12 +159,14 @@ describe('gap 1 — large lineHeight must not hide single-line text (Adobe shows
     const content = await contentStream(pdf);
     const texts = extractText(content);
     expect(texts.join(' ')).toMatch(/Single line label:/);
-    const clip = [...content.matchAll(/([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\s+W\s+n/g)].map((m) => ({
-      x: Number(m[1]),
-      y: Number(m[2]),
-      w: Number(m[3]),
-      h: Number(m[4]),
-    }));
+    const clip = [...content.matchAll(/([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\s+W\s+n/g)].map(
+      (m) => ({
+        x: Number(m[1]),
+        y: Number(m[2]),
+        w: Number(m[3]),
+        h: Number(m[4]),
+      })
+    );
     const ys = await tmYs(pdf);
     expect(clip.length).toBeGreaterThan(0);
     expect(ys.length).toBeGreaterThan(0);
@@ -256,7 +259,7 @@ describe('gap 4 — rotate=90 authored y is the visual bottom edge', () => {
     if (!parsed.success) throw new Error('parse failed');
     const laid = calculatePositions(parsed.data);
     if (!laid.success) throw new Error('layout failed');
-    const draw = ((laid.data.children[0] as any).children[0] as any);
+    const draw = (laid.data.children[0] as any).children[0] as any;
     expect(draw.position.y).toBeCloseTo(36 + 148.3 - 49.3, 1);
   });
 });
@@ -272,13 +275,26 @@ describe('gap 3b — lr-row children honour vAlign="middle"', () => {
     });
     const tall = mkField(30);
     const short = mkField(10, 'middle');
-    const node: any = { type: 'subform', layout: 'lr-tb', children: [tall, short], position: { w: 300 } };
+    const node: any = {
+      type: 'subform',
+      layout: 'lr-tb',
+      children: [tall, short],
+      position: { w: 300 },
+    };
     let n = 0;
     const layoutChild = (child: any, ctx: any): any => {
       n++;
-      return { node: { ...child, position: { ...child.position, x: ctx.x, y: ctx.y } }, height: child.position.h };
+      return {
+        node: { ...child, position: { ...child.position, x: ctx.x, y: ctx.y } },
+        height: child.position.h,
+      };
     };
-    const result = layoutFlowSubform(node, { x: 0, y: 0, availableWidth: 300 }, 'lr', layoutChild as any);
+    const result = layoutFlowSubform(
+      node,
+      { x: 0, y: 0, availableWidth: 300 },
+      'lr',
+      layoutChild as any
+    );
     const placed = (result.node as any).children;
     expect(placed[1].position.y).toBeCloseTo(10, 6);
   });

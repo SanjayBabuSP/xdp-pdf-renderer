@@ -3,7 +3,11 @@ import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild } from '../../lib/xml-utils';
 import { ERROR_CODES } from '../../errors/error-codes';
 
-export function parseXmlData(xmlString: string, schema?: SchemaModel, maxInputSize?: number): Result<DataObject> {
+export function parseXmlData(
+  xmlString: string,
+  schema?: SchemaModel,
+  maxInputSize?: number
+): Result<DataObject> {
   let parsed: Record<string, unknown>;
   try {
     parsed = parseXml(xmlString, maxInputSize);
@@ -13,7 +17,8 @@ export function parseXmlData(xmlString: string, schema?: SchemaModel, maxInputSi
 
   const rootName = schema?.rootElement ?? inferRootName(parsed);
   const rootValue = getChild(parsed, rootName);
-  if (!rootValue) return failure(ERROR_CODES.MALFORMED_XML.code, `Root element <${rootName}> not found`);
+  if (!rootValue)
+    return failure(ERROR_CODES.MALFORMED_XML.code, `Root element <${rootName}> not found`);
 
   const data = normalizeObject(rootValue as Record<string, unknown>, schema?.fields ?? {});
   return success(data);
@@ -66,11 +71,20 @@ function normalizeItem(item: unknown, schemaField?: SchemaField): DataValue {
   return String(item);
 }
 
+const NUMERIC_XSD_TYPES: ReadonlySet<string> = new Set([
+  'int',
+  'integer',
+  'byte',
+  'short',
+  'float',
+  'decimal',
+]);
+
 function coerceType(value: string | number | boolean, schemaField?: SchemaField): DataValue {
   if (!schemaField || schemaField.type === 'complex') return String(value);
   const strVal = String(value);
 
-  const isNumericType = ['int', 'integer', 'byte', 'short', 'float', 'decimal'].includes(schemaField.type);
+  const isNumericType = NUMERIC_XSD_TYPES.has(schemaField.type);
   if (isNumericType && strVal.trim() === '') return null;
 
   switch (schemaField.type) {

@@ -1,4 +1,13 @@
-import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, DataObject } from '../../types';
+import {
+  Result,
+  LayoutModel,
+  LayoutNode,
+  SubformNode,
+  FieldNode,
+  DrawNode,
+  ExclGroupNode,
+  DataObject,
+} from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { resolveXPath, resolveXPathRelative } from '../../lib/xpath-resolver';
 import { ERROR_CODES } from '../../errors/error-codes';
@@ -67,7 +76,7 @@ function resolveField(node: FieldNode, data: DataObject, scope: DataObject): Fie
   return node;
 }
 
-function resolveDraw(node: DrawNode, data: DataObject): DrawNode {
+function resolveDraw(node: DrawNode, _data: DataObject): DrawNode {
   return node;
 }
 

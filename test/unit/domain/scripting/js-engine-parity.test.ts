@@ -54,7 +54,12 @@ describe('JavaScript engine — Adobe LiveCycle script semantics', () => {
   it('binds `this` to the same object as `$`', () => {
     const layout: FieldNode = { type: 'field', name: 'subject' };
     const { engine, self } = setup(layout, data);
-    exec(engine, self, '$.rawValue = "same"; if (this.rawValue !== $.rawValue) throw "diff";', data);
+    exec(
+      engine,
+      self,
+      '$.rawValue = "same"; if (this.rawValue !== $.rawValue) throw "diff";',
+      data
+    );
     expect(self.resolvedValue).toBe('same');
   });
 
@@ -121,12 +126,9 @@ describe('JavaScript engine — Adobe LiveCycle script semantics', () => {
     it('exposes nested elements on xfa.record', () => {
       const layout: FieldNode = { type: 'field', name: 'subject' };
       const { engine, self } = setup(layout, { nested: { flag: 'yes' } });
-      const result = exec(
-        engine,
-        self,
-        'returnValue = xfa.record.nested.flag.value;',
-        { nested: { flag: 'yes' } }
-      );
+      const result = exec(engine, self, 'returnValue = xfa.record.nested.flag.value;', {
+        nested: { flag: 'yes' },
+      });
       expect(result.value).toBe('yes');
     });
   });

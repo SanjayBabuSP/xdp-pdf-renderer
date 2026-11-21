@@ -1,20 +1,14 @@
-
 import { PDFPage, rgb } from 'pdf-lib';
 import { pushGraphicsState, popGraphicsState } from 'pdf-lib';
-import {
-  encodePdf417,
-  modulesPerRow,
-  PDF417_DEFAULT_EC_LEVEL,
-  rowToModules,
-} from './pdf417';
+import { encodePdf417, modulesPerRow, PDF417_DEFAULT_EC_LEVEL, rowToModules } from './pdf417';
 
 export type BarType =
   | 'narrow-bar'
   | 'wide-bar'
   | 'narrow-space'
   | 'wide-space'
-  |  'tall-bar'
-  |  'short-bar'
+  | 'tall-bar'
+  | 'short-bar'
   | 'module-row';
 
 export interface Bar {
@@ -30,21 +24,50 @@ export interface BarSpec {
 }
 
 const CODE39_CHARS: Record<string, string> = {
-  '0': 'NNNWWNWNN', '1': 'WNNWNNNNW', '2': 'NWNWNNNNW',
-  '3': 'WWNWNNNNN', '4': 'NNNWWNNNW', '5': 'WNNWWNNNN',
-  '6': 'NWNWWNNNN', '7': 'NNNWWNWNN', '8': 'WNNWNNWNNN',
-  '9': 'NWNWNNWNN', 'A': 'WNNNNWNNW', 'B': 'NWNNNNWNW',
-  'C': 'WWNNNNWNN', 'D': 'NNNNNWWNW', 'E': 'WNNNNWWNN',
-  'F': 'NWNNNNWWN', 'G': 'NNNNNWWWN', 'H': 'WNNNNNNWW',
-  'I': 'NWNNNNNNW', 'J': 'NNNNNWNNW', 'K': 'WNNNNNNWN',
-  'L': 'NWNNNNWNN', 'M': 'WWNNNNNWN', 'N': 'NWNNNNNWN',
-  'O': 'WWNNNNNN',  'P': 'NWWNNNNWN', 'Q': 'WWNNNNNNN',
-  'R': 'NWWNNNNNN', 'S': 'NNNWNWNNN', 'T': 'WNNWNWNNN',
-  'U': 'NNNWNNWNN', 'V': 'NNNWWNNNN', 'W': 'NNNNNWWNN',
-  'X': 'WNNNNNNNN', 'Y': 'NWWNNNWNN', 'Z': 'WNNNWNWNN',
-  '-': 'NNNNNWWNN', '.': 'WNNNNWWNN', ' ': 'NWNNNWWNN',
-  '$': 'NNNNNNNWN', '/': 'NNNNWNNWN', '+': 'NNNNWNNWN',
-  '%': 'WNNNWNNNN', '*': 'NNNWWNWNN',
+  '0': 'NNNWWNWNN',
+  '1': 'WNNWNNNNW',
+  '2': 'NWNWNNNNW',
+  '3': 'WWNWNNNNN',
+  '4': 'NNNWWNNNW',
+  '5': 'WNNWWNNNN',
+  '6': 'NWNWWNNNN',
+  '7': 'NNNWWNWNN',
+  '8': 'WNNWNNWNNN',
+  '9': 'NWNWNNWNN',
+  A: 'WNNNNWNNW',
+  B: 'NWNNNNWNW',
+  C: 'WWNNNNWNN',
+  D: 'NNNNNWWNW',
+  E: 'WNNNNWWNN',
+  F: 'NWNNNNWWN',
+  G: 'NNNNNWWWN',
+  H: 'WNNNNNNWW',
+  I: 'NWNNNNNNW',
+  J: 'NNNNNWNNW',
+  K: 'WNNNNNNWN',
+  L: 'NWNNNNWNN',
+  M: 'WWNNNNNWN',
+  N: 'NWNNNNNWN',
+  O: 'WWNNNNNN',
+  P: 'NWWNNNNWN',
+  Q: 'WWNNNNNNN',
+  R: 'NWWNNNNNN',
+  S: 'NNNWNWNNN',
+  T: 'WNNWNWNNN',
+  U: 'NNNWNNWNN',
+  V: 'NNNWWNNNN',
+  W: 'NNNNNWWNN',
+  X: 'WNNNNNNNN',
+  Y: 'NWWNNNWNN',
+  Z: 'WNNNWNWNN',
+  '-': 'NNNNNWWNN',
+  '.': 'WNNNNWWNN',
+  ' ': 'NWNNNWWNN',
+  $: 'NNNNNNNWN',
+  '/': 'NNNNWNNWN',
+  '+': 'NNNNWNNWN',
+  '%': 'WNNNWNNNN',
+  '*': 'NNNWWNWNN',
 };
 
 function encodeCode39(data: string): Bar[] {
@@ -65,26 +88,106 @@ function encodeCode39(data: string): Bar[] {
 }
 
 const CODE128B_TABLE: number[][] = [
-  [2,1,2,2,2,2],[2,2,2,1,2,2],[2,2,2,2,2,1],[1,2,1,2,2,3],[1,2,1,3,2,2],
-  [1,3,1,2,2,2],[1,2,2,2,1,3],[1,2,2,3,1,2],[1,3,2,2,1,2],[2,2,1,2,1,3],
-  [2,2,1,3,1,2],[2,3,1,2,1,2],[1,1,2,2,3,2],[1,2,2,1,3,2],[1,2,2,2,3,1],
-  [1,1,3,2,2,2],[1,2,3,1,2,2],[1,2,3,2,2,1],[2,2,3,2,1,1],[2,2,1,1,3,2],
-  [2,2,1,2,3,1],[2,1,3,2,1,2],[2,2,3,1,1,2],[3,1,2,1,3,1],[3,1,1,2,2,2],
-  [3,2,1,1,2,2],[3,2,1,2,2,1],[3,1,2,2,1,2],[3,2,2,1,1,2],[3,2,2,2,1,1],
-  [2,1,2,1,2,3],[2,1,2,3,2,1],[2,3,2,1,2,1],[1,1,1,3,2,3],[1,3,1,1,3,2],
-  [1,3,1,3,1,2],[1,1,2,3,1,3],[1,3,2,1,1,3],[1,3,2,3,1,1],[2,1,1,3,1,3],
-  [2,3,1,1,1,3],[2,3,1,3,1,1],[1,1,3,1,2,3],[1,1,3,3,2,1],[1,3,3,1,2,1],
-  [1,1,2,1,3,3],[1,1,2,3,3,1],[1,3,2,1,3,1],[1,1,3,2,1,3],[1,1,3,2,3,1],
-  [2,1,3,2,1,3],[2,1,1,1,3,3],[2,1,3,3,1,1],[2,3,1,1,3,1],[2,1,3,1,3,1],
-  [3,1,1,1,2,3],[3,1,1,3,2,1],[3,3,1,1,2,1],[3,1,2,1,1,3],[3,1,2,3,1,1],
-  [3,3,2,1,1,1],[3,1,4,1,1,1],[2,2,1,4,1,1],[4,3,1,1,1,1],[1,1,1,2,2,4],
-  [1,1,1,4,2,2],[1,2,1,1,4,2],[1,2,1,2,4,1],[1,4,1,2,1,2],[1,2,4,1,1,2],
-  [1,2,4,2,1,1],[4,1,2,2,2,1],[4,2,2,1,1,2],[4,2,2,2,1,1],[2,1,2,1,4,1],
-  [2,1,4,1,2,1],[4,1,2,1,2,1],[1,1,1,1,4,3],[1,1,1,3,4,1],[1,3,1,1,4,1],
-  [1,1,4,1,1,3],[1,1,4,3,1,1],[4,1,1,1,1,3],[4,1,1,3,1,1],[1,2,3,1,1,3],
-  [1,2,3,3,1,1],[4,1,3,1,1,1],[1,1,2,1,4,2],[1,2,2,4,1,1],[2,4,1,2,1,1],
-  [2,2,4,1,1,1],[1,4,2,1,1,2],[1,4,2,2,1,1],[2,4,1,1,1,2],[2,1,1,4,1,2],
-  [1,1,4,2,1,2],[2,1,4,1,1,2],[4,2,1,1,1,2],[4,2,1,2,1,1],[3,1,2,1,1,3],
+  [2, 1, 2, 2, 2, 2],
+  [2, 2, 2, 1, 2, 2],
+  [2, 2, 2, 2, 2, 1],
+  [1, 2, 1, 2, 2, 3],
+  [1, 2, 1, 3, 2, 2],
+  [1, 3, 1, 2, 2, 2],
+  [1, 2, 2, 2, 1, 3],
+  [1, 2, 2, 3, 1, 2],
+  [1, 3, 2, 2, 1, 2],
+  [2, 2, 1, 2, 1, 3],
+  [2, 2, 1, 3, 1, 2],
+  [2, 3, 1, 2, 1, 2],
+  [1, 1, 2, 2, 3, 2],
+  [1, 2, 2, 1, 3, 2],
+  [1, 2, 2, 2, 3, 1],
+  [1, 1, 3, 2, 2, 2],
+  [1, 2, 3, 1, 2, 2],
+  [1, 2, 3, 2, 2, 1],
+  [2, 2, 3, 2, 1, 1],
+  [2, 2, 1, 1, 3, 2],
+  [2, 2, 1, 2, 3, 1],
+  [2, 1, 3, 2, 1, 2],
+  [2, 2, 3, 1, 1, 2],
+  [3, 1, 2, 1, 3, 1],
+  [3, 1, 1, 2, 2, 2],
+  [3, 2, 1, 1, 2, 2],
+  [3, 2, 1, 2, 2, 1],
+  [3, 1, 2, 2, 1, 2],
+  [3, 2, 2, 1, 1, 2],
+  [3, 2, 2, 2, 1, 1],
+  [2, 1, 2, 1, 2, 3],
+  [2, 1, 2, 3, 2, 1],
+  [2, 3, 2, 1, 2, 1],
+  [1, 1, 1, 3, 2, 3],
+  [1, 3, 1, 1, 3, 2],
+  [1, 3, 1, 3, 1, 2],
+  [1, 1, 2, 3, 1, 3],
+  [1, 3, 2, 1, 1, 3],
+  [1, 3, 2, 3, 1, 1],
+  [2, 1, 1, 3, 1, 3],
+  [2, 3, 1, 1, 1, 3],
+  [2, 3, 1, 3, 1, 1],
+  [1, 1, 3, 1, 2, 3],
+  [1, 1, 3, 3, 2, 1],
+  [1, 3, 3, 1, 2, 1],
+  [1, 1, 2, 1, 3, 3],
+  [1, 1, 2, 3, 3, 1],
+  [1, 3, 2, 1, 3, 1],
+  [1, 1, 3, 2, 1, 3],
+  [1, 1, 3, 2, 3, 1],
+  [2, 1, 3, 2, 1, 3],
+  [2, 1, 1, 1, 3, 3],
+  [2, 1, 3, 3, 1, 1],
+  [2, 3, 1, 1, 3, 1],
+  [2, 1, 3, 1, 3, 1],
+  [3, 1, 1, 1, 2, 3],
+  [3, 1, 1, 3, 2, 1],
+  [3, 3, 1, 1, 2, 1],
+  [3, 1, 2, 1, 1, 3],
+  [3, 1, 2, 3, 1, 1],
+  [3, 3, 2, 1, 1, 1],
+  [3, 1, 4, 1, 1, 1],
+  [2, 2, 1, 4, 1, 1],
+  [4, 3, 1, 1, 1, 1],
+  [1, 1, 1, 2, 2, 4],
+  [1, 1, 1, 4, 2, 2],
+  [1, 2, 1, 1, 4, 2],
+  [1, 2, 1, 2, 4, 1],
+  [1, 4, 1, 2, 1, 2],
+  [1, 2, 4, 1, 1, 2],
+  [1, 2, 4, 2, 1, 1],
+  [4, 1, 2, 2, 2, 1],
+  [4, 2, 2, 1, 1, 2],
+  [4, 2, 2, 2, 1, 1],
+  [2, 1, 2, 1, 4, 1],
+  [2, 1, 4, 1, 2, 1],
+  [4, 1, 2, 1, 2, 1],
+  [1, 1, 1, 1, 4, 3],
+  [1, 1, 1, 3, 4, 1],
+  [1, 3, 1, 1, 4, 1],
+  [1, 1, 4, 1, 1, 3],
+  [1, 1, 4, 3, 1, 1],
+  [4, 1, 1, 1, 1, 3],
+  [4, 1, 1, 3, 1, 1],
+  [1, 2, 3, 1, 1, 3],
+  [1, 2, 3, 3, 1, 1],
+  [4, 1, 3, 1, 1, 1],
+  [1, 1, 2, 1, 4, 2],
+  [1, 2, 2, 4, 1, 1],
+  [2, 4, 1, 2, 1, 1],
+  [2, 2, 4, 1, 1, 1],
+  [1, 4, 2, 1, 1, 2],
+  [1, 4, 2, 2, 1, 1],
+  [2, 4, 1, 1, 1, 2],
+  [2, 1, 1, 4, 1, 2],
+  [1, 1, 4, 2, 1, 2],
+  [2, 1, 4, 1, 1, 2],
+  [4, 2, 1, 1, 1, 2],
+  [4, 2, 1, 2, 1, 1],
+  [3, 1, 2, 1, 1, 3],
 ];
 const CODE128_START_A = 103;
 const CODE128_START_B = 104;
@@ -105,12 +208,10 @@ function emitRuns(bars: Bar[], widths: number[]): void {
   }
 }
 
-function emitCode128(
-  subset: 'A' | 'B' | 'C',
-  symbolValues: number[],
-): Bar[] {
+function emitCode128(subset: 'A' | 'B' | 'C', symbolValues: number[]): Bar[] {
   const bars: Bar[] = [];
-  const startValue = subset === 'A' ? CODE128_START_A : subset === 'B' ? CODE128_START_B : CODE128_START_C;
+  const startValue =
+    subset === 'A' ? CODE128_START_A : subset === 'B' ? CODE128_START_B : CODE128_START_C;
   emitRuns(bars, CODE128_START_WIDTHS[subset]);
 
   let checksum = startValue;
@@ -153,20 +254,52 @@ function encodeCode128Sscc(data: string): Bar[] {
 }
 
 const EAN_L: string[][] = [
-  ['0001101'],['0011001'],['0010011'],['0111101'],['0100011'],
-  ['0110001'],['0101111'],['0111011'],['0110111'],['0001011'],
+  ['0001101'],
+  ['0011001'],
+  ['0010011'],
+  ['0111101'],
+  ['0100011'],
+  ['0110001'],
+  ['0101111'],
+  ['0111011'],
+  ['0110111'],
+  ['0001011'],
 ];
 const EAN_G: string[][] = [
-  ['0100111'],['0110011'],['0011011'],['0100001'],['0011101'],
-  ['0111001'],['0000101'],['0010001'],['0001001'],['0010111'],
+  ['0100111'],
+  ['0110011'],
+  ['0011011'],
+  ['0100001'],
+  ['0011101'],
+  ['0111001'],
+  ['0000101'],
+  ['0010001'],
+  ['0001001'],
+  ['0010111'],
 ];
 const EAN_R: string[][] = [
-  ['1110010'],['1100110'],['1101100'],['1000010'],['1011100'],
-  ['1001110'],['1010000'],['1000100'],['1001000'],['1110100'],
+  ['1110010'],
+  ['1100110'],
+  ['1101100'],
+  ['1000010'],
+  ['1011100'],
+  ['1001110'],
+  ['1010000'],
+  ['1000100'],
+  ['1001000'],
+  ['1110100'],
 ];
 const EAN13_FIRST_DIGIT_PARITY = [
-  'LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG',
-  'LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL',
+  'LLLLLL',
+  'LLGLGG',
+  'LLGGLG',
+  'LLGGGL',
+  'LGLLGG',
+  'LGGLLG',
+  'LGGGLL',
+  'LGLGLG',
+  'LGLGGL',
+  'LGGLGL',
 ];
 
 function encodeEan13(data: string): Bar[] {
@@ -224,12 +357,26 @@ function encodeUpcA(data: string): Bar[] {
 }
 
 const CODABAR_CHARS: Record<string, string> = {
-  '0':'00000011','1':'00001100','2':'00010010','3':'11000000',
-  '4':'00100100','5':'10000100','6':'01000010','7':'01000200',
-  '8':'01100000','9':'10010000','-':'00001010',
-  '$':'00010001','.':'10001000','/':'10100000',
-  ':':'10000011','+':'00110000','A':'00011010','B':'01001001',
-  'C':'00100101','D':'00011100',
+  '0': '00000011',
+  '1': '00001100',
+  '2': '00010010',
+  '3': '11000000',
+  '4': '00100100',
+  '5': '10000100',
+  '6': '01000010',
+  '7': '01000200',
+  '8': '01100000',
+  '9': '10010000',
+  '-': '00001010',
+  $: '00010001',
+  '.': '10001000',
+  '/': '10100000',
+  ':': '10000011',
+  '+': '00110000',
+  A: '00011010',
+  B: '01001001',
+  C: '00100101',
+  D: '00011100',
 };
 
 function encodeCodabar(data: string): Bar[] {
@@ -240,14 +387,26 @@ function encodeCodabar(data: string): Bar[] {
     if (ci > 0) bars.push({ type: 'narrow-space' });
     for (let i = 0; i < pattern.length; i++) {
       const wide = pattern[i] === '1';
-      bars.push({ type: i % 2 === 0 ? (wide ? 'wide-bar' : 'narrow-bar') : (wide ? 'wide-space' : 'narrow-space') });
+      bars.push({
+        type:
+          i % 2 === 0 ? (wide ? 'wide-bar' : 'narrow-bar') : wide ? 'wide-space' : 'narrow-space',
+      });
     }
   }
   return bars;
 }
 
 const I2OF5_DIGITS: string[] = [
-  'NNWWN','WNNNW','NWNNW','WWNNN','NNWNW','WNWNN','NWWNN','NNNWW','WNNWN','NWNWN',
+  'NNWWN',
+  'WNNNW',
+  'NWNNW',
+  'WWNNN',
+  'NNWNW',
+  'WNWNN',
+  'NWWNN',
+  'NNNWW',
+  'WNNWN',
+  'NWNWN',
 ];
 
 type TwoOfFiveVariant = 'industrial' | 'interleaved' | 'matrix';
@@ -257,8 +416,12 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
   const bars: Bar[] = [];
 
   if (variant === 'interleaved') {
-    bars.push({ type: 'narrow-bar' }, { type: 'narrow-space' },
-              { type: 'narrow-bar' }, { type: 'narrow-space' });
+    bars.push(
+      { type: 'narrow-bar' },
+      { type: 'narrow-space' },
+      { type: 'narrow-bar' },
+      { type: 'narrow-space' }
+    );
     const padded = digits.length % 2 === 1 ? `0${digits}` : digits;
     for (let i = 0; i < padded.length; i += 2) {
       const a = I2OF5_DIGITS[parseInt(padded[i])];
@@ -268,8 +431,13 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
         bars.push({ type: b[j] === 'W' ? 'wide-space' : 'narrow-space' });
       }
     }
-    bars.push({ type: 'wide-bar' }, { type: 'narrow-space' },
-              { type: 'wide-bar' }, { type: 'narrow-space' }, { type: 'narrow-bar' });
+    bars.push(
+      { type: 'wide-bar' },
+      { type: 'narrow-space' },
+      { type: 'wide-bar' },
+      { type: 'narrow-space' },
+      { type: 'narrow-bar' }
+    );
     return bars;
   }
 
@@ -280,7 +448,9 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
       for (let i = 0; i < pattern.length; i++) {
         const wide = pattern[i] === 'W';
         const isBar = i % 2 === 0;
-        bars.push({ type: wide ? (isBar ? 'wide-bar' : 'wide-space') : (isBar ? 'narrow-bar' : 'narrow-space') });
+        bars.push({
+          type: wide ? (isBar ? 'wide-bar' : 'wide-space') : isBar ? 'narrow-bar' : 'narrow-space',
+        });
       }
       bars.push({ type: 'narrow-space' });
     }
@@ -288,8 +458,12 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
     return bars;
   }
 
-  bars.push({ type: 'narrow-bar' }, { type: 'narrow-space' },
-            { type: 'narrow-bar' }, { type: 'narrow-space' });
+  bars.push(
+    { type: 'narrow-bar' },
+    { type: 'narrow-space' },
+    { type: 'narrow-bar' },
+    { type: 'narrow-space' }
+  );
   for (const d of digits) {
     const pattern = I2OF5_DIGITS[parseInt(d)];
     for (let i = 0; i < pattern.length; i++) {
@@ -305,18 +479,54 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
 const CODE93_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%';
 
 const CODE93_PATTERNS: number[][] = [
-  [1,3,1,1,1,2],[1,1,1,2,1,3],[1,1,1,3,1,2],[1,1,1,4,1,1],
-  [1,2,1,1,1,3],[1,2,1,2,1,2],[1,2,1,3,1,1],[1,1,1,1,1,4],
-  [1,3,1,2,1,1],[1,4,1,1,1,1],[2,1,1,1,1,3],[2,1,1,2,1,2],
-  [2,1,1,3,1,1],[2,2,1,1,1,2],[2,2,1,2,1,1],[2,3,1,1,1,1],
-  [1,1,2,1,1,3],[1,1,2,2,1,2],[1,1,2,3,1,1],[1,2,2,1,1,2],
-  [1,3,2,1,1,1],[1,1,1,1,2,3],[1,1,1,2,2,2],[1,1,1,3,2,1],
-  [1,2,1,1,2,2],[1,3,1,1,2,1],[2,1,2,1,1,2],[2,1,2,2,1,1],
-  [2,1,1,1,2,2],[2,1,1,2,2,1],[2,2,1,1,2,1],[2,2,2,1,1,1],
-  [1,1,2,1,2,2],[1,1,2,2,2,1],[1,2,2,1,2,1],[1,2,3,1,1,1],
-  [1,2,1,1,3,1],[3,1,1,1,1,2],[3,1,1,2,1,1],[3,2,1,1,1,1],
-  [1,1,2,1,3,1],[2,1,1,1,1,3],[1,1,1,2,3,1],[1,2,1,1,1,4],
-  [1,2,1,2,2,1],[3,1,2,1,1,1],[3,1,1,1,2,1],[1,2,2,2,1,1],
+  [1, 3, 1, 1, 1, 2],
+  [1, 1, 1, 2, 1, 3],
+  [1, 1, 1, 3, 1, 2],
+  [1, 1, 1, 4, 1, 1],
+  [1, 2, 1, 1, 1, 3],
+  [1, 2, 1, 2, 1, 2],
+  [1, 2, 1, 3, 1, 1],
+  [1, 1, 1, 1, 1, 4],
+  [1, 3, 1, 2, 1, 1],
+  [1, 4, 1, 1, 1, 1],
+  [2, 1, 1, 1, 1, 3],
+  [2, 1, 1, 2, 1, 2],
+  [2, 1, 1, 3, 1, 1],
+  [2, 2, 1, 1, 1, 2],
+  [2, 2, 1, 2, 1, 1],
+  [2, 3, 1, 1, 1, 1],
+  [1, 1, 2, 1, 1, 3],
+  [1, 1, 2, 2, 1, 2],
+  [1, 1, 2, 3, 1, 1],
+  [1, 2, 2, 1, 1, 2],
+  [1, 3, 2, 1, 1, 1],
+  [1, 1, 1, 1, 2, 3],
+  [1, 1, 1, 2, 2, 2],
+  [1, 1, 1, 3, 2, 1],
+  [1, 2, 1, 1, 2, 2],
+  [1, 3, 1, 1, 2, 1],
+  [2, 1, 2, 1, 1, 2],
+  [2, 1, 2, 2, 1, 1],
+  [2, 1, 1, 1, 2, 2],
+  [2, 1, 1, 2, 2, 1],
+  [2, 2, 1, 1, 2, 1],
+  [2, 2, 2, 1, 1, 1],
+  [1, 1, 2, 1, 2, 2],
+  [1, 1, 2, 2, 2, 1],
+  [1, 2, 2, 1, 2, 1],
+  [1, 2, 3, 1, 1, 1],
+  [1, 2, 1, 1, 3, 1],
+  [3, 1, 1, 1, 1, 2],
+  [3, 1, 1, 2, 1, 1],
+  [3, 2, 1, 1, 1, 1],
+  [1, 1, 2, 1, 3, 1],
+  [2, 1, 1, 1, 1, 3],
+  [1, 1, 1, 2, 3, 1],
+  [1, 2, 1, 1, 1, 4],
+  [1, 2, 1, 2, 2, 1],
+  [3, 1, 2, 1, 1, 1],
+  [3, 1, 1, 1, 2, 1],
+  [1, 2, 2, 2, 1, 1],
 ];
 
 const CODE93_START_STOP_VALUE = 47;
@@ -354,7 +564,16 @@ function encodeCode93(data: string): Bar[] {
 }
 
 const UPCE_PARITY = [
-  'EEEOOO','EEOEOO','EEOOEO','EEOOOE','EOEEOO','EOOEEO','EOOOEE','EOEOEO','EOEOOE','EOOEOE',
+  'EEEOOO',
+  'EEOEOO',
+  'EEOOEO',
+  'EEOOOE',
+  'EOEEOO',
+  'EOOEEO',
+  'EOOOEE',
+  'EOEOEO',
+  'EOEOOE',
+  'EOOEOE',
 ];
 
 function expandUpcE(numberSystem: string, body: string): string {
@@ -401,9 +620,16 @@ function encodeUpcE(data: string): Bar[] {
 }
 
 const MSI_DIGITS: Record<string, string> = {
-  '0': '100100100100', '1': '100100100110', '2': '100100110100', '3': '100100110110',
-  '4': '100110100100', '5': '100110100110', '6': '100110110100', '7': '100110110110',
-  '8': '110100100100', '9': '110100100110',
+  '0': '100100100100',
+  '1': '100100100110',
+  '2': '100100110100',
+  '3': '100100110110',
+  '4': '100110100100',
+  '5': '100110100110',
+  '6': '100110110100',
+  '7': '100110110110',
+  '8': '110100100100',
+  '9': '110100100110',
 };
 
 function msiCheckDigit(digits: string): number {
@@ -431,8 +657,16 @@ function encodeMsi(data: string): Bar[] {
 }
 
 const POSTNET_TALL: Record<string, string> = {
-  '0': '11000', '1': '00011', '2': '00101', '3': '00110', '4': '01001',
-  '5': '01010', '6': '01100', '7': '10001', '8': '10010', '9': '10100',
+  '0': '11000',
+  '1': '00011',
+  '2': '00101',
+  '3': '00110',
+  '4': '01001',
+  '5': '01010',
+  '6': '01100',
+  '7': '10001',
+  '8': '10010',
+  '9': '10100',
 };
 
 function checkDigit(digits: string): number {
@@ -471,8 +705,9 @@ function encodePlanet(data: string): Bar[] {
 
 export function normalizeSymbology(symbology: string): string {
   const s = (symbology || '').toLowerCase().replace(/[\s_-]/g, '');
-  if (s === '' ) return 'code39';
-  if (s.includes('code3of9') || s === 'code39' || s.includes('code39limited') || s === 'logmars') return 'code39';
+  if (s === '') return 'code39';
+  if (s.includes('code3of9') || s === 'code39' || s.includes('code39limited') || s === 'logmars')
+    return 'code39';
   if (s.includes('code93')) return 'code93';
   if (s.includes('code11')) return 'code11';
   if (s.includes('code128sscc') || s === 'ucc128sscc') return 'code128sscc';
@@ -502,18 +737,43 @@ export function normalizeSymbology(symbology: string): string {
 }
 
 export const SUPPORTED_SYMBOLOGIES = [
-  'code39', 'code93', 'msi',
-  'code128a', 'code128b', 'code128c', 'code128sscc',
-  'ean13', 'ean8', 'upca', 'upce', 'codabar',
-  '2of5interleaved', '2of5matrix', '2of5industrial', '2of5standard',
-  'pdf417', 'postus5zip', 'postusstandard', 'postusdpbc', 'planet',
+  'code39',
+  'code93',
+  'msi',
+  'code128a',
+  'code128b',
+  'code128c',
+  'code128sscc',
+  'ean13',
+  'ean8',
+  'upca',
+  'upce',
+  'codabar',
+  '2of5interleaved',
+  '2of5matrix',
+  '2of5industrial',
+  '2of5standard',
+  'pdf417',
+  'postus5zip',
+  'postusstandard',
+  'postusdpbc',
+  'planet',
 ] as const;
 
 export const PENDING_SYMBOLOGIES = [
-  'code11', 'logmars', 'code49',
-  'qrcode', 'datamatrix', 'aztec',
-  'postAUSStandard', 'postAUSCust2', 'postAUSCust3', 'postAUSReplyPaid',
-  'postUSImb', 'postUKRM4SCC', 'postJapan',
+  'code11',
+  'logmars',
+  'code49',
+  'qrcode',
+  'datamatrix',
+  'aztec',
+  'postAUSStandard',
+  'postAUSCust2',
+  'postAUSCust3',
+  'postAUSReplyPaid',
+  'postUSImb',
+  'postUKRM4SCC',
+  'postJapan',
 ] as const;
 
 function encodePdf417ToBars(data: string, options: EncodeBarsOptions): Bar[] {
@@ -539,35 +799,53 @@ interface EncodeBarsOptions {
 
 function encodeBars(symbology: string, data: string, options: EncodeBarsOptions = {}): Bar[] {
   switch (normalizeSymbology(symbology)) {
-    case 'ean13': return encodeEan13(data);
-    case 'ean8': return encodeEan8(data);
-    case 'upca': return encodeUpcA(data);
-    case 'codabar': return encodeCodabar(data);
-    case '2of5interleaved': return encode2of5(data, 'interleaved');
-    case '2of5industrial': return encode2of5(data, 'industrial');
-    case '2of5matrix': return encode2of5(data, 'matrix');
-    case 'code128a': return encodeCode128A(data);
-    case 'code128b': return encodeCode128B(data);
-    case 'code128c': return encodeCode128C(data);
-    case 'code128sscc': return encodeCode128Sscc(data);
-    case 'code93': return encodeCode93(data);
-    case 'msi': return encodeMsi(data);
-    case 'upce': return encodeUpcE(data);
-    case '2of5standard': return encode2of5(data, 'industrial');
-    case 'pdf417': return encodePdf417ToBars(data, options);
+    case 'ean13':
+      return encodeEan13(data);
+    case 'ean8':
+      return encodeEan8(data);
+    case 'upca':
+      return encodeUpcA(data);
+    case 'codabar':
+      return encodeCodabar(data);
+    case '2of5interleaved':
+      return encode2of5(data, 'interleaved');
+    case '2of5industrial':
+      return encode2of5(data, 'industrial');
+    case '2of5matrix':
+      return encode2of5(data, 'matrix');
+    case 'code128a':
+      return encodeCode128A(data);
+    case 'code128b':
+      return encodeCode128B(data);
+    case 'code128c':
+      return encodeCode128C(data);
+    case 'code128sscc':
+      return encodeCode128Sscc(data);
+    case 'code93':
+      return encodeCode93(data);
+    case 'msi':
+      return encodeMsi(data);
+    case 'upce':
+      return encodeUpcE(data);
+    case '2of5standard':
+      return encode2of5(data, 'industrial');
+    case 'pdf417':
+      return encodePdf417ToBars(data, options);
     case 'postus5zip':
     case 'postusstandard':
     case 'postusdpbc':
       return encodePostnet(data);
-    case 'planet': return encodePlanet(data);
-    default: return encodeCode39(data);
-}
+    case 'planet':
+      return encodePlanet(data);
+    default:
+      return encodeCode39(data);
+  }
 }
 
 export function encodeBarcode(
   symbology: string,
   data: string,
-  options: EncodeBarsOptions = {},
+  options: EncodeBarsOptions = {}
 ): Bar[] {
   return encodeBars(symbology, data, options);
 }
@@ -590,7 +868,7 @@ export function renderBarcode(
   moduleW = 2,
   align: 'left' | 'center' | 'right' = 'center',
   wideNarrowRatio = 2.5,
-  options: RenderBarcodeOptions = {},
+  options: RenderBarcodeOptions = {}
 ): void {
   if (!data || w <= 0 || h <= 0) return;
 
@@ -606,7 +884,7 @@ export function renderBarcode(
 
   let totalW = 0;
   for (const bar of bars) {
-    totalW += (bar.type === 'wide-bar' || bar.type === 'wide-space') ? wideW : narrowW;
+    totalW += bar.type === 'wide-bar' || bar.type === 'wide-space' ? wideW : narrowW;
   }
 
   const scale = totalW > w ? w / totalW : 1;
@@ -615,15 +893,17 @@ export function renderBarcode(
 
   const drawnW = totalW * scale;
   const startX =
-    align === 'center' ? x + Math.max((w - drawnW) / 2, 0)
-    : align === 'right' ? x + Math.max(w - drawnW, 0)
-    : x;
+    align === 'center'
+      ? x + Math.max((w - drawnW) / 2, 0)
+      : align === 'right'
+        ? x + Math.max(w - drawnW, 0)
+        : x;
 
   pdfPage.pushOperators(pushGraphicsState());
 
   let curX = startX;
   for (const bar of bars) {
-    const barW = (bar.type === 'wide-bar' || bar.type === 'wide-space') ? wW : nW;
+    const barW = bar.type === 'wide-bar' || bar.type === 'wide-space' ? wW : nW;
     if (bar.type === 'narrow-bar' || bar.type === 'wide-bar') {
       pdfPage.drawRectangle({
         x: curX,
@@ -655,7 +935,7 @@ function renderBarcode2D(
   x: number,
   y: number,
   w: number,
-  h: number,
+  h: number
 ): void {
   const rows = bars.length;
   if (rows === 0) return;
@@ -695,4 +975,3 @@ function renderBarcode2D(
 function rowToModulesLocal(pattern: string, width: number): boolean[] {
   return rowToModules(pattern, width);
 }
-

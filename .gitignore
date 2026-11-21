@@ -11,6 +11,7 @@ reference/
 
 # Local company forms — never commit. Sanitized copies live in test/fixtures/sample-forms
 test/final-test/
-.agents/
+.agents/*
+!.agents/skills/
 # Locally imported Adobe fonts (npm run fonts:import) — licensed with Designer
 assets/fonts/adobe/

@@ -1,12 +1,7 @@
-
 import type { PDFFont } from 'pdf-lib';
 import type { RgbColor } from '../../types';
 import { defaultAscent, defaultLineAdvance, fontAscent, type VerticalAlign } from './line-metrics';
-import {
-  LINE_BREAK_TOLERANCE,
-  NO_BREAK_AFTER,
-  NO_BREAK_BEFORE,
-} from './line-breaker';
+import { LINE_BREAK_TOLERANCE, NO_BREAK_AFTER, NO_BREAK_BEFORE } from './line-breaker';
 import { JUST_H, type JustHCode } from './justifier';
 
 export interface StyledRun {
@@ -92,9 +87,7 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
     while (current.length && current[current.length - 1].kind === 'space') {
       width -= (current.pop() as SpaceToken).width;
     }
-    lines.push(
-      buildLine(current, runs, measure, paragraphEnd, opts, startsParagraph)
-    );
+    lines.push(buildLine(current, runs, measure, paragraphEnd, opts, startsParagraph));
     current = [];
     width = 0;
     wordCount = 0;
@@ -174,9 +167,7 @@ export function layoutRunBaselines(
 
   const baselines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    baselines.push(
-      i === 0 ? blockTop - lines[0].ascent : baselines[i - 1] - lines[i - 1].advance
-    );
+    baselines.push(i === 0 ? blockTop - lines[0].ascent : baselines[i - 1] - lines[i - 1].advance);
   }
   return baselines;
 }
@@ -249,9 +240,7 @@ function buildLine(
   paragraphStart: boolean
 ): RunLine {
   const justify = opts.paragraph?.justify ?? JUST_H.unset;
-  const indent = paragraphStart
-    ? Math.max(opts.paragraph?.firstLineIndent ?? 0, 0)
-    : 0;
+  const indent = paragraphStart ? Math.max(opts.paragraph?.firstLineIndent ?? 0, 0) : 0;
   const rawSegments: Array<RunSegment & { spacesBefore: number }> = [];
   let x = 0;
   let maxSize = 0;
@@ -344,7 +333,8 @@ function hardSplit(
   for (const piece of token.pieces) {
     for (const ch of piece.text) {
       const chWidth = measure(ch, piece.run);
-      const maxWidth = typeof maxLineWidth === 'function' ? maxLineWidth(chunks.length) : maxLineWidth;
+      const maxWidth =
+        typeof maxLineWidth === 'function' ? maxLineWidth(chunks.length) : maxLineWidth;
       if (pieces.length && width + chWidth > maxWidth + tolerance) {
         const lastChar = pieces[pieces.length - 1].text.slice(-1);
         if (NO_BREAK_BEFORE.has(ch) || NO_BREAK_AFTER.has(lastChar)) {

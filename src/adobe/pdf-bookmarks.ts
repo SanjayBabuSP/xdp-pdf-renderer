@@ -1,4 +1,3 @@
-
 import { PDFDocument, PDFName, PDFDict, PDFArray, PDFNumber, PDFString, PDFPage } from 'pdf-lib';
 
 export interface BookmarkItem {
@@ -112,10 +111,7 @@ function countBookmarks(items: BookmarkItem[]): number {
   return count;
 }
 
-export function autoGenerateBookmarks(
-  pageNames: string[],
-  pageIndices: number[]
-): BookmarkItem[] {
+export function autoGenerateBookmarks(pageNames: string[], pageIndices: number[]): BookmarkItem[] {
   return pageNames.map((name, i) => ({
     title: name,
     pageIndex: pageIndices[i] ?? i,

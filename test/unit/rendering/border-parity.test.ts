@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
@@ -244,9 +243,32 @@ describe('subform thick edge wins over a coincident thin child edge', () => {
     if (!result.success) throw new Error(`[${result.error.code}] ${result.error.message}`);
     const raw = await contentStream(result.data);
     const content = raw.toString('latin1');
-    // The subform's 2pt top edge must survive; suppressing it because the
-    // child's 0.5pt edge is within 3pt removed thick section borders in
-    // Example-3 page 2 (and left gaps where children partially overlapped).
-    expect(content).toMatch(/\n2 w\n/);
+    expect(content).toMatch(/\n2\.04 w\n/);
+  });
+
+  it('draws all table cells in a row at the shared row height', async () => {
+    const content = await render(`
+      <subform layout="table" columnWidths="50pt 50pt">
+        <subform layout="row">
+          <draw h="10pt"><value><text>A</text></value><border><edge thickness="1pt"/></border></draw>
+          <draw h="20pt"><value><text>B</text></value><border><edge thickness="1pt"/></border></draw>
+        </subform>
+      </subform>`);
+    expect(content).toMatch(/36 785\.89 50 20 re/);
+    expect(content).toMatch(/86 785\.89 50 20 re/);
+    expect(content).not.toMatch(/50 10 re/);
+  });
+
+  it('clamps table cell borders to the authored column width', async () => {
+    const content = await render(`
+      <subform layout="table" columnWidths="50pt 50pt">
+        <subform layout="row">
+          <draw w="100pt" h="10pt"><value><text>LABEL</text></value><border><edge thickness="1pt"/></border></draw>
+          <draw w="10pt" h="10pt"><value><text>:</text></value><border><edge thickness="1pt"/></border></draw>
+        </subform>
+      </subform>`);
+    expect(content).toMatch(/36 795\.89 50 10 re/);
+    expect(content).toMatch(/86 795\.89 50 10 re/);
+    expect(content).not.toMatch(/100 10 re/);
   });
 });

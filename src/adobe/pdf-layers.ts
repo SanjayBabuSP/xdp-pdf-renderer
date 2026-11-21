@@ -1,13 +1,4 @@
-
-import {
-  PDFDocument,
-  PDFName,
-  PDFDict,
-  PDFArray,
-  PDFString,
-  PDFRef,
-  PDFBool,
-} from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict, PDFArray, PDFString, PDFRef, PDFBool } from 'pdf-lib';
 
 export interface OCGLayer {
   name: string;
@@ -92,13 +83,13 @@ function createUsageDict(context: PDFDocument['context'], layer: OCGLayer): PDFD
   const usage = context.obj({}) as PDFDict;
 
   const printDict = context.obj({}) as PDFDict;
-    printDict.set(PDFName.of('Print'), layer.printable !== false ? PDFBool.True : PDFBool.False);
-    printDict.set(PDFName.of('PrintState'), PDFName.of(layer.visible !== false ? 'ON' : 'OFF'));
-    usage.set(PDFName.of('Print'), printDict);
+  printDict.set(PDFName.of('Print'), layer.printable !== false ? PDFBool.True : PDFBool.False);
+  printDict.set(PDFName.of('PrintState'), PDFName.of(layer.visible !== false ? 'ON' : 'OFF'));
+  usage.set(PDFName.of('Print'), printDict);
 
-    const exportDict = context.obj({}) as PDFDict;
-    exportDict.set(PDFName.of('Export'), layer.exportable !== false ? PDFBool.True : PDFBool.False);
-    exportDict.set(PDFName.of('ExportState'), PDFName.of(layer.visible !== false ? 'ON' : 'OFF'));
+  const exportDict = context.obj({}) as PDFDict;
+  exportDict.set(PDFName.of('Export'), layer.exportable !== false ? PDFBool.True : PDFBool.False);
+  exportDict.set(PDFName.of('ExportState'), PDFName.of(layer.visible !== false ? 'ON' : 'OFF'));
   usage.set(PDFName.of('Export'), exportDict);
 
   const viewDict = context.obj({}) as PDFDict;
@@ -135,10 +126,7 @@ function createOrderArray(
   return order;
 }
 
-function createDefaultState(
-  context: PDFDocument['context'],
-  layers: OCGLayer[]
-): PDFArray {
+function createDefaultState(context: PDFDocument['context'], layers: OCGLayer[]): PDFArray {
   const d = context.obj([]) as PDFArray;
 
   const onLayers = context.obj([]) as PDFArray;
@@ -163,12 +151,8 @@ export function setLayerState(
   layerName: string,
   visible: boolean,
   _intent: string = 'View'
-): void {
-}
+): void {}
 
-export function addContentToLayer(
-  _contentStream: Uint8Array,
-  _layerName: string
-): Uint8Array {
+export function addContentToLayer(_contentStream: Uint8Array, _layerName: string): Uint8Array {
   return _contentStream;
 }

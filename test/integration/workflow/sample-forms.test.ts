@@ -44,7 +44,8 @@ function imageCount(doc: PDFDocument): number {
   let count = 0;
   for (const [, obj] of doc.context.enumerateIndirectObjects()) {
     const dict = obj instanceof PDFRawStream ? obj.dict : obj;
-    if (dict instanceof PDFDict && dict.get(PDFName.of('Subtype'))?.toString() === '/Image') count++;
+    if (dict instanceof PDFDict && dict.get(PDFName.of('Subtype'))?.toString() === '/Image')
+      count++;
   }
   return count;
 }
@@ -86,7 +87,8 @@ describe.each(manifest.forms.filter((form) => !form.knownIssue))('sample form $n
 
   it('shows bound data values', async () => {
     const pages: string[] = [];
-    for (let i = 0; i < doc.getPageCount(); i++) pages.push(...extractText(await contentStream(pdf, i)));
+    for (let i = 0; i < doc.getPageCount(); i++)
+      pages.push(...extractText(await contentStream(pdf, i)));
     const text = pages.join('\n');
     const shown = dataValues(form).filter((v) => text.includes(v));
     expect(shown.length).toBeGreaterThanOrEqual(form.minDataValuesShown);
@@ -161,7 +163,10 @@ describe.each(manifest.forms)('sample form geometry $name', (form) => {
           }
         }
       }
-      expect({ page: page.pageIndex, collisions }).toEqual({ page: page.pageIndex, collisions: [] });
+      expect({ page: page.pageIndex, collisions }).toEqual({
+        page: page.pageIndex,
+        collisions: [],
+      });
     }
   });
 });

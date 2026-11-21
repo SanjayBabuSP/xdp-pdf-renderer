@@ -59,7 +59,7 @@ describe('G11 — tagged PDF', () => {
     expect(String(root.get(PDFName.of('Type')))).toBe('/StructTreeRoot');
     const documentElement = doc.context.lookup(root.get(PDFName.of('K'))) as PDFDict;
     expect(String(documentElement.get(PDFName.of('S')))).toBe('/Document');
-    expect((doc.getPage(0).node.get(PDFName.of('StructParents')))).toBeDefined();
+    expect(doc.getPage(0).node.get(PDFName.of('StructParents'))).toBeDefined();
   });
 
   it('does not tag the document unless requested', async () => {

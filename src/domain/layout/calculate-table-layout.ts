@@ -76,7 +76,10 @@ function inferColumnCount(node: SubformNode): number {
   return max;
 }
 
-export function applyTableLayouts(layout: LayoutModel, availableWidth: number): Result<LayoutModel> {
+export function applyTableLayouts(
+  layout: LayoutModel,
+  availableWidth: number
+): Result<LayoutModel> {
   const updated = {
     ...layout,
     children: applyToNodes(layout.children, availableWidth),

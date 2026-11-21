@@ -33,10 +33,7 @@ export function resolveExtent(
   return clamp(base, min, max);
 }
 
-export function resolveSubformHeight(
-  pos: Position | undefined,
-  contentExtent: number
-): number {
+export function resolveSubformHeight(pos: Position | undefined, contentExtent: number): number {
   const hasFixedH = pos?.h != null && pos.h !== 0;
   if (hasFixedH || pos?.maxH != null) return resolveExtent(pos, 'height', contentExtent);
   return contentExtent;

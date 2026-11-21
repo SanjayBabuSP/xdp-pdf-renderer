@@ -1,4 +1,3 @@
-
 export interface NamespaceValidationResult {
   valid: boolean;
   detectedVersion: string | null;
@@ -29,15 +28,15 @@ const KNOWN_NAMESPACES: Record<string, { version: string; supported: boolean }> 
 const VERSION_DIFFERENCES: Record<string, Record<string, string>> = {
   '3.3': {
     'subform@layout': 'Added "position" as explicit layout mode',
-    'assist': 'Added accessibility assist element',
-    'relevant': 'Enhanced relevance handling',
-    'calc': 'New calculation engine features',
+    assist: 'Added accessibility assist element',
+    relevant: 'Enhanced relevance handling',
+    calc: 'New calculation engine features',
   },
   '3.6': {
     'subform@layout': 'Added "tbrl" (top-to-bottom, right-to-left) layout',
     'field@access': 'Enhanced access control',
     'script@runAt': 'Added "docReady" runAt value',
-    'pdf': 'Enhanced PDF rendering options',
+    pdf: 'Enhanced PDF rendering options',
   },
 };
 
@@ -77,12 +76,12 @@ export function validateXfaNamespaces(
       result.valid = false;
       result.errors.push(
         `XFA template namespace ${nsInfo.version} is not directly supported. ` +
-        `Supported versions: 2.8, 3.3, 3.6`
+          `Supported versions: 2.8, 3.3, 3.6`
       );
     } else {
       result.warnings.push(
         `XFA template namespace ${nsInfo.version} is not directly supported. ` +
-        `Attempting backward-compatible parsing. Some features may not work correctly.`
+          `Attempting backward-compatible parsing. Some features may not work correctly.`
       );
       result.backwardCompat = true;
 
@@ -95,8 +94,7 @@ export function validateXfaNamespaces(
     }
   } else {
     result.warnings.push(
-      `Unknown XFA template namespace: ${templateNs}. ` +
-      `Attempting to parse as XFA 3.3.`
+      `Unknown XFA template namespace: ${templateNs}. ` + `Attempting to parse as XFA 3.3.`
     );
     result.detectedVersion = '3.3';
   }
@@ -131,27 +129,27 @@ export function validateNamespacePrefixes(
 
 export function getVersionFeatures(version: string): Record<string, boolean> {
   const features: Record<string, boolean> = {
-    'field': true,
-    'subform': true,
-    'draw': true,
-    'exclGroup': true,
-    'event': true,
-    'script': true,
-    'calculate': true,
-    'validate': true,
-    'ui': true,
-    'caption': true,
-    'para': true,
-    'font': true,
-    'border': true,
-    'margin': true,
-    'bind': true,
-    'occur': true,
-    'value': true,
+    field: true,
+    subform: true,
+    draw: true,
+    exclGroup: true,
+    event: true,
+    script: true,
+    calculate: true,
+    validate: true,
+    ui: true,
+    caption: true,
+    para: true,
+    font: true,
+    border: true,
+    margin: true,
+    bind: true,
+    occur: true,
+    value: true,
 
     'layout.position': version >= '2.8',
     'layout.tbrl': version >= '3.6',
-    'assist': version >= '3.3',
+    assist: version >= '3.3',
     'script.runAt.docReady': version >= '3.6',
     'script.runAt.pageOpen': true,
     'script.runAt.pageClose': true,

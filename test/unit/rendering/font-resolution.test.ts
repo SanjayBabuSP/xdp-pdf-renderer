@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 import { FontManager } from '../../../src/rendering/font-manager';
 import { familyKey } from '../../../src/rendering/font-registry';
@@ -58,7 +57,7 @@ describe('font resolution — substitution rules', () => {
   it('applies force=0 equates only when the requested font is unavailable', async () => {
     const fm = await newManager();
     expect(await fm.getFont('Helvetica')).toBe(await fm.getFont('Helvetica'));
-    expect((await backingPsName('Helvetica'))).toBe('Helvetica');
+    expect(await backingPsName('Helvetica')).toBe('Helvetica');
   });
 
   itWithImportedFaces(['Myriad Pro'])(
@@ -66,14 +65,14 @@ describe('font resolution — substitution rules', () => {
     async () => {
       const ps = await backingPsName('Myriad Pro');
       expect(ps).toMatch(/MyriadPro/i);
-    },
+    }
   );
 
   itWithImportedFaces(['Minion Pro'])(
     'resolves Adobe-provided Minion Pro rather than substituting',
     async () => {
       expect(await backingPsName('Minion Pro')).toMatch(/MinionPro/i);
-    },
+    }
   );
 });
 

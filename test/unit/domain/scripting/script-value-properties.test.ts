@@ -56,9 +56,7 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
   it('assigns to the scripting object', () => {
     const layout = fieldNode('oem');
     const self = scriptable('content.oem', layout);
-    expect(run('$.rawValue = "Example Pumps GmbH"', self, [], {})).toBe(
-      'Example Pumps GmbH'
-    );
+    expect(run('$.rawValue = "Example Pumps GmbH"', self, [], {})).toBe('Example Pumps GmbH');
     expect(self.resolvedValue).toBe('Example Pumps GmbH');
     expect(layout.resolvedValue).toBe('Example Pumps GmbH');
   });
@@ -74,12 +72,7 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
   it('reads a sibling through the data record when it is not a template node', () => {
     const layout = fieldNode('oem');
     const self = scriptable('content.oem', layout);
-    const out = run(
-      '$.rawValue = OEM.formattedValue',
-      self,
-      [],
-      { OEM: 'Example Pumps GmbH' }
-    );
+    const out = run('$.rawValue = OEM.formattedValue', self, [], { OEM: 'Example Pumps GmbH' });
     expect(out).toBe('Example Pumps GmbH');
   });
 

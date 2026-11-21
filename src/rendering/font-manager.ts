@@ -4,7 +4,12 @@ import { PDFDocument, PDFFont } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { RenderOptions, FontEquateRule } from '../types';
 import { FontSubstitution } from './font-substitution';
-import { BASE14_FAMILIES, isBoldWeight, mapToStandardPdfFont, isWinAnsiSafe } from './standard-fonts';
+import {
+  BASE14_FAMILIES,
+  isBoldWeight,
+  mapToStandardPdfFont,
+  isWinAnsiSafe,
+} from './standard-fonts';
 import { resolveFontSequence } from '../adobe/font-sequences';
 import {
   FontManifest,
@@ -23,8 +28,22 @@ import defaultFontsJson from '../config/default-fonts.json';
 
 const DEFAULT_FONTS: Record<string, string> = defaultFontsJson;
 
-const UNICODE_FALLBACK_REGULAR = path.join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
-const UNICODE_FALLBACK_BOLD = path.join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+const UNICODE_FALLBACK_REGULAR = path.join(
+  __dirname,
+  '..',
+  '..',
+  'assets',
+  'fonts',
+  'DejaVuSans.ttf'
+);
+const UNICODE_FALLBACK_BOLD = path.join(
+  __dirname,
+  '..',
+  '..',
+  'assets',
+  'fonts',
+  'DejaVuSans-Bold.ttf'
+);
 
 function fontKey(family: string | undefined, weight?: string, posture?: string): string {
   return `${family ?? ''}|${weight ?? ''}|${posture ?? ''}`;
@@ -58,7 +77,12 @@ export class FontManager {
     return font;
   }
 
-  async getSafeFont(text: string, family?: string, weight?: string, posture?: string): Promise<PDFFont> {
+  async getSafeFont(
+    text: string,
+    family?: string,
+    weight?: string,
+    posture?: string
+  ): Promise<PDFFont> {
     const font = await this.getFont(family, weight, posture);
     if (this.standardFonts.has(font) && !isWinAnsiSafe(text)) {
       return this.loadUnicodeFallback(weight);
@@ -96,19 +120,20 @@ export class FontManager {
       }
     }
 
-    const sequencedStandard = (await this.tryFontSequence(targetFamily, weight, posture))
-      ?? (await this.tryFontSequence(requested, weight, posture));
+    const sequencedStandard =
+      (await this.tryFontSequence(targetFamily, weight, posture)) ??
+      (await this.tryFontSequence(requested, weight, posture));
     if (sequencedStandard) return sequencedStandard;
 
     return this.loadUnicodeFallback(
-      isBoldWeight(targetWeight ?? weight) ? 'bold' : targetWeight ?? weight
+      isBoldWeight(targetWeight ?? weight) ? 'bold' : (targetWeight ?? weight)
     );
   }
 
   private async tryFontSequence(
     family: string,
     weight?: string,
-    posture?: string,
+    posture?: string
   ): Promise<PDFFont | undefined> {
     const sequenced = resolveFontSequence(family, this.availableFamilies(), posture, weight);
     if (familyKey(sequenced) === familyKey(family)) return undefined;

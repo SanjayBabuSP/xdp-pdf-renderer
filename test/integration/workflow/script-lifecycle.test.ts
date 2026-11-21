@@ -9,10 +9,7 @@ import { evaluateConditions } from '../../../src/domain/mapping/evaluate-conditi
 import { applyTableLayouts } from '../../../src/domain/layout/calculate-table-layout';
 import { calculatePositions } from '../../../src/domain/layout/calculate-positions';
 import { applyPagination } from '../../../src/domain/layout/apply-pagination';
-import {
-  dispatchScripts,
-  dispatchPostLayoutScripts,
-} from '../../../src/domain/scripting';
+import { dispatchScripts, dispatchPostLayoutScripts } from '../../../src/domain/scripting';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { FieldNode } from '../../../src/types';
 

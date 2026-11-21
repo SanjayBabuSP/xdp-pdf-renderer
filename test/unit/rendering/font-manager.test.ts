@@ -6,7 +6,15 @@ import { FontManager } from '../../../src/rendering/font-manager';
 import { loadManifest } from '../../../src/rendering/font-registry';
 
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
-const DEJA_VU_BOLD = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+const DEJA_VU_BOLD = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'assets',
+  'fonts',
+  'DejaVuSans-Bold.ttf'
+);
 
 describe('FontManager', () => {
   it('resolves Helvetica to a base-14 standard font', async () => {

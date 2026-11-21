@@ -1,4 +1,3 @@
-
 export function normalizeRotation(deg: number): number {
   if (!Number.isFinite(deg)) return 0;
   return ((deg % 360) + 360) % 360;
@@ -34,8 +33,7 @@ export function rotatedAnchor(o: RotatedAnchorOptions): { x: number; y: number }
     } else if (o.align === 'right') {
       anchorX = o.box.x + o.box.w - o.descent - stack;
     } else {
-      anchorX =
-        o.box.x + o.box.w / 2 - (o.descent - o.ascent) / 2 - stack / 2;
+      anchorX = o.box.x + o.box.w / 2 - (o.descent - o.ascent) / 2 - stack / 2;
     }
     let anchorY: number;
     if (o.valign === 'bottom') {
@@ -55,8 +53,7 @@ export function rotatedAnchor(o: RotatedAnchorOptions): { x: number; y: number }
     } else if (o.align === 'right') {
       anchorX = o.box.x + o.box.w - o.ascent;
     } else {
-      anchorX =
-        o.box.x + o.box.w / 2 + (o.ascent - o.descent) / 2 + stack / 2;
+      anchorX = o.box.x + o.box.w / 2 + (o.ascent - o.descent) / 2 + stack / 2;
     }
     let anchorY: number;
     if (o.valign === 'top') {

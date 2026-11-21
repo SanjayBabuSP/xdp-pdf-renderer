@@ -1,4 +1,3 @@
-
 export type JustHCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type JustVCode = 0 | 1 | 2 | 3;
@@ -71,11 +70,7 @@ export function mapJustV(vAlign?: string): JustVCode {
   }
 }
 
-export function horizontalOffsetX(
-  code: JustHCode,
-  availWidth: number,
-  lineWidth: number
-): number {
+export function horizontalOffsetX(code: JustHCode, availWidth: number, lineWidth: number): number {
   const slack = availWidth - lineWidth;
   if (!(slack > 0)) return 0;
   switch (code) {
@@ -98,8 +93,6 @@ export interface JustifyOptions {
   code: JustHCode;
   paragraphLast?: boolean;
 }
-
-const SPACE_CLASS = /^\s+$/;
 
 export function justifyLine(
   line: string,

@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
@@ -128,7 +127,9 @@ describe('caption trailing +/− right-aligned at reserve edge (vertically align
     const { parseXdp } = await import('../../../src/domain/parsing/parse-xdp');
     const res = parseXdp(xdp(captionField), { strict: false });
     if (!res.success) throw new Error('parse failed');
-    const field = res.data.children[0] as unknown as { caption?: { richHtml?: string; text?: string } };
+    const field = res.data.children[0] as unknown as {
+      caption?: { richHtml?: string; text?: string };
+    };
     expect(field.caption?.richHtml).toMatch(/spacerun/i);
     expect(field.caption?.richHtml).toMatch(/underline/i);
   });
@@ -140,7 +141,8 @@ describe('caption trailing +/− right-aligned at reserve edge (vertically align
     let m: RegExpExecArray | null;
     while ((m = re.exec(content)) !== null) {
       let s = '';
-      for (let i = 0; i + 1 < m[3].length; i += 2) s += String.fromCharCode(parseInt(m[3].slice(i, i + 2), 16));
+      for (let i = 0; i + 1 < m[3].length; i += 2)
+        s += String.fromCharCode(parseInt(m[3].slice(i, i + 2), 16));
       if (s.includes('+')) plusAt.push(Number(m[1]));
     }
     expect(plusAt.length).toBeGreaterThanOrEqual(1);

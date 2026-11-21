@@ -1,5 +1,4 @@
-
-import { ScriptableNode, XfaNode } from './script-types';
+import { ScriptableNode } from './script-types';
 
 export interface SomResolutionResult {
   nodes: ScriptableNode[];
@@ -37,15 +36,40 @@ export function parseSomExpression(expression: string): SomSegment[] {
 }
 
 const XFA_PROPERTIES = new Set([
-  'rawValue', 'value', 'presence', 'access', 'mandatory', 'relevant',
-  'name', 'type', 'x', 'y', 'w', 'h',
-  'className', 'somExpression', 'index', 'parent',
-  'count', 'length', 'all', 'nodes',
+  'rawValue',
+  'value',
+  'presence',
+  'access',
+  'mandatory',
+  'relevant',
+  'name',
+  'type',
+  'x',
+  'y',
+  'w',
+  'h',
+  'className',
+  'somExpression',
+  'index',
+  'parent',
+  'count',
+  'length',
+  'all',
+  'nodes',
   'instanceManager',
-  'caption', 'border', 'margin', 'font', 'para',
-  'fillColor', 'borderColor', 'fontColor',
-  'validate', 'calculate', 'format',
-  'dataNode', 'boundNode',
+  'caption',
+  'border',
+  'margin',
+  'font',
+  'para',
+  'fillColor',
+  'borderColor',
+  'fontColor',
+  'validate',
+  'calculate',
+  'format',
+  'dataNode',
+  'boundNode',
 ]);
 
 export class SomExpressionResolver {
@@ -113,9 +137,7 @@ export class SomExpressionResolver {
     }
 
     if (trimmed.startsWith('$form.') || trimmed.startsWith('xfa.form.')) {
-      const rest = trimmed.startsWith('$form.')
-        ? trimmed.substring(6)
-        : trimmed.substring(9);
+      const rest = trimmed.startsWith('$form.') ? trimmed.substring(6) : trimmed.substring(9);
       return this.resolveFromRoot(rest);
     }
 
@@ -129,8 +151,11 @@ export class SomExpressionResolver {
       return this.resolveFromData(rest);
     }
 
-    if (trimmed.startsWith('$host') || trimmed.startsWith('$event')
-        || trimmed.startsWith('$layout')) {
+    if (
+      trimmed.startsWith('$host') ||
+      trimmed.startsWith('$event') ||
+      trimmed.startsWith('$layout')
+    ) {
       return { nodes: [], found: false, property: trimmed };
     }
 
@@ -156,7 +181,9 @@ export class SomExpressionResolver {
     const bases = first.wildcard
       ? matches
       : first.index !== undefined
-        ? matches[first.index] !== undefined ? [matches[first.index]] : []
+        ? matches[first.index] !== undefined
+          ? [matches[first.index]]
+          : []
         : matches.slice(0, 1);
     for (const base of bases) {
       const result = this.walkSegments(segments.slice(1), base);
@@ -265,9 +292,7 @@ export class SomExpressionResolver {
       if (node) nodes.push(node);
     }
 
-    return nodes.length
-      ? { nodes, found: true }
-      : { nodes: [], found: false };
+    return nodes.length ? { nodes, found: true } : { nodes: [], found: false };
   }
 
   private findContainingSubform(path: string): string | null {

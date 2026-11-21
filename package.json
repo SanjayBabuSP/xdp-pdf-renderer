@@ -18,18 +18,20 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "prettier --write src/ test/ && tsc",
     "build:watch": "tsc --watch",
     "test": "jest --forceExit",
     "test:unit": "jest --forceExit --testPathPattern=test/unit",
     "test:integration": "jest --forceExit --testPathPattern=test/integration",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint src --ext .ts --max-warnings 0",
+    "lint:fix": "eslint src --ext .ts --fix",
     "verify": "npm run build && node scripts/verify-pdf.mjs",
     "fonts:import": "node scripts/import-adobe-fonts.mjs",
     "locales:import": "node scripts/import-xfa-locale.mjs",
     "sanitize:forms": "node scripts/sanitize-forms.mjs",
     "sample-forms": "npm run build && node scripts/render-sample-forms.mjs",
     "format": "prettier --write src/ test/",
+    "format:check": "prettier --check src/ test/",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -67,7 +69,7 @@
     "pdfjs-dist": "^4.10.38",
     "pixelmatch": "^5.3.0",
     "pngjs": "^7.0.0",
-    "prettier": "^3.0.0",
+    "prettier": "^3.10.1",
     "ts-jest": "^29.0.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.70.0"

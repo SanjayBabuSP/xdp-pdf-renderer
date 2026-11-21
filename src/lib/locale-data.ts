@@ -28,6 +28,6 @@ export function listLocales(): string[] {
 }
 
 export function getCustomPatterns(lcid?: string): CustomPattern[] {
-  const scoped = lcid ? DATA.patterns[lcid] ?? DATA.patterns[lcid.replace('-', '_')] ?? [] : [];
+  const scoped = lcid ? (DATA.patterns[lcid] ?? DATA.patterns[lcid.replace('-', '_')] ?? []) : [];
   return [...scoped, ...DATA.globalPatterns];
 }

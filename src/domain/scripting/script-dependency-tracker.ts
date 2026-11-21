@@ -1,4 +1,3 @@
-
 import { ScriptableNode } from './script-types';
 import { ScriptEntry } from './xfa-object-model';
 
@@ -32,9 +31,8 @@ export function extractFieldReferences(
   language: 'formcalc' | 'javascript'
 ): Set<string> {
   const refs = new Set<string>();
-  const patterns = language === 'formcalc'
-    ? FORMCALC_FIELD_REF_PATTERNS
-    : JAVASCRIPT_FIELD_REF_PATTERNS;
+  const patterns =
+    language === 'formcalc' ? FORMCALC_FIELD_REF_PATTERNS : JAVASCRIPT_FIELD_REF_PATTERNS;
 
   for (const pattern of patterns) {
     pattern.lastIndex = 0;
@@ -52,14 +50,38 @@ export function extractFieldReferences(
 
 function isKnownBuiltin(ref: string): boolean {
   const builtins = new Set([
-    'rawValue', 'value', 'presence', 'access', 'mandatory',
-    'parent', 'length', 'count', 'all', 'nodes',
-    'className', 'somExpression', 'instanceManager',
-    'Math', 'Date', 'String', 'Number', 'Boolean',
-    'console', 'log', 'warn', 'error',
-    'JSON', 'parse', 'stringify',
-    'host', 'event', 'layout', 'record',
-    'alert', 'messageBox', 'print',
+    'rawValue',
+    'value',
+    'presence',
+    'access',
+    'mandatory',
+    'parent',
+    'length',
+    'count',
+    'all',
+    'nodes',
+    'className',
+    'somExpression',
+    'instanceManager',
+    'Math',
+    'Date',
+    'String',
+    'Number',
+    'Boolean',
+    'console',
+    'log',
+    'warn',
+    'error',
+    'JSON',
+    'parse',
+    'stringify',
+    'host',
+    'event',
+    'layout',
+    'record',
+    'alert',
+    'messageBox',
+    'print',
   ]);
   return builtins.has(ref);
 }
@@ -128,9 +150,11 @@ function resolveRefToPath(
   return null;
 }
 
-function topologicalSort(
-  dependencies: Map<string, FieldDependency>
-): { order: string[]; hasCycles: boolean; cyclePaths: string[] } {
+function topologicalSort(dependencies: Map<string, FieldDependency>): {
+  order: string[];
+  hasCycles: boolean;
+  cyclePaths: string[];
+} {
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, Set<string>>();
 
@@ -168,10 +192,12 @@ function topologicalSort(
   const hasCycles = order.length < dependencies.size;
   const cyclePaths: string[] = [];
   if (hasCycles) {
+    const orderedPaths = new Set(order);
     for (const [path] of dependencies) {
-      if (!order.includes(path)) {
+      if (!orderedPaths.has(path)) {
         cyclePaths.push(path);
         order.push(path);
+        orderedPaths.add(path);
       }
     }
   }

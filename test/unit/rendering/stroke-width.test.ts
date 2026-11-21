@@ -1,6 +1,6 @@
-
 import {
   DEFAULT_EDGE_THICKNESS_PT,
+  quantizeDeviceStrokeWidth,
   quantizeStrokeWidth,
 } from '../../../src/rendering/border-style';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
@@ -68,34 +68,49 @@ describe('quantizeStrokeWidth', () => {
   });
 });
 
+describe('quantizeDeviceStrokeWidth', () => {
+  it('rounds up to the 600dpi print grid (multiples of 0.12pt)', () => {
+    expect(quantizeDeviceStrokeWidth(0.5)).toBe(0.6);
+    expect(quantizeDeviceStrokeWidth(1.067)).toBe(1.08);
+    expect(quantizeDeviceStrokeWidth(1.634)).toBe(1.68);
+    expect(quantizeDeviceStrokeWidth(0.24)).toBe(0.24);
+  });
+
+  it('passes through non-positive and non-finite widths', () => {
+    expect(quantizeDeviceStrokeWidth(0)).toBe(0);
+    expect(quantizeDeviceStrokeWidth(-1)).toBe(-1);
+    expect(quantizeDeviceStrokeWidth(NaN)).toBeNaN();
+  });
+});
+
 describe('rendered stroke widths', () => {
-  it('emits 1.067 for a 0.3764mm edge', async () => {
+  it('emits 1.08 for a 0.3764mm edge on the print device grid', async () => {
     const result = await renderFormToPdf(xdp('0.3764mm'), XSD, DATA, {});
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)1\.067 w(\n|$)/);
+    expect(content).toMatch(/(^|\n)1\.08 w(\n|$)/);
     expect(content).not.toContain('1.06696226');
   });
 
-  it('emits 1.634 for a 0.5764mm edge', async () => {
+  it('emits 1.68 for a 0.5764mm edge on the print device grid', async () => {
     const result = await renderFormToPdf(xdp('0.5764mm'), XSD, DATA, {});
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)1\.634 w(\n|$)/);
+    expect(content).toMatch(/(^|\n)1\.68 w(\n|$)/);
     expect(content).not.toContain('1.63389226');
   });
 
-  it('emits a clean 0.5 for a point-authored edge', async () => {
+  it('emits a device-grid 0.6 for a point-authored edge', async () => {
     const result = await renderFormToPdf(xdp('0.5pt'), XSD, DATA, {});
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    expect(content).toMatch(/(^|\n)0\.5 w(\n|$)/);
+    expect(content).toMatch(/(^|\n)0\.6 w(\n|$)/);
   });
 
   it('never emits an unrounded millimetre width', async () => {
@@ -106,7 +121,7 @@ describe('rendered stroke widths', () => {
       const content = await contentStream(result.data);
       const widths = [...content.matchAll(/(?:^|\n)([\d.]+) w(\n|$)/g)].map((m) => Number(m[1]));
       for (const w of widths) {
-        expect(w).toBe(quantizeStrokeWidth(w));
+        expect(w).toBe(quantizeDeviceStrokeWidth(w));
         expect(w).toBeCloseTo(w, 3);
       }
       expect(content).not.toContain(String(0.3764 * MM_TO_PT));

@@ -74,15 +74,15 @@ describe('G5 — instanceManager', () => {
   });
 
   it('exposes a live count', () => {
-    const layout = run('$.instanceManager.addInstance(); $.row.rawValue = $.instanceManager.count;');
+    const layout = run(
+      '$.instanceManager.addInstance(); $.row.rawValue = $.instanceManager.count;'
+    );
     expect(rows(layout)?.children).toHaveLength(2);
     expect(rows(layout)?.children[0].name).toBe('row');
   });
 
   it('moveInstance keeps the same number of instances', () => {
-    const layout = run(
-      '$.instanceManager.setInstances(3); $.instanceManager.moveInstance(0, 2);'
-    );
+    const layout = run('$.instanceManager.setInstances(3); $.instanceManager.moveInstance(0, 2);');
     expect(rows(layout)?.children).toHaveLength(3);
   });
 });

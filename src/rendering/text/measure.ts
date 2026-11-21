@@ -1,4 +1,3 @@
-
 import type { PDFFont } from 'pdf-lib';
 
 export interface MeasureOptions {

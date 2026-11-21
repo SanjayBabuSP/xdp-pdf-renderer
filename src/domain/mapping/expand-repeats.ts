@@ -27,11 +27,7 @@ function resolveInScope(ref: string, scope: DataObject, root: DataObject): DataV
   return resolveXPathRelative(ref, scope) ?? resolveXPath(ref, root);
 }
 
-function expandNodesScoped(
-  nodes: LayoutNode[],
-  scope: DataObject,
-  root: DataObject
-): LayoutNode[] {
+function expandNodesScoped(nodes: LayoutNode[], scope: DataObject, root: DataObject): LayoutNode[] {
   const result: LayoutNode[] = [];
   for (const node of nodes) {
     if (node.type === 'subform') {
@@ -53,11 +49,7 @@ function isRepeating(node: SubformNode): boolean {
   return node.occur?.max === -1 || (node.occur?.max !== undefined && node.occur.max > 1);
 }
 
-function expandSubformScoped(
-  node: SubformNode,
-  scope: DataObject,
-  root: DataObject
-): LayoutNode[] {
+function expandSubformScoped(node: SubformNode, scope: DataObject, root: DataObject): LayoutNode[] {
   if (isRepeating(node) && node.bindMatch === 'dataRef' && node.bindRef) {
     return expandRepeatingSubform(node, scope, root);
   }
@@ -119,11 +111,7 @@ function expandByDescendantArray(
   return instances;
 }
 
-function applyArrayItem(
-  children: LayoutNode[],
-  bindRef: string,
-  value: DataValue
-): LayoutNode[] {
+function applyArrayItem(children: LayoutNode[], bindRef: string, value: DataValue): LayoutNode[] {
   return children.map((child) => {
     if (child.type === 'field' && child.bindMatch === 'dataRef' && child.bindRef === bindRef) {
       return { ...child, resolvedValue: value } as LayoutNode;

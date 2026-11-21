@@ -1,4 +1,18 @@
-import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, PaginatedLayout, PaginatedPage, PageDefinition, Position, BreakValue, KeepSpec } from '../../types';
+import {
+  Result,
+  LayoutModel,
+  LayoutNode,
+  SubformNode,
+  FieldNode,
+  DrawNode,
+  ExclGroupNode,
+  PaginatedLayout,
+  PaginatedPage,
+  PageDefinition,
+  Position,
+  BreakValue,
+  KeepSpec,
+} from '../../types';
 import { success } from '../../lib/result-type';
 
 const EPS = 1e-6;
@@ -9,7 +23,10 @@ interface WalkState {
   ca1: { x: number; y: number; w: number; h: number };
 }
 
-export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Result<PaginatedLayout> {
+export function applyPagination(
+  layout: LayoutModel,
+  pageHeightPts?: number
+): Result<PaginatedLayout> {
   if (layout.pages.length === 0) {
     const pageDef = defaultPageDef();
     const pages: PaginatedPage[] = [
@@ -21,7 +38,11 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
         children: layout.children,
       },
     ];
-    return success({ pages, rootSubformName: layout.rootSubformName, rootEvents: layout.rootEvents });
+    return success({
+      pages,
+      rootSubformName: layout.rootSubformName,
+      rootEvents: layout.rootEvents,
+    });
   }
 
   const first = layout.pages[0];
@@ -151,9 +172,14 @@ function walkContainer(
       if (node.type === 'subform') {
         node = { ...node, children: inner.nodes } as SubformNode;
         const boxBottom = node.position!.y! + (node.position!.h ?? 0);
-        const contentBottom = Number.isFinite(inner.bottom) ? Math.max(inner.bottom, boxBottom) : boxBottom;
+        const contentBottom = Number.isFinite(inner.bottom)
+          ? Math.max(inner.bottom, boxBottom)
+          : boxBottom;
         if (contentBottom > boxBottom && !isRowNode(node)) {
-          node = { ...node, position: { ...node.position!, h: contentBottom - node.position!.y! } } as SubformNode;
+          node = {
+            ...node,
+            position: { ...node.position!, h: contentBottom - node.position!.y! },
+          } as SubformNode;
         }
       } else {
         node = { ...node, children: inner.nodes as FieldNode[] } as ExclGroupNode;

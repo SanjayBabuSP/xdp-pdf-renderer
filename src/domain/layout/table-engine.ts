@@ -12,7 +12,13 @@ function cellColSpan(node: LayoutNode): number {
   return Math.max(1, span ?? 1);
 }
 
-function spanWidth(colWidths: number[], col: number, span: number, availableWidth: number, colCount: number): number {
+function spanWidth(
+  colWidths: number[],
+  col: number,
+  span: number,
+  availableWidth: number,
+  colCount: number
+): number {
   let w = 0;
   for (let j = col; j < col + span && j < colWidths.length; j++) {
     w += colWidths[j];
@@ -51,6 +57,7 @@ function layoutRow(
       availableWidth: cw,
       stretchWidth: !fixedHeight,
     });
+    result.node.position = { ...result.node.position, w: cw };
     children.push(result.node);
     col += span;
     xOffset += cw;
@@ -67,10 +74,14 @@ function layoutRow(
 
   const rowHeight = hasContentCell ? contentHeight : maxHeight;
   const width = resolveExtent(row.position, 'width', xOffset);
+  const uniformChildren = children.map((child) => ({
+    ...child,
+    position: { ...child.position, h: rowHeight },
+  }));
   return {
     node: {
       ...row,
-      children: row.layout === 'rl-row' ? children.reverse() : children,
+      children: row.layout === 'rl-row' ? uniformChildren.reverse() : uniformChildren,
       position: { ...row.position, x: ctx.x, y: ctx.y + yOffset, w: width, h: rowHeight },
     } as SubformNode,
     height: rowHeight,
@@ -116,7 +127,7 @@ function layoutSubformSetRows(
           layoutChild
         )
       : layoutChild(child, { x: ctx.x, y, availableWidth: ctx.availableWidth });
-    const rowHeight = Math.max(result.height, 7 * 72 / 25.4);
+    const rowHeight = Math.max(result.height, (7 * 72) / 25.4);
     children.push({
       ...result.node,
       position: { ...result.node.position, h: rowHeight },
@@ -155,11 +166,23 @@ export function layoutTableSubform(
 
   for (const child of node.children) {
     if (isRow(child)) {
-      const r = layoutRow(child as SubformNode, { ...ctx, x: baseX, y: baseY, availableWidth: contentW }, yOffset, colWidths, layoutChild);
+      const r = layoutRow(
+        child as SubformNode,
+        { ...ctx, x: baseX, y: baseY, availableWidth: contentW },
+        yOffset,
+        colWidths,
+        layoutChild
+      );
       children.push(r.node);
       yOffset += r.height;
     } else if (child.type === 'subform' && child.isSubformSet) {
-      const r = layoutSubformSetRows(child, { ...ctx, x: baseX, y: baseY, availableWidth: contentW }, yOffset, colWidths, layoutChild);
+      const r = layoutSubformSetRows(
+        child,
+        { ...ctx, x: baseX, y: baseY, availableWidth: contentW },
+        yOffset,
+        colWidths,
+        layoutChild
+      );
       children.push(r.node);
       yOffset += r.height;
     } else {

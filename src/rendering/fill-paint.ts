@@ -1,4 +1,3 @@
-
 import {
   PDFPage,
   PDFName,
@@ -69,7 +68,7 @@ function buildNormalisedShading(
   doc: PDFPage['doc'],
   fillType: string,
   c0: RgbColor,
-  c1: RgbColor,
+  c1: RgbColor
 ): PDFDict {
   const fn = buildColorFunction(doc, c0, c1);
   const fnRef = doc.context.register(fn);
@@ -141,7 +140,7 @@ export function drawGradientFill(
   x: number,
   y: number,
   w: number,
-  h: number,
+  h: number
 ): void {
   if (w <= 0 || h <= 0) return;
 
@@ -163,6 +162,6 @@ export function drawGradientFill(
     endPath(),
     concatTransformationMatrix(w, 0, 0, h, x, y),
     PDFOperator.of(Ops.ShadingFill, [PDFName.of(shadingName)]),
-    popGraphicsState(),
+    popGraphicsState()
   );
 }

@@ -1,4 +1,3 @@
-
 export { applyPdfSecurity } from './pdf-security';
 export type { PDFSecurityOptions, PDFPermissions } from './pdf-security';
 
@@ -11,7 +10,12 @@ export type { AnnotationOptions, AnnotationType, AnnotationFlag } from './pdf-an
 export { createLayers, setLayerState, addContentToLayer } from './pdf-layers';
 export type { OCGLayer, LayerState } from './pdf-layers';
 
-export { flattenFormFields, readOnlyFormFields, removeFormFields, listFormFields } from './pdf-form-flatten';
+export {
+  flattenFormFields,
+  readOnlyFormFields,
+  removeFormFields,
+  listFormFields,
+} from './pdf-form-flatten';
 export type { FlattenOptions } from './pdf-form-flatten';
 
 export { setTabOrder, setGlobalTabOrder, setTabOrderForPages } from './pdf-tab-order';
@@ -35,7 +39,11 @@ export {
 } from './xfa-event-bubbling';
 export type { XfaEvent, EventPhase, EventHandler } from './xfa-event-bubbling';
 
-export { validateXfaNamespaces, validateNamespacePrefixes, getVersionFeatures } from './xfa-namespace-validation';
+export {
+  validateXfaNamespaces,
+  validateNamespacePrefixes,
+  getVersionFeatures,
+} from './xfa-namespace-validation';
 export type { NamespaceValidationResult } from './xfa-namespace-validation';
 
 export { applyDocumentMetadata, setNeedsRendering, preserveInfoOverrides } from './pdf-metadata';

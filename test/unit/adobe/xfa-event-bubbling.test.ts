@@ -1,4 +1,9 @@
-import { XfaEventDispatcher, eventBubbles, BUBBLING_EVENTS, NON_BUBBLING_EVENTS } from '../../../src/adobe/xfa-event-bubbling';
+import {
+  XfaEventDispatcher,
+  eventBubbles,
+  BUBBLING_EVENTS,
+  NON_BUBBLING_EVENTS,
+} from '../../../src/adobe/xfa-event-bubbling';
 
 const parents: Record<string, string | null> = {
   root: null,
@@ -32,7 +37,9 @@ describe('G3 — XfaEventDispatcher propagation', () => {
   it('runs capture listeners root → target before the target phase', () => {
     const order: string[] = [];
     const d = new XfaEventDispatcher<string>(getParent);
-    d.addEventListener('container', 'click', () => order.push('capture-container'), { capture: true });
+    d.addEventListener('container', 'click', () => order.push('capture-container'), {
+      capture: true,
+    });
     d.addEventListener('field', 'click', () => order.push('target-field'));
     d.addEventListener('container', 'click', () => order.push('bubble-container'));
 

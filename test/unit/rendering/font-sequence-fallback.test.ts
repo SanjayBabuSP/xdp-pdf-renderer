@@ -30,7 +30,7 @@ describe('G16 — FontManager font-sequence fallback', () => {
       expect((await manager.getFont('SimSun-ExtB')).name).toBe('AdobeSongStd-Light');
       expect((await manager.getFont('SimSun')).name).toBe('AdobeSongStd-Light');
       expect((await manager.getFont('NoSuchFontXYZ')).name).toBe('DejaVuSans');
-    },
+    }
   );
 
   it('renders CJK text with the sequenced face without failing', async () => {

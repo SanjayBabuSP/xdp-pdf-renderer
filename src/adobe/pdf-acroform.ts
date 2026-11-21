@@ -34,7 +34,7 @@ interface AcroFieldSpec {
 export function createAcroFormFields(
   doc: PDFDocument,
   layout: PaginatedLayout,
-  options: AcroFormOptions = {},
+  options: AcroFormOptions = {}
 ): void {
   const honourTraversal = options.tabOrderFromTraversal !== false;
   const specs = collectFields(doc, layout, honourTraversal);
@@ -106,7 +106,7 @@ function safeString(value: string): PDFString | PDFHexString {
 function collectFields(
   doc: PDFDocument,
   layout: PaginatedLayout,
-  honourTraversal: boolean,
+  honourTraversal: boolean
 ): AcroFieldSpec[] {
   const out: AcroFieldSpec[] = [];
   layout.pages.forEach((page, index) => {
@@ -130,9 +130,9 @@ function collectNode(
   page: PDFPage,
   pageHeight: number,
   out: AcroFieldSpec[],
-  honourTraversal: boolean,
+  honourTraversal: boolean
 ): void {
-  const path = prefix ? `${prefix}.${node.name ?? ''}` : node.name ?? '';
+  const path = prefix ? `${prefix}.${node.name ?? ''}` : (node.name ?? '');
 
   if (node.type === 'field') {
     if (node.presence === 'hidden' || node.presence === 'inactive') return;
@@ -152,7 +152,7 @@ function toAcroField(
   node: FieldNode,
   path: string,
   page: PDFPage,
-  pageHeight: number,
+  pageHeight: number
 ): AcroFieldSpec | null {
   const ui = node.ui;
   if (!ui || ui.type === 'imageEdit' || ui.type === 'unknown') return null;
@@ -208,7 +208,7 @@ function toAcroField(
 function orderedChildren(
   nodes: LayoutNode[],
   traversalFields: string[] | undefined,
-  honourTraversal: boolean,
+  honourTraversal: boolean
 ): LayoutNode[] {
   if (!honourTraversal || !traversalFields || traversalFields.length === 0) return nodes;
   const rank = new Map(traversalFields.map((name, i) => [name, i]));

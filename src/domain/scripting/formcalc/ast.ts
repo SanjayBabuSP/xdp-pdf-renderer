@@ -1,4 +1,3 @@
-
 export type FormCalcNode =
   | Program
   | ExprStmt

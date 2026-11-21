@@ -75,7 +75,11 @@ function setup(): LayoutModel {
 describe('G3 — dispatchInteractiveEvent', () => {
   it('runs the target handler and bubbles to ancestor handlers', () => {
     const layout = setup();
-    const result = dispatchInteractiveEvent(layout, {}, { activity: 'click', ref: 'value.content.target' });
+    const result = dispatchInteractiveEvent(
+      layout,
+      {},
+      { activity: 'click', ref: 'value.content.target' }
+    );
     expect(result.success).toBe(true);
     expect(findField(layout.children, 'target')?.resolvedValue).toBe('clicked');
     expect(findField(layout.children, 'note')?.resolvedValue).toBe('subform-click');
@@ -98,28 +102,40 @@ describe('G3 — dispatchInteractiveEvent', () => {
 
   it('applies the supplied value to the target before handlers run', () => {
     const layout = setup();
-    dispatchInteractiveEvent(layout, {}, {
-      activity: 'change',
-      ref: 'value.content.target',
-      value: 'typed',
-    });
+    dispatchInteractiveEvent(
+      layout,
+      {},
+      {
+        activity: 'change',
+        ref: 'value.content.target',
+        value: 'typed',
+      }
+    );
     expect(findField(layout.children, 'target')?.resolvedValue).toBe('typed');
   });
 
   it('is a no-op for an unknown target', () => {
     const layout = setup();
-    const result = dispatchInteractiveEvent(layout, {}, { activity: 'click', ref: 'value.content.nope' });
+    const result = dispatchInteractiveEvent(
+      layout,
+      {},
+      { activity: 'click', ref: 'value.content.nope' }
+    );
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.scriptsExecuted).toBe(0);
   });
 
   it('honours skipScripts', () => {
     const layout = setup();
-    const result = dispatchInteractiveEvent(layout, {}, {
-      activity: 'click',
-      ref: 'value.content.target',
-      config: { skipScripts: true },
-    });
+    const result = dispatchInteractiveEvent(
+      layout,
+      {},
+      {
+        activity: 'click',
+        ref: 'value.content.target',
+        config: { skipScripts: true },
+      }
+    );
     expect(result.success).toBe(true);
     expect(findField(layout.children, 'target')?.resolvedValue).toBeUndefined();
   });

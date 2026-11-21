@@ -1,7 +1,4 @@
-import {
-  layoutLines,
-  paraMetrics,
-} from '../../../src/rendering/text/line-metrics';
+import { layoutLines, paraMetrics } from '../../../src/rendering/text/line-metrics';
 import { breakLinesInfo } from '../../../src/rendering/text/line-breaker';
 
 const measure = (s: string): number => s.length;

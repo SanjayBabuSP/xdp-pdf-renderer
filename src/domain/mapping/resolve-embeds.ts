@@ -1,4 +1,3 @@
-
 import { LayoutModel, LayoutNode } from '../../types';
 import { formatValue } from '../../lib/value-format';
 
@@ -28,7 +27,6 @@ export function resolveXfaEmbedsInHtml(
   let match: RegExpExecArray | null;
   while ((match = attr.exec(html)) !== null) {
     const attrStart = match.index;
-    const attrEnd = match.index + match[0].length;
     const id = match[2].slice(1);
 
     const openReal = html.lastIndexOf('<', attrStart);
@@ -67,7 +65,8 @@ export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
 
   const put = (key: string | undefined, node: LayoutNode): void => {
     if (!key || index.has(key)) return;
-    const value = 'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined;
+    const value =
+      'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined;
     const picture =
       'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined;
     index.set(key, {

@@ -1,4 +1,3 @@
-
 export {
   dispatchScripts,
   dispatchPostLayoutScripts,
@@ -11,7 +10,12 @@ export type {
   ScriptIndex,
   InteractiveEventOptions,
 } from './event-dispatcher';
-export { createFieldAccessor, buildNodeMap, collectScripts, scriptableToXfaNode } from './xfa-object-model';
+export {
+  createFieldAccessor,
+  buildNodeMap,
+  collectScripts,
+  scriptableToXfaNode,
+} from './xfa-object-model';
 export type { ScriptEntry } from './xfa-object-model';
 export type {
   ScriptSpec,

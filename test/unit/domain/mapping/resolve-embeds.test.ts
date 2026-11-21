@@ -49,19 +49,13 @@ describe('xfa:embed resolution', () => {
   });
 
   it('does not swallow a neighbouring tag when searching backwards for the open angle', () => {
-    const html =
-      '<div><span xfa:embedType="uri" xfa:embedMode="raw" xfa:embed="#unit"/></div>';
+    const html = '<div><span xfa:embedType="uri" xfa:embedMode="raw" xfa:embed="#unit"/></div>';
     expect(resolveXfaEmbedsInHtml(html, lookup)).toBe('<div>kg/m3</div>');
   });
 });
 
 describe('buildEmbedIndex', () => {
-  const field = (
-    name: string,
-    uid: string,
-    value: unknown,
-    formatPicture?: string
-  ): FieldNode => ({
+  const field = (name: string, uid: string, value: unknown, formatPicture?: string): FieldNode => ({
     type: 'field',
     name,
     uid,

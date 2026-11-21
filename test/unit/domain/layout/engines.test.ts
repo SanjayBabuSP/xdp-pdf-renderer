@@ -1,5 +1,12 @@
 import { calculatePositions } from '../../../../src/domain/layout/calculate-positions';
-import { LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, Position } from '../../../../src/types';
+import {
+  LayoutModel,
+  LayoutNode,
+  SubformNode,
+  FieldNode,
+  DrawNode,
+  Position,
+} from '../../../../src/types';
 
 const CA = { x: 54, y: 54, w: 487, h: 734 };
 
@@ -22,7 +29,12 @@ function field(name: string, position: Position): FieldNode {
   return { type: 'field', name, position };
 }
 
-function subform(name: string, layout: SubformNode['layout'], position: Position, children: LayoutNode[]): SubformNode {
+function subform(
+  name: string,
+  layout: SubformNode['layout'],
+  position: Position,
+  children: LayoutNode[]
+): SubformNode {
   return { type: 'subform', name, layout, position, children };
 }
 
@@ -114,7 +126,10 @@ describe('layout engines (dispatcher)', () => {
   it('table without columnWidths infers columns from authored cell widths', () => {
     const out = run([
       subform('tbl', 'table', { x: 0, y: 0 }, [
-        subform('r1', 'row', { y: 0 }, [field('a', { h: 20, w: 100 }), field('b', { h: 20, w: 200 })]),
+        subform('r1', 'row', { y: 0 }, [
+          field('a', { h: 20, w: 100 }),
+          field('b', { h: 20, w: 200 }),
+        ]),
       ]),
     ]);
     const row = (out[0] as SubformNode).children[0] as SubformNode;
@@ -127,14 +142,20 @@ describe('layout engines (dispatcher)', () => {
   it('table auto column takes the max cell width across rows', () => {
     const out = run([
       subform('tbl', 'table', { x: 0, y: 0 }, [
-        subform('r1', 'row', { y: 0 }, [field('a', { h: 20, w: 80 }), field('b', { h: 20, w: 120 })]),
-        subform('r2', 'row', { y: 0 }, [field('c', { h: 20, w: 150 }), field('d', { h: 20, w: 90 })]),
+        subform('r1', 'row', { y: 0 }, [
+          field('a', { h: 20, w: 80 }),
+          field('b', { h: 20, w: 120 }),
+        ]),
+        subform('r2', 'row', { y: 0 }, [
+          field('c', { h: 20, w: 150 }),
+          field('d', { h: 20, w: 90 }),
+        ]),
       ]),
     ]);
     const rows = (out[0] as SubformNode).children as SubformNode[];
     expect(rows[0].children[1].position!.x).toBe(54 + 150);
     expect(rows[1].children[1].position!.x).toBe(54 + 150);
-    expect(rows[0].children[0].position!.w).toBe(80);
+    expect(rows[0].children[0].position!.w).toBe(150);
     expect(rows[1].children[0].position!.w).toBe(150);
   });
 

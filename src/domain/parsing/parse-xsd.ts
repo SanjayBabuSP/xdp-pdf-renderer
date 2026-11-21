@@ -3,7 +3,11 @@ import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild, toArray, attr } from '../../lib/xml-utils';
 import { ERROR_CODES } from '../../errors/error-codes';
 
-type SimpleXsdType = SchemaField extends { type: infer T } ? (T extends 'complex' ? never : T) : never;
+type SimpleXsdType = SchemaField extends { type: infer T }
+  ? T extends 'complex'
+    ? never
+    : T
+  : never;
 
 const XSD_TYPE_MAP: Record<string, SimpleXsdType> = {
   'xs:string': 'string',
@@ -98,11 +102,9 @@ function parseSequenceFields(sequence: unknown): SchemaFields {
 }
 
 function findXsElements(sequence: unknown): unknown[] {
-  return (
-    toArray<unknown>(getChild(sequence, 'xs:element')).filter(Boolean).concat(
-      toArray<unknown>(getChild(sequence, 'xsd:element')).filter(Boolean)
-    )
-  );
+  return toArray<unknown>(getChild(sequence, 'xs:element'))
+    .filter(Boolean)
+    .concat(toArray<unknown>(getChild(sequence, 'xsd:element')).filter(Boolean));
 }
 
 function parseElement(el: unknown): SchemaField {

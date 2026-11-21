@@ -8,13 +8,7 @@ import { expandRepeats } from '../../../src/domain/mapping/expand-repeats';
 import { resolveXfaEmbeds } from '../../../src/domain/mapping/resolve-embeds';
 import { dispatchScripts } from '../../../src/domain/scripting';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
-import {
-  LayoutModel,
-  LayoutNode,
-  FieldNode,
-  DrawNode,
-  SubformNode,
-} from '../../../src/types';
+import { LayoutModel, LayoutNode, FieldNode, DrawNode, SubformNode } from '../../../src/types';
 import {
   contentStream,
   extractText,
@@ -187,9 +181,7 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
     });
 
     it('force-shows it in previewMode', async () => {
-      const stream = await contentStream(
-        await render('synthetic-no-preview.xml', true)
-      );
+      const stream = await contentStream(await render('synthetic-no-preview.xml', true));
       expect(extractText(stream)).toContain('DRAFT');
       expect(rotatedTextMatrices(stream, 30).length).toBeGreaterThan(0);
     });

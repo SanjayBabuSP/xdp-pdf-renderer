@@ -5,7 +5,11 @@ import {
   FormCalcParseError,
 } from '../../../../src/domain/scripting/formcalc';
 import type { FieldAccessor } from '../../../../src/domain/scripting/formcalc';
-import { FormCalcLexer, decodeFormCalcString, TokenType } from '../../../../src/domain/scripting/formcalc/lexer';
+import {
+  FormCalcLexer,
+  decodeFormCalcString,
+  TokenType,
+} from '../../../../src/domain/scripting/formcalc/lexer';
 
 function makeAccessor(fields: Record<string, unknown>): FieldAccessor {
   return {
@@ -64,11 +68,27 @@ describe('FormCalc lexer', () => {
   });
 
   it('maps keywords to statement tokens', () => {
-    expect(tokens('if then else elseif endif end for endfor foreach endfor while endwhile repeat until exit return')).toEqual([
-      'IF:if', 'THEN:then', 'ELSE:else', 'ELSEIF:elseif', 'ENDIF:endif',
-      'END:end', 'FOR:for', 'ENDFOR:endfor', 'FOREACH:foreach', 'ENDFOR:endfor',
-      'WHILE:while', 'ENDWHILE:endwhile', 'REPEAT:repeat', 'UNTIL:until',
-      'RETURN:exit', 'RETURN:return',
+    expect(
+      tokens(
+        'if then else elseif endif end for endfor foreach endfor while endwhile repeat until exit return'
+      )
+    ).toEqual([
+      'IF:if',
+      'THEN:then',
+      'ELSE:else',
+      'ELSEIF:elseif',
+      'ENDIF:endif',
+      'END:end',
+      'FOR:for',
+      'ENDFOR:endfor',
+      'FOREACH:foreach',
+      'ENDFOR:endfor',
+      'WHILE:while',
+      'ENDWHILE:endwhile',
+      'REPEAT:repeat',
+      'UNTIL:until',
+      'RETURN:exit',
+      'RETURN:return',
     ]);
   });
 
@@ -336,7 +356,9 @@ describe('string and encoding functions (doc goldens)', () => {
   it('WordNum renders doc examples (hyphenated units lowercase)', () => {
     expect(ev('WordNum(123.45)')).toBe('One Hundred and Twenty-three Dollars');
     expect(ev('WordNum(123.45, 1)')).toBe('One Hundred and Twenty-three Dollars');
-    expect(ev('WordNum(1154.67, 2)')).toBe('One Thousand One Hundred Fifty-four Dollars And Sixty-seven Cents');
+    expect(ev('WordNum(1154.67, 2)')).toBe(
+      'One Thousand One Hundred Fifty-four Dollars And Sixty-seven Cents'
+    );
     expect(ev('WordNum(23)')).toBe('Twenty-three Dollars');
     expect(ev('WordNum(54, 0)')).toBe('Fifty-four Dollars');
     expect(ev('WordNum(67, 2)')).toBe('Sixty-seven Dollars');
@@ -545,7 +567,9 @@ describe('control flow', () => {
   });
 
   it('foreach over a list', () => {
-    expect(ev('s = ""\nforeach x in items\n  s = s + x\nendfor\ns', { items: ['a', 'b', 'c'] })).toBe('abc');
+    expect(
+      ev('s = ""\nforeach x in items\n  s = s + x\nendfor\ns', { items: ['a', 'b', 'c'] })
+    ).toBe('abc');
   });
 
   it('exit terminates the script immediately', () => {
@@ -578,9 +602,9 @@ describe('xfa.resolveNode host method', () => {
   });
 
   it('treats unresolvable nodes as null instead of aborting the script', () => {
-    expect(ev('if (xfa.resolveNode("xfa.record.Nope").value == "true") then 1 else 0 endif', {})).toBe(
-      0
-    );
+    expect(
+      ev('if (xfa.resolveNode("xfa.record.Nope").value == "true") then 1 else 0 endif', {})
+    ).toBe(0);
   });
 
   it('writes back through .value assignment targets', () => {

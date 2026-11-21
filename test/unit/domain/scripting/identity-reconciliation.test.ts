@@ -15,11 +15,7 @@ describe('identity-based reconciliation', () => {
     ...extra,
   });
 
-  const makeScriptable = (
-    key: string,
-    path: string,
-    layoutNode: FieldNode
-  ): ScriptableNode => ({
+  const makeScriptable = (key: string, path: string, layoutNode: FieldNode): ScriptableNode => ({
     type: 'field',
     name: 'cell',
     key,
@@ -177,9 +173,7 @@ describe('duplicate-named siblings through the real dispatcher', () => {
         }
       }
     };
-    const subforms = pre.data.layout.children.filter(
-      (n): n is SubformNode => n.type === 'subform'
-    );
+    const subforms = pre.data.layout.children.filter((n): n is SubformNode => n.type === 'subform');
     for (const s of subforms) walk(s.children, s.name ?? '');
 
     expect(flags).toHaveLength(2);

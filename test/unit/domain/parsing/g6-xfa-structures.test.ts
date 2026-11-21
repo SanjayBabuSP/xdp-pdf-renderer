@@ -5,7 +5,14 @@ import { createXfaFormProxy } from '../../../../src/domain/scripting/js-engine/x
 import { FormCalcParser } from '../../../../src/domain/scripting/formcalc/parser';
 import { FormCalcEvaluator } from '../../../../src/domain/scripting/formcalc/evaluator';
 import { formatValue } from '../../../../src/lib/value-format';
-import { LayoutModel, LayoutNode, FieldNode, SubformNode, DrawNode, ExclGroupNode } from '../../../../src/types';
+import {
+  LayoutModel,
+  LayoutNode,
+  FieldNode,
+  SubformNode,
+  DrawNode,
+  ExclGroupNode,
+} from '../../../../src/types';
 
 const PAGE = `
       <pageSet name="MasterPage">
@@ -101,16 +108,12 @@ describe('G6 — <assist>', () => {
   });
 
   it('supports writing $.assist.toolTip back onto the layout node', () => {
-    const layout = parseTemplate(
-      `<field name="n"><assist><toolTip>old</toolTip></assist></field>`
-    );
+    const layout = parseTemplate(`<field name="n"><assist><toolTip>old</toolTip></assist></field>`);
     const index = buildScriptIndex(layout);
     const self = index.allNodes.get('value.n')!;
     const acc = createFieldAccessor(index.allNodes, {});
     acc.setCurrentKey?.(self.key ?? null);
-    new FormCalcEvaluator(acc).evaluate(
-      new FormCalcParser(`$.assist.toolTip = "new"`).parse()
-    );
+    new FormCalcEvaluator(acc).evaluate(new FormCalcParser(`$.assist.toolTip = "new"`).parse());
     expect((self.layoutNode as FieldNode).assist?.toolTip).toBe('new');
   });
 
@@ -133,9 +136,7 @@ describe('G6 — <extras>', () => {
   });
 
   it('is readable as $.extras.<key> from FormCalc', () => {
-    const layout = parseTemplate(
-      `<field name="n"><extras><owner value="QA"/></extras></field>`
-    );
+    const layout = parseTemplate(`<field name="n"><extras><owner value="QA"/></extras></field>`);
     const index = buildScriptIndex(layout);
     const self = index.allNodes.get('value.n')!;
     const acc = createFieldAccessor(index.allNodes, {});
@@ -158,10 +159,7 @@ describe('G6 — <extras>', () => {
 
 describe('G6 — <traversal>', () => {
   it('parses the authored focus order onto the container', () => {
-    const s = subform(
-      's',
-      `<traversal order="tab"><field name="a"/><field name="b"/></traversal>`
-    );
+    const s = subform('s', `<traversal order="tab"><field name="a"/><field name="b"/></traversal>`);
     expect(s.traversal).toEqual({ order: 'tab', fields: ['a', 'b'] });
   });
 
@@ -259,10 +257,7 @@ describe('G6 — display picture resolution', () => {
   });
 
   it('falls back to <bind><picture> when no display picture exists', () => {
-    const f = field(
-      'n',
-      `<bind match="dataRef" ref="$.n"><picture>###.##</picture></bind>`
-    );
+    const f = field('n', `<bind match="dataRef" ref="$.n"><picture>###.##</picture></bind>`);
     expect(f.formatPicture).toBe('###.##');
   });
 });

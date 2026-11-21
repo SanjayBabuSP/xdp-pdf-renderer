@@ -1,4 +1,3 @@
-
 import {
   PDFDocument,
   PDFName,
@@ -12,7 +11,8 @@ import {
   PDFAnnotation,
 } from 'pdf-lib';
 
-export type AnnotationType = 'widget' | 'text' | 'stamp' | 'highlight' | 'link' | 'freeText' | 'line';
+export type AnnotationType =
+  'widget' | 'text' | 'stamp' | 'highlight' | 'link' | 'freeText' | 'line';
 
 export interface AnnotationOptions {
   type: AnnotationType;

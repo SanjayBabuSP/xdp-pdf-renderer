@@ -9,7 +9,8 @@ import {
 
 function pageContent(page: Awaited<ReturnType<PDFDocument['addPage']>>, doc: PDFDocument): string {
   const contents: any = page.node.Contents();
-  const refs: any[] = contents && typeof contents.asArray === 'function' ? contents.asArray() : [contents];
+  const refs: any[] =
+    contents && typeof contents.asArray === 'function' ? contents.asArray() : [contents];
   return refs
     .map((ref: any) => {
       const stream: any = doc.context.lookup(ref);

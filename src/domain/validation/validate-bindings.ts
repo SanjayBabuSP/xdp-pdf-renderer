@@ -35,15 +35,26 @@ export function validateBindings(
   }
 
   if (errors.length && strict) {
-    return failure(ERROR_CODES.UNRESOLVED_BINDING.code, ERROR_CODES.UNRESOLVED_BINDING.message, errors);
+    return failure(
+      ERROR_CODES.UNRESOLVED_BINDING.code,
+      ERROR_CODES.UNRESOLVED_BINDING.message,
+      errors
+    );
   }
   return success(undefined);
 }
 
-function collectBindRefs(nodes: LayoutNode[], arrayContext?: string): Array<{ ref: string; arrayContext?: string }> {
+function collectBindRefs(
+  nodes: LayoutNode[],
+  arrayContext?: string
+): Array<{ ref: string; arrayContext?: string }> {
   const refs: Array<{ ref: string; arrayContext?: string }> = [];
   for (const node of nodes) {
-    if ((node.type === 'field' || node.type === 'subform') && node.bindMatch === 'dataRef' && node.bindRef) {
+    if (
+      (node.type === 'field' || node.type === 'subform') &&
+      node.bindMatch === 'dataRef' &&
+      node.bindRef
+    ) {
       refs.push({ ref: node.bindRef, arrayContext });
     }
     if (node.type === 'exclGroup') {
@@ -63,7 +74,9 @@ function collectBindRefs(nodes: LayoutNode[], arrayContext?: string): Array<{ re
 }
 
 function isRepeatingArrayRef(bindRef?: string, bindMatch?: string): boolean {
-  return bindMatch === 'dataRef' && !!bindRef && (/\[\*\]$/.test(bindRef) || /\[\d+\]$/.test(bindRef));
+  return (
+    bindMatch === 'dataRef' && !!bindRef && (/\[\*\]$/.test(bindRef) || /\[\d+\]$/.test(bindRef))
+  );
 }
 
 function refResolvesToSchema(ref: string, fields: SchemaFields, arrayContext?: string): boolean {

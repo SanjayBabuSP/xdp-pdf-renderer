@@ -98,7 +98,10 @@ describe('G18 — ViewerPreferences / NeedsRendering', () => {
     const result = await renderFormToPdf(bare, XSD, DATA, {});
     expect(result.success).toBe(true);
     if (!result.success) return;
-    const doc = await PDFDocument.load(result.data, { ignoreEncryption: true, updateMetadata: false });
+    const doc = await PDFDocument.load(result.data, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
     expect(doc.catalog.get(PDFName.of('ViewerPreferences'))).toBeUndefined();
     expect(doc.getTitle()).toBeUndefined();
   });

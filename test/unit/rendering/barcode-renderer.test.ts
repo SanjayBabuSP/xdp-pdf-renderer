@@ -110,9 +110,7 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
   });
 
   it('UPC-A produces the same run as EAN-13 with a leading zero', () => {
-    expect(encodeBarcode('upcA', '03600029145')).toEqual(
-      encodeBarcode('ean13', '0036000291452')
-    );
+    expect(encodeBarcode('upcA', '03600029145')).toEqual(encodeBarcode('ean13', '0036000291452'));
   });
 
   it('unknown symbology degrades to Code 39 rather than drawing nothing', () => {
@@ -121,13 +119,15 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
 });
 
 describe('renderBarcode — PDF output', () => {
-  async function draw(opts: {
-    align?: 'left' | 'center' | 'right';
-    w?: number;
-    moduleW?: number;
-    ratio?: number;
-    data?: string;
-  } = {}): Promise<Buffer> {
+  async function draw(
+    opts: {
+      align?: 'left' | 'center' | 'right';
+      w?: number;
+      moduleW?: number;
+      ratio?: number;
+      data?: string;
+    } = {}
+  ): Promise<Buffer> {
     const doc = await PDFDocument.create();
     const page = doc.addPage([300, 200]);
     renderBarcode(
@@ -140,7 +140,7 @@ describe('renderBarcode — PDF output', () => {
       60,
       opts.moduleW ?? 2,
       opts.align ?? 'center',
-      opts.ratio ?? 2.5,
+      opts.ratio ?? 2.5
     );
     return Buffer.from(await doc.save({ useObjectStreams: false }));
   }
@@ -211,7 +211,9 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
   });
 
   it('falls back to subset B for an odd-length digit run', () => {
-    expect(types(encodeBarcode('code128C', '12345'))).toBe(types(encodeBarcode('code128B', '12345')));
+    expect(types(encodeBarcode('code128C', '12345'))).toBe(
+      types(encodeBarcode('code128B', '12345'))
+    );
   });
 
   it('pads SSCC to 18 digits and encodes it in subset C', () => {
@@ -235,7 +237,9 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
   });
 
   it('different payloads produce different symbols', () => {
-    expect(types(encodeBarcode('code128B', 'AAA'))).not.toBe(types(encodeBarcode('code128B', 'AAB')));
+    expect(types(encodeBarcode('code128B', 'AAA'))).not.toBe(
+      types(encodeBarcode('code128B', 'AAB'))
+    );
   });
 
   it('renders to PDF rectangles', async () => {
@@ -352,8 +356,16 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
       expect(digitBars.slice(i, i + 5).filter((b) => b.type === 'short-bar')).toHaveLength(2);
     }
     const postnet = encodeBarcode('postUS5Zip', '12345');
-    const planetOnes = planet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '1' : '0')).join('');
-    const postnetZeros = postnet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '0' : '1')).join('');
+    const planetOnes = planet
+      .filter(isBar)
+      .slice(1, -1)
+      .map((b) => (isTall(b) ? '1' : '0'))
+      .join('');
+    const postnetZeros = postnet
+      .filter(isBar)
+      .slice(1, -1)
+      .map((b) => (isTall(b) ? '0' : '1'))
+      .join('');
     expect(planetOnes).toBe(postnetZeros);
   });
 

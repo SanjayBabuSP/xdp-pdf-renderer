@@ -1,4 +1,3 @@
-
 export type AspectMode = 'none' | 'fit' | 'actual' | 'width' | 'height';
 
 export interface ImageDimensions {
@@ -26,7 +25,7 @@ export function computeImageRect(
   boxH: number,
   img: ImageDimensions,
   align: AlignOptions = {},
-  rotated = false,
+  rotated = false
 ): ScaleResult {
   const effW = rotated ? boxH : boxW;
   const effH = rotated ? boxW : boxH;
@@ -80,15 +79,27 @@ export function computeImageRect(
   let offsetY = 0;
 
   switch (align.hAlign ?? 'left') {
-    case 'center': offsetX = spareX / 2; break;
-    case 'right':  offsetX = spareX;     break;
-    default:       offsetX = 0;          break;
+    case 'center':
+      offsetX = spareX / 2;
+      break;
+    case 'right':
+      offsetX = spareX;
+      break;
+    default:
+      offsetX = 0;
+      break;
   }
 
   switch (align.vAlign ?? 'top') {
-    case 'middle': offsetY = spareY / 2; break;
-    case 'bottom': offsetY = 0;          break;
-    default:       offsetY = spareY;     break;
+    case 'middle':
+      offsetY = spareY / 2;
+      break;
+    case 'bottom':
+      offsetY = 0;
+      break;
+    default:
+      offsetY = spareY;
+      break;
   }
 
   return { drawW, drawH, offsetX, offsetY };

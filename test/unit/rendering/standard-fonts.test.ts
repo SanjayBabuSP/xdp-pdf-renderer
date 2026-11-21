@@ -19,11 +19,15 @@ describe('standard-fonts (Designer.xdc <seq> mapping)', () => {
     });
 
     it('maps Helvetica italic', () => {
-      expect(mapToStandardPdfFont('Helvetica', undefined, 'italic')).toBe(StandardFonts.HelveticaOblique);
+      expect(mapToStandardPdfFont('Helvetica', undefined, 'italic')).toBe(
+        StandardFonts.HelveticaOblique
+      );
     });
 
     it('maps Helvetica bold italic → BoldOblique (xdc seq)', () => {
-      expect(mapToStandardPdfFont('Helvetica', 'bold', 'italic')).toBe(StandardFonts.HelveticaBoldOblique);
+      expect(mapToStandardPdfFont('Helvetica', 'bold', 'italic')).toBe(
+        StandardFonts.HelveticaBoldOblique
+      );
     });
 
     it('maps Arial → Helvetica (metric-compatible alias)', () => {
@@ -35,7 +39,9 @@ describe('standard-fonts (Designer.xdc <seq> mapping)', () => {
     });
 
     it('maps Times bold italic', () => {
-      expect(mapToStandardPdfFont('Times', 'bold', 'italic')).toBe(StandardFonts.TimesRomanBoldItalic);
+      expect(mapToStandardPdfFont('Times', 'bold', 'italic')).toBe(
+        StandardFonts.TimesRomanBoldItalic
+      );
     });
 
     it('maps Courier New bold → Courier-Bold (xdc seq)', () => {

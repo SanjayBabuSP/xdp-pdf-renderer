@@ -1,4 +1,3 @@
-
 import { PDFDocument } from 'pdf-lib';
 
 export interface FlattenOptions {
@@ -35,13 +34,12 @@ export function readOnlyFormFields(doc: PDFDocument, options: FlattenOptions = {
   try {
     const form = doc.getForm();
     const fields = form.getFields();
+    const fieldNameSet = options.fieldNames ? new Set(options.fieldNames) : undefined;
 
     for (const field of fields) {
       const name = field.getName();
 
-      if (options.fieldNames && options.fieldNames.length) {
-        if (!options.fieldNames.includes(name)) continue;
-      }
+      if (fieldNameSet && fieldNameSet.size && !fieldNameSet.has(name)) continue;
 
       if ('enableReadOnly' in field) {
         (field as { enableReadOnly: () => void }).enableReadOnly();

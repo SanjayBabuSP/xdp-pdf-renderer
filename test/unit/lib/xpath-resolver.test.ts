@@ -13,10 +13,7 @@ describe('xpath-resolver', () => {
       { revision: 1, date: '2026-06-01', description: 'Updated' } as DataObject,
     ],
     nested: {
-      to_Perf: [
-        { Value: '100' } as DataObject,
-        { Value: '200' } as DataObject,
-      ],
+      to_Perf: [{ Value: '100' } as DataObject, { Value: '200' } as DataObject],
     } as DataObject,
   };
 

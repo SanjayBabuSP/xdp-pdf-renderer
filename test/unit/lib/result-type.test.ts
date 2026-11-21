@@ -33,7 +33,8 @@ describe('result-type', () => {
     it('includes details when provided', () => {
       const result = failure('ERR_002', 'Multiple errors', ['field1 missing', 'field2 invalid']);
       expect(result.success).toBe(false);
-      if (!result.success) expect(result.error.details).toEqual(['field1 missing', 'field2 invalid']);
+      if (!result.success)
+        expect(result.error.details).toEqual(['field1 missing', 'field2 invalid']);
     });
 
     it('details is undefined when not provided', () => {

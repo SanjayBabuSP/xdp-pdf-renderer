@@ -1,33 +1,26 @@
-
 import { LayoutModel, LayoutNode, PaginatedLayout, Result } from '../../types';
 import { success, failure } from '../../lib/result-type';
 import { ERROR_CODES } from '../../errors/error-codes';
-import {
-  ScriptSpec,
-  XfaNode,
-  ScriptEngineConfig,
-} from './script-types';
-import { FormCalcParser, FormCalcEvaluator, FormCalcError, FieldAccessor } from './formcalc';
-import { JavaScriptEngine, JavaScriptEngineError, JsExecutionResult } from './js-engine';
+import { ScriptEngineConfig } from './script-types';
+import { FormCalcParser, FormCalcEvaluator, FieldAccessor } from './formcalc';
+import { JavaScriptEngine } from './js-engine';
 import type { XfaLayoutInfo } from './js-engine/javascript-engine';
 import {
   createFieldAccessor,
-  buildNodeMap,
-  collectScripts,
   scriptableToXfaNode,
   readLayoutColors,
   ScriptEntry,
 } from './xfa-object-model';
 import { PropertyChangeTracker, ApplyResult } from './property-change-tracker';
 import { XfaEventDispatcher } from '../../adobe/xfa-event-bubbling';
-import {
-  buildDependencyGraph,
-  getFieldsToRecalculate,
-  DependencyGraph,
-} from './script-dependency-tracker';
+import { buildDependencyGraph, getFieldsToRecalculate } from './script-dependency-tracker';
 import type { ScriptableNode } from './script-types';
 
 const CASCADE_SAFETY_LIMIT = 100;
+
+function toSkipSet(config: ScriptDispatchConfig): ReadonlySet<string> {
+  return new Set(config.skipEvents ?? []);
+}
 
 export interface DispatchResult<TLayout = LayoutModel> {
   layout: TLayout;
@@ -80,9 +73,10 @@ export interface InteractiveEventOptions {
 export function dispatchInteractiveEvent(
   layout: LayoutModel,
   data: Record<string, unknown>,
-  options: InteractiveEventOptions,
+  options: InteractiveEventOptions
 ): Result<DispatchResult> {
   const config = options.config ?? {};
+  const skipEvents = toSkipSet(config);
   const emptyResult: DispatchResult = {
     layout,
     scriptsExecuted: 0,
@@ -104,7 +98,11 @@ export function dispatchInteractiveEvent(
 
     const jsEngine = new JavaScriptEngine(fieldAccessor, config);
     jsEngine.setNodeMap(allNodes);
-    jsEngine.setLayoutInfo({ pageCount: layout.pages.length, pageOf: new Map(), pageContent: new Map() });
+    jsEngine.setLayoutInfo({
+      pageCount: layout.pages.length,
+      pageOf: new Map(),
+      pageContent: new Map(),
+    });
     const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
 
     const eventName = normalizeEventName(undefined, options.activity);
@@ -120,7 +118,7 @@ export function dispatchInteractiveEvent(
     const dispatcher = new XfaEventDispatcher<ScriptableNode>((node) => node.parent ?? null);
     for (const entry of collectScriptsFromIndex(index)) {
       if (entry.eventName !== eventName) continue;
-      if (config.skipEvents?.includes(entry.eventName)) continue;
+      if (skipEvents.has(entry.eventName)) continue;
       dispatcher.addEventListener(entry.element, entry.eventName, (event) => {
         event.handled = true;
         executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
@@ -142,7 +140,7 @@ export function dispatchInteractiveEvent(
   } catch (e) {
     return failure(
       ERROR_CODES.SCRIPT_EXECUTION_FAILED?.code ?? 'SCR_6001',
-      `${ERROR_CODES.SCRIPT_EXECUTION_FAILED?.message ?? 'Script execution failed'}: ${e}`,
+      `${ERROR_CODES.SCRIPT_EXECUTION_FAILED?.message ?? 'Script execution failed'}: ${e}`
     );
   }
 }
@@ -163,6 +161,7 @@ function executeScriptLifecycle(
   const allNodes = index.allNodes;
   const fieldAccessor = createFieldAccessor(allNodes, data);
   const changeTracker = new PropertyChangeTracker();
+  const skipEvents = toSkipSet(config);
 
   for (const node of index.ordered) {
     changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
@@ -170,7 +169,11 @@ function executeScriptLifecycle(
 
   const jsEngine = new JavaScriptEngine(fieldAccessor, config);
   jsEngine.setNodeMap(allNodes);
-  jsEngine.setLayoutInfo({ pageCount: layout.pages.length, pageOf: new Map(), pageContent: new Map() });
+  jsEngine.setLayoutInfo({
+    pageCount: layout.pages.length,
+    pageOf: new Map(),
+    pageContent: new Map(),
+  });
 
   const scripts = collectScriptsFromIndex(index);
   const stats = {
@@ -179,41 +182,48 @@ function executeScriptLifecycle(
     errorMessages: [] as string[],
   };
 
-  if (!config.skipEvents?.includes('initialize')) {
+  if (!skipEvents.has('initialize')) {
     executeInitializePhase(scripts, fieldAccessor, jsEngine, allNodes, layout, data, stats, config);
   }
 
-  if (!config.skipEvents?.includes('calculate')) {
+  if (!skipEvents.has('calculate')) {
     const calcScripts = scripts.filter((s) => s.eventName === 'calculate');
-    executeCalculatePhase(calcScripts, fieldAccessor, jsEngine, allNodes, layout, data, stats, config);
+    executeCalculatePhase(
+      calcScripts,
+      fieldAccessor,
+      jsEngine,
+      allNodes,
+      layout,
+      data,
+      stats,
+      config
+    );
   }
 
-  if (!config.skipEvents?.includes('validate')) {
+  if (!skipEvents.has('validate')) {
     const validateScripts = scripts.filter((s) => s.eventName === 'validate');
     for (const entry of validateScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
   }
 
-  if (!config.skipEvents?.includes('overlay')) {
+  if (!skipEvents.has('overlay')) {
     const overlayScripts = scripts.filter((s) => s.eventName === 'overlay');
     for (const entry of overlayScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
   }
 
-  if (!config.skipEvents?.includes('ready') && !config.skipEvents?.includes('form:ready')) {
+  if (!skipEvents.has('ready') && !skipEvents.has('form:ready')) {
     const formReadyScripts = scripts.filter(
-      (s) =>
-        (s.eventName === 'ready' || s.eventName === 'form:ready') &&
-        !isLayoutReadyEvent(s)
+      (s) => (s.eventName === 'ready' || s.eventName === 'form:ready') && !isLayoutReadyEvent(s)
     );
     for (const entry of formReadyScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
     }
   }
 
-  if (!config.skipEvents?.includes('layout:ready') && !config.skipEvents?.includes('layoutReady')) {
+  if (!skipEvents.has('layout:ready') && !skipEvents.has('layoutReady')) {
     const layoutReadyScripts = scripts.filter((s) => isLayoutReadyEvent(s));
     for (const entry of layoutReadyScripts) {
       executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
@@ -227,7 +237,8 @@ function executeScriptLifecycle(
     scriptsExecuted: stats.executed,
     scriptErrors: stats.errors,
     errorMessages: stats.errorMessages,
-    propertyChanges: applyResult.valuesChanged + applyResult.presenceChanged + applyResult.accessChanged,
+    propertyChanges:
+      applyResult.valuesChanged + applyResult.presenceChanged + applyResult.accessChanged,
     layoutDirty: applyResult.layoutDirty,
   };
 }
@@ -237,6 +248,7 @@ export function dispatchPostLayoutScripts(
   data: Record<string, unknown>,
   config: ScriptDispatchConfig = {}
 ): Result<DispatchResult<PaginatedLayout>> {
+  const skipEvents = toSkipSet(config);
   if (config.skipScripts) {
     return success({
       layout,
@@ -263,7 +275,7 @@ export function dispatchPostLayoutScripts(
     const stats = { executed: 0, errors: 0, errorMessages: [] as string[] };
 
     const scripts = collectScriptsFromIndex(index);
-    if (!config.skipEvents?.includes('docReady')) {
+    if (!skipEvents.has('docReady')) {
       const docReadyScripts = scripts.filter(
         (s) => s.eventName === 'docReady' || s.runAt === 'docReady'
       );
@@ -291,10 +303,7 @@ export function dispatchPostLayoutScripts(
   }
 }
 
-function buildLayoutInfo(
-  index: ScriptIndex,
-  layout: PaginatedLayout,
-): XfaLayoutInfo {
+function buildLayoutInfo(index: ScriptIndex, layout: PaginatedLayout): XfaLayoutInfo {
   const pageOf = new Map<unknown, number>();
   const pageContent = new Map<number, number>();
 
@@ -342,8 +351,7 @@ function paginatedToLayoutView(paginated: PaginatedLayout): LayoutModel {
 
 function isLayoutReadyEvent(entry: ScriptEntry): boolean {
   return (
-    entry.eventName === 'layout:ready' ||
-    (entry.eventName === 'ready' && entry.ref === '$layout')
+    entry.eventName === 'layout:ready' || (entry.eventName === 'ready' && entry.ref === '$layout')
   );
 }
 
@@ -357,11 +365,9 @@ function executeInitializePhase(
   stats: { executed: number; errors: number; errorMessages: string[] },
   config: ScriptDispatchConfig
 ): void {
+  const skipEvents = toSkipSet(config);
   const relevant = scripts.filter(
-    (s) =>
-      s.eventName === 'initialize' ||
-      s.eventName === 'indexChange' ||
-      s.runAt === 'docOpen'
+    (s) => s.eventName === 'initialize' || s.eventName === 'indexChange' || s.runAt === 'docOpen'
   );
   if (relevant.length === 0) return;
 
@@ -383,12 +389,12 @@ function executeInitializePhase(
   }));
 
   for (const item of orderInitializeByTree(perElement)) {
-    if (!config.skipEvents?.includes('initialize')) {
+    if (!skipEvents.has('initialize')) {
       for (const entry of item.init) {
         executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
       }
     }
-    if (!config.skipEvents?.includes('indexChange')) {
+    if (!skipEvents.has('indexChange')) {
       for (const entry of item.index) {
         executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
       }
@@ -414,7 +420,7 @@ function executeCalculatePhase(
   layout: LayoutModel,
   data: Record<string, unknown>,
   stats: { executed: number; errors: number; errorMessages: string[] },
-  config: ScriptDispatchConfig
+  _config: ScriptDispatchConfig
 ): void {
   if (calcScripts.length === 0) return;
 
@@ -503,7 +509,6 @@ function executeSingleScript(
         entry.element.resolvedValue = result.value;
         fieldAccessor.setField(scriptKey, '$', result.value);
       }
-
     } else {
       const parser = new FormCalcParser(entry.scriptContent);
       const ast = parser.parse();
@@ -551,24 +556,6 @@ function orderInitializeByTree<T extends { element: ScriptableNode }>(items: T[]
     if (!seen.has(item)) out.push(item);
   }
   return out;
-}
-
-function sortLeafFirst<T extends { elementPath?: string; element: ScriptableNode }>(
-  scripts: T[]
-): T[] {
-  return [...scripts].sort((a, b) => {
-    const aDepth = (a.elementPath ?? a.element.path ?? '').split('.').length;
-    const bDepth = (b.elementPath ?? b.element.path ?? '').split('.').length;
-    const aIsLeaf = a.element.type === 'field' || a.element.type === 'draw';
-    const bIsLeaf = b.element.type === 'field' || b.element.type === 'draw';
-
-    if (aIsLeaf && !bIsLeaf) return -1;
-    if (!aIsLeaf && bIsLeaf) return 1;
-
-    if (aDepth !== bDepth) return bDepth - aDepth;
-
-    return 0;
-  });
 }
 
 export interface ScriptIndex {
@@ -635,14 +622,28 @@ export function buildScriptIndex(layout: LayoutModel): ScriptIndex {
         bindMatch: 'bindMatch' in node ? (node as { bindMatch?: string }).bindMatch : undefined,
         presence: node.presence,
         access: 'access' in node ? (node as { access?: string }).access : undefined,
-        resolvedValue: 'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
-        formatPicture: 'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined,
-        position: 'position' in node
-          ? (node as { position?: { x?: number; y?: number; w?: number; h?: number; rotate?: number } }).position
-          : undefined,
-        events: 'events' in node ? (node as { events?: ScriptableNode['events'] }).events : undefined,
-        calculate: 'calculate' in node ? (node as { calculate?: ScriptableNode['calculate'] }).calculate : undefined,
-        validate: 'validate' in node ? (node as { validate?: ScriptableNode['validate'] }).validate : undefined,
+        resolvedValue:
+          'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
+        formatPicture:
+          'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined,
+        position:
+          'position' in node
+            ? (
+                node as {
+                  position?: { x?: number; y?: number; w?: number; h?: number; rotate?: number };
+                }
+              ).position
+            : undefined,
+        events:
+          'events' in node ? (node as { events?: ScriptableNode['events'] }).events : undefined,
+        calculate:
+          'calculate' in node
+            ? (node as { calculate?: ScriptableNode['calculate'] }).calculate
+            : undefined,
+        validate:
+          'validate' in node
+            ? (node as { validate?: ScriptableNode['validate'] }).validate
+            : undefined,
         ...readLayoutColors(node),
         children: [],
       };
@@ -707,7 +708,9 @@ function collectScriptsFromNode(node: ScriptableNode, path: string): ScriptEntry
     });
   }
 
-  const fieldNode = node as unknown as { validate?: { script?: { content: string; contentType: string; runAt?: string } } };
+  const fieldNode = node as unknown as {
+    validate?: { script?: { content: string; contentType: string; runAt?: string } };
+  };
   if (fieldNode.validate?.script?.content) {
     entries.push({
       elementPath: path,
@@ -726,39 +729,72 @@ function normalizeEventName(name?: string, activity?: string): string {
   if (activity) {
     const normalized = activity.toLowerCase();
     switch (normalized) {
-      case 'initialize': return 'initialize';
-      case 'calculate': return 'calculate';
-      case 'validate': return 'validate';
-      case 'click': return 'click';
-      case 'change': return 'change';
-      case 'enter': return 'enter';
-      case 'exit': return 'exit';
-      case 'mouseenter': return 'mouseEnter';
-      case 'mouseexit': return 'mouseExit';
-      case 'mouseup': return 'mouseUp';
-      case 'mousedown': return 'mouseDown';
-      case 'ready': return 'ready';
-      case 'docready': return 'docReady';
-      case 'docclose': return 'docClose';
-      case 'presave': return 'preSave';
-      case 'postsave': return 'postSave';
-      case 'preprint': return 'prePrint';
-      case 'postprint': return 'postPrint';
-      case 'presubmit': return 'preSubmit';
-      case 'postsubmit': return 'postSubmit';
-      case 'preexecute': return 'preExecute';
-      case 'postexecute': return 'postExecute';
-      case 'presign': return 'preSign';
-      case 'postsign': return 'postSign';
-      case 'preopen': return 'preOpen';
-      case 'postopen': return 'postOpen';
-      case 'preclose': return 'preClose';
-      case 'postclose': return 'postClose';
-      case 'validationstate': return 'validationState';
-      case 'overlay': return 'overlay';
-      case 'full': return 'full';
-      case 'indexchange': return 'indexChange';
-      default: return normalized;
+      case 'initialize':
+        return 'initialize';
+      case 'calculate':
+        return 'calculate';
+      case 'validate':
+        return 'validate';
+      case 'click':
+        return 'click';
+      case 'change':
+        return 'change';
+      case 'enter':
+        return 'enter';
+      case 'exit':
+        return 'exit';
+      case 'mouseenter':
+        return 'mouseEnter';
+      case 'mouseexit':
+        return 'mouseExit';
+      case 'mouseup':
+        return 'mouseUp';
+      case 'mousedown':
+        return 'mouseDown';
+      case 'ready':
+        return 'ready';
+      case 'docready':
+        return 'docReady';
+      case 'docclose':
+        return 'docClose';
+      case 'presave':
+        return 'preSave';
+      case 'postsave':
+        return 'postSave';
+      case 'preprint':
+        return 'prePrint';
+      case 'postprint':
+        return 'postPrint';
+      case 'presubmit':
+        return 'preSubmit';
+      case 'postsubmit':
+        return 'postSubmit';
+      case 'preexecute':
+        return 'preExecute';
+      case 'postexecute':
+        return 'postExecute';
+      case 'presign':
+        return 'preSign';
+      case 'postsign':
+        return 'postSign';
+      case 'preopen':
+        return 'preOpen';
+      case 'postopen':
+        return 'postOpen';
+      case 'preclose':
+        return 'preClose';
+      case 'postclose':
+        return 'postClose';
+      case 'validationstate':
+        return 'validationState';
+      case 'overlay':
+        return 'overlay';
+      case 'full':
+        return 'full';
+      case 'indexchange':
+        return 'indexChange';
+      default:
+        return normalized;
     }
   }
 

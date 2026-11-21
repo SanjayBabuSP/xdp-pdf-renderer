@@ -1,5 +1,4 @@
-
-import { LayoutModel, LayoutNode, PresenceValue, RgbColor } from '../../types';
+import { LayoutNode, PresenceValue, RgbColor } from '../../types';
 import { ScriptableNode } from './script-types';
 import { parseStyleColor } from './xfa-object-model';
 

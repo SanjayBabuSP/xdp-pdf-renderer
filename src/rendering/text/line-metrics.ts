@@ -1,4 +1,3 @@
-
 import type { PDFFont } from 'pdf-lib';
 import type { ParaSpec } from '../../types';
 
@@ -35,8 +34,7 @@ export function defaultAscent(fontSize: number): number {
 }
 
 function rawAfmAscentEm(font: PDFFont | undefined): number | undefined {
-  const afm = (font as unknown as { embedder?: { font?: { Ascender?: number } } })
-    ?.embedder?.font;
+  const afm = (font as unknown as { embedder?: { font?: { Ascender?: number } } })?.embedder?.font;
   if (afm && typeof afm.Ascender === 'number' && Number.isFinite(afm.Ascender)) {
     return afm.Ascender / 1000;
   }
@@ -53,6 +51,7 @@ function rawAfmDescentEm(font: PDFFont | undefined, fontSize: number): number | 
         if (Number.isFinite(descent) && descent >= 0) return descent;
       }
     } catch {
+      return undefined;
     }
   }
   return undefined;

@@ -2,21 +2,29 @@ import { Result, LayoutModel, LayoutNode, SubformNode } from '../../types';
 import { success } from '../../lib/result-type';
 import { LayoutContext, LayoutResult } from './engine-types';
 import { layoutFlowSubform, layoutRootFlow } from './flow-engine';
-import { layoutPositionSubform, layoutLeafField, layoutLeafDraw, layoutExclGroup } from './position-engine';
+import {
+  layoutPositionSubform,
+  layoutLeafField,
+  layoutLeafDraw,
+  layoutExclGroup,
+} from './position-engine';
 import { layoutTableSubform } from './table-engine';
 
 export function calculatePositions(layout: LayoutModel): Result<LayoutModel> {
   const firstPage = layout.pages[0];
   const rootCtx: LayoutContext = firstPage
-    ? { x: firstPage.contentArea.x, y: firstPage.contentArea.y, availableWidth: firstPage.contentArea.w }
+    ? {
+        x: firstPage.contentArea.x,
+        y: firstPage.contentArea.y,
+        availableWidth: firstPage.contentArea.w,
+      }
     : { x: 0, y: 0, availableWidth: 0 };
   const children = layoutRootFlow(layout.children, rootCtx, layoutNode);
   const pages = layout.pages.map((page) => ({
     ...page,
     masterPageChildren: page.masterPageChildren.map((child) => {
       const positioned =
-        child.type === 'subform' &&
-        (child.layout === 'position' || child.layout === undefined);
+        child.type === 'subform' && (child.layout === 'position' || child.layout === undefined);
       const ctx: LayoutContext = positioned
         ? { x: 0, y: 0, availableWidth: page.contentArea.w }
         : {

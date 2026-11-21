@@ -76,7 +76,7 @@ describe('PDF417 — structure (FUN_12b0c9c0 row painting)', () => {
     const clusterOf = (pattern: string): number => {
       const cluster = pattern.slice(8, 16);
       const table = (['cluster0', 'cluster3', 'cluster6'] as const).find((name) =>
-        (pdf417Tables.clusters as Record<string, string[]>)[name].includes(cluster),
+        (pdf417Tables.clusters as Record<string, string[]>)[name].includes(cluster)
       );
       return (['cluster0', 'cluster3', 'cluster6'] as const).indexOf(table!);
     };

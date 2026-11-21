@@ -1,4 +1,3 @@
-
 import type { XfaNode, XfaEventName } from '../domain/scripting/script-types';
 
 export type EventPhase = 'capture' | 'target' | 'bubble';
@@ -18,7 +17,10 @@ export interface XfaEvent<T = XfaNode> {
 export type EventHandler<T = XfaNode> = (event: XfaEvent<T>) => void;
 
 export class XfaEventDispatcher<T = XfaNode> {
-  private listeners = new Map<string, Array<{ node: T; handler: EventHandler<T>; capture: boolean; priority: number }>>();
+  private listeners = new Map<
+    string,
+    Array<{ node: T; handler: EventHandler<T>; capture: boolean; priority: number }>
+  >();
 
   constructor(private parentProvider: (node: T) => T | null = () => null) {}
 
@@ -26,7 +28,7 @@ export class XfaEventDispatcher<T = XfaNode> {
     node: T,
     eventName: string,
     handler: EventHandler<T>,
-    options: { capture?: boolean; priority?: number } = {},
+    options: { capture?: boolean; priority?: number } = {}
   ): void {
     const key = String(eventName);
     if (!this.listeners.has(key)) this.listeners.set(key, []);
@@ -80,12 +82,7 @@ export class XfaEventDispatcher<T = XfaNode> {
     return !event.defaultPrevented;
   }
 
-  private run(
-    node: T,
-    event: XfaEvent<T>,
-    phase: EventPhase,
-    captureOnly: boolean,
-  ): void {
+  private run(node: T, event: XfaEvent<T>, phase: EventPhase, captureOnly: boolean): void {
     const candidates = (this.listeners.get(event.name) ?? [])
       .filter((l) => l.node === node)
       .filter((l) => (captureOnly ? l.capture : phase === 'target' ? true : !l.capture))

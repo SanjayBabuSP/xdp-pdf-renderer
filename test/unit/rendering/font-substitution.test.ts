@@ -96,9 +96,7 @@ describe('FontSubstitution', () => {
     });
 
     it('passes through weight from to-pattern wildcards', () => {
-      const sub = new FontSubstitution([
-        { from: 'Source_*_*', to: 'Target_*_*', force: false },
-      ]);
+      const sub = new FontSubstitution([{ from: 'Source_*_*', to: 'Target_*_*', force: false }]);
       const result = sub.resolve('Source', 'bold', 'normal');
       expect(result.family).toBe('Target');
       expect(result.weight).toBe('bold');

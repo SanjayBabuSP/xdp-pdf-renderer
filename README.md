@@ -322,7 +322,15 @@ test/
 ├── fixtures/sample-forms/    sanitized forms + Adobe reference PDFs
 └── helpers/                  PDF content extraction helpers
 
-docs/AI_WIKI.md               source of truth for rationale and decisions
+docs/
+├── README.md                 documentation index
+├── AGENTS.md                 naming scheme + mandatory research/plan rule
+├── 01-canonical/AI_WIKI.md   source of truth for rationale and decisions
+├── 02-research/              evidence, analysis and observations
+├── 03-plans/                 implementation and parity plans
+├── 04-decisions/             historical fix rationale
+└── 05-reference/             observed Adobe rendering behaviour
+.agents/skills/               installed JS/TS coding skills
 reference/                    decompiled DLL evidence + observed behaviour
 scripts/                      build, sanitize, font import, sample rendering
 ```
@@ -380,8 +388,8 @@ library's output.
 
 ```bash
 npm install
-npm run build              # tsc → dist/
-npm run lint               # eslint src/**/*.ts
+npm run build              # prettier --write src/ test/ → tsc → dist/
+npm run lint               # eslint src --ext .ts --max-warnings 0
 npm run test:unit          # fast unit + focused rendering regressions
 npm run test:integration   # workflow-level tests
 npm test                   # all suites
@@ -389,11 +397,12 @@ npm test                   # all suites
 npm run sample-forms       # build + render sanitized fixtures
 npm run verify             # build + scripts/verify-pdf.mjs
 npm run format             # prettier --write src/ test/
+npm run format:check       # prettier --check src/ test/
 ```
 
 ```mermaid
 flowchart LR
-    A["Edit source"] --> B["Update docs/AI_WIKI.md<br/>(mandatory for code changes)"]
+    A["Edit source"] --> B["Update docs/01-canonical/AI_WIKI.md<br/>(mandatory for code changes)"]
     B --> C["npm run lint"]
     C --> D["npm run build"]
     D --> E["npm run test:unit"]
@@ -409,11 +418,19 @@ record the change in the wiki ledger.
 
 ## For AI agents and contributors
 
-[`docs/AI_WIKI.md`](docs/AI_WIKI.md) is the **single source of truth** for
+[`docs/01-canonical/AI_WIKI.md`](docs/01-canonical/AI_WIKI.md) is the **single source of truth** for
 architecture, behaviour, and the rationale behind implementation decisions.
 [`AGENTS.md`](AGENTS.md) is the short pointer agents read first.
 
-- Read the wiki before changing code.
+- Read [`docs/README.md`](docs/README.md), then the wiki, before changing code.
+- Non-trivial changes require a dated research note in `docs/02-research/` and
+  a plan in `docs/03-plans/` **before** source edits.
+- Load the relevant installed skill from `.skills/` before writing or
+  reviewing code: `best-practices-ts`, `performance-ts`, `testing-ts`,
+  `documentation-ts`, `audit-all-ts`, `node`, `linting-neostandard-eslint9`,
+  `architecture-doc` and `readme-writer`.
+  `.agents/skills/` contains symlinks only; rebuild with
+  `bash scripts/sync-agent-skills.sh`.
 - Source files intentionally have no explanatory comments; do not add them.
 - After any code change, update the wiki in the same change: describe what
   changed and why, add a dated ledger entry, and record new or updated tests.

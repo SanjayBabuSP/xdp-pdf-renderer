@@ -1,9 +1,6 @@
 import { ChoiceListItem } from '../types';
 
-export function resolveChoiceText(
-  value: unknown,
-  items?: ChoiceListItem[],
-): string {
+export function resolveChoiceText(value: unknown, items?: ChoiceListItem[]): string {
   if (value == null) return '';
 
   const values = Array.isArray(value) ? value.map(String) : [String(value)];
@@ -33,7 +30,7 @@ export function resolveChoiceText(
 export function resolveButtonLabel(
   label: string | undefined,
   valueText: string,
-  captionText: string | undefined,
+  captionText: string | undefined
 ): string {
   return label ?? (valueText || captionText || '');
 }

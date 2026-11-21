@@ -1,6 +1,4 @@
-
-import { ScriptableNode, XfaNode } from '../script-types';
-import { LayoutNode } from '../../../types';
+import { ScriptableNode } from '../script-types';
 import { isStyleAttr, writeLayoutColor, type StyleAttr } from '../xfa-object-model';
 
 export const XFA_NODE_KEY = Symbol('xfa.node.key');
@@ -86,7 +84,7 @@ export function createXfaFormProxy(
         case 'index':
           return 0;
 
-        case 'parent':
+        case 'parent': {
           if (parentProxy) return parentProxy;
           const lastDot = currentPath.lastIndexOf('.');
           if (lastDot >= 0) {
@@ -94,15 +92,7 @@ export function createXfaFormProxy(
             return createXfaFormProxy(nodeMap, parentPath, modifiedFields);
           }
           return null;
-
-        case 'x':
-          return node?.position?.x ?? 0;
-        case 'y':
-          return node?.position?.y ?? 0;
-        case 'w':
-          return node?.position?.w ?? 0;
-        case 'h':
-          return node?.position?.h ?? 0;
+        }
 
         case 'resolveNode':
           return (somExpr: string) => {
@@ -126,7 +116,7 @@ export function createXfaFormProxy(
           };
 
         case 'getRawValue':
-          return () => node?.resolvedValue != null ? String(node.resolvedValue) : null;
+          return () => (node?.resolvedValue != null ? String(node.resolvedValue) : null);
 
         case 'setRawValue':
           return (val: string) => {
@@ -179,7 +169,12 @@ export function createXfaFormProxy(
         case 'all': {
           const children = getChildPaths(nodeMap, currentPath);
           return children.map((cp) =>
-            createXfaFormProxy(nodeMap, cp, modifiedFields, createXfaFormProxy(nodeMap, currentPath, modifiedFields))
+            createXfaFormProxy(
+              nodeMap,
+              cp,
+              modifiedFields,
+              createXfaFormProxy(nodeMap, currentPath, modifiedFields)
+            )
           );
         }
 
@@ -210,8 +205,7 @@ export function createXfaFormProxy(
             const ownPath = currentPath ? `${currentPath}.${propName}` : propName;
             if (!nodeMap.has(ownPath)) {
               const layout = node?.layoutNode as
-                | { assist?: Record<string, unknown>; extras?: Record<string, unknown> }
-                | undefined;
+                { assist?: Record<string, unknown>; extras?: Record<string, unknown> } | undefined;
               const bag = layout?.[propName];
               if (bag) return bag;
               if (propName === 'extras') return {};
@@ -365,10 +359,7 @@ function resolveScoped(
   return null;
 }
 
-function findContainingSubform(
-  nodeMap: Map<string, ScriptableNode>,
-  path: string
-): string | null {
+function findContainingSubform(nodeMap: Map<string, ScriptableNode>, path: string): string | null {
   const parts = path.split('.');
   for (let i = parts.length - 1; i >= 0; i--) {
     const candidate = parts.slice(0, i).join('.');
@@ -419,13 +410,20 @@ function createNullSafeProxy(): Record<string, unknown> {
         if (prop === 'count' || prop === 'length') return 0;
         if (prop === 'resolveNode') return () => null;
         if (prop === 'resolveNodes') return () => [];
-        if (prop === 'getAttribute' || prop === 'setValue'
-            || prop === 'setRawValue' || prop === 'setAttribute') return () => {};
+        if (
+          prop === 'getAttribute' ||
+          prop === 'setValue' ||
+          prop === 'setRawValue' ||
+          prop === 'setAttribute'
+        )
+          return () => {};
         return createNullSafeProxy();
       }
       return undefined;
     },
-    set() { return true; },
+    set() {
+      return true;
+    },
   });
 }
 
@@ -461,11 +459,10 @@ export function setGeometryAttr(
   const value = Number.isFinite(num) ? num : 0;
 
   const layoutNode = node.layoutNode as
-    | { position?: Record<string, number | undefined> }
-    | undefined;
+    { position?: Record<string, number | undefined> } | undefined;
   const position =
     layoutNode && 'position' in layoutNode
-      ? layoutNode.position ?? (layoutNode.position = {})
+      ? (layoutNode.position ?? (layoutNode.position = {}))
       : (node.position as Record<string, number | undefined> | undefined);
 
   if (position) position[attrName] = value;
@@ -484,7 +481,13 @@ function getNodeAttribute(node: ScriptableNode | undefined, attrName: string): u
     const cached = (node as unknown as Record<string, unknown>)[key];
     if (typeof cached === 'string') return cached;
     const layout = node.layoutNode as
-      | { font?: { color?: { r: number; g: number; b: number } }; border?: { fill?: { color?: { r: number; g: number; b: number } }; edges?: Array<{ color?: { r: number; g: number; b: number } }> } }
+      | {
+          font?: { color?: { r: number; g: number; b: number } };
+          border?: {
+            fill?: { color?: { r: number; g: number; b: number } };
+            edges?: Array<{ color?: { r: number; g: number; b: number } }>;
+          };
+        }
       | undefined;
     if (!layout) return null;
     if (key === 'fontColor') {
@@ -499,17 +502,28 @@ function getNodeAttribute(node: ScriptableNode | undefined, attrName: string): u
     return e ? `${e.r},${e.g},${e.b}` : null;
   }
   switch (attrName) {
-    case 'name': return node.name;
-    case 'type': return node.type;
-    case 'presence': return node.presence;
-    case 'access': return node.access;
-    case 'rawValue': return node.resolvedValue != null ? String(node.resolvedValue) : null;
-    case 'value': return node.resolvedValue;
-    case 'x': return node.position?.x;
-    case 'y': return node.position?.y;
-    case 'w': return node.position?.w;
-    case 'h': return node.position?.h;
-    default: return (node as unknown as Record<string, unknown>)[attrName] ?? null;
+    case 'name':
+      return node.name;
+    case 'type':
+      return node.type;
+    case 'presence':
+      return node.presence;
+    case 'access':
+      return node.access;
+    case 'rawValue':
+      return node.resolvedValue != null ? String(node.resolvedValue) : null;
+    case 'value':
+      return node.resolvedValue;
+    case 'x':
+      return node.position?.x;
+    case 'y':
+      return node.position?.y;
+    case 'w':
+      return node.position?.w;
+    case 'h':
+      return node.position?.h;
+    default:
+      return (node as unknown as Record<string, unknown>)[attrName] ?? null;
   }
 }
 
@@ -552,7 +566,8 @@ function setNodeAttribute(
   if (isStyleAttr(attrName)) {
     const key = attrName === 'bgColor' ? 'fillColor' : attrName;
     (node as unknown as Record<string, unknown>)[key] = String(val);
-    if (key === 'borderColor') (node as unknown as Record<string, unknown>).borderColor = String(val);
+    if (key === 'borderColor')
+      (node as unknown as Record<string, unknown>).borderColor = String(val);
     mirrorToLayout(node, attrName, val);
     modifiedFields.push(path);
     return;

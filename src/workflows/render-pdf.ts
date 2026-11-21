@@ -187,7 +187,7 @@ function applyAdobeFeatures(
   doc: PDFDocument,
   adobe: NonNullable<RenderOptions['adobe']>,
   layout: PaginatedLayout,
-  xdpXml: string,
+  xdpXml: string
 ): void {
   if (adobe.acroForm) {
     createAcroFormFields(doc, layout, typeof adobe.acroForm === 'object' ? adobe.acroForm : {});
