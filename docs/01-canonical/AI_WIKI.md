@@ -260,6 +260,17 @@ fixture-specific code to make a diff disappear.
 
 ## 11. Change ledger (append newest first)
 
+### 2026-11-21 — CI-safe CFF subset regression test
+- Replaced the Adobe OTF dependency in `cff-subset.test.ts` with a mocked
+  fontkit subset in `cff-subset-patch.test.ts`. CI checkouts do not include
+  `assets/fonts/adobe/*.otf` (they are imported locally via `fonts:import`), so
+  the old `fs.readFileSync` assertion failed with `ENOENT` on both Node matrices.
+- The mocked test still reproduces the malformed `01 00 04 15` header and
+  asserts the wrapper writes the subset's real `offSize`; a non-CFF control
+  case verifies passthrough. The committed DejaVu TrueType test remains.
+- Research/plan: `docs/02-research/2026-11-21-ci-cff-test-asset.md`,
+  `docs/03-plans/2026-11-21-ci-cff-test-asset.md`.
+
 ### 2026-11-21 — comprehensive unit coverage
 - Added `npm run test:coverage` (Jest unit coverage with `json-summary` and
   `text-summary`) and documented it in `README.md`.

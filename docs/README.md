@@ -28,6 +28,8 @@ This is the entry point for humans and AI agents. Read in this order.
   — Example-2 EN/CN defect evidence.
 - [`02-research/2026-11-21-unit-coverage-all-source.md`](02-research/2026-11-21-unit-coverage-all-source.md)
   — Unit coverage baseline and gap analysis.
+- [`02-research/2026-11-21-ci-cff-test-asset.md`](02-research/2026-11-21-ci-cff-test-asset.md)
+  — CI failure caused by an optional Adobe font asset.
 - [`02-research/_TEMPLATE.md`](02-research/_TEMPLATE.md) — template for new
   research notes.
 
@@ -41,6 +43,8 @@ This is the entry point for humans and AI agents. Read in this order.
   — Example-2 EN/CN implementation plan.
 - [`03-plans/2026-11-21-unit-coverage-all-source.md`](03-plans/2026-11-21-unit-coverage-all-source.md)
   — Comprehensive unit coverage plan.
+- [`03-plans/2026-11-21-ci-cff-test-asset.md`](03-plans/2026-11-21-ci-cff-test-asset.md)
+  — CI-safe CFF test plan.
 - [`03-plans/_TEMPLATE.md`](03-plans/_TEMPLATE.md) — template for new plans.
 
 ## 5. Decisions
