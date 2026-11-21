@@ -195,6 +195,14 @@ fixture-specific code to make a diff disappear.
 
 ## 11. Change ledger (append newest first)
 
+### 2026-11-21 — README rewritten as the package front page
+- `README.md` now follows a standard npm-package layout (badges, contents,
+  features, install, quick start, CLI, API, architecture, concepts, limits,
+  development, license) and includes Mermaid diagrams of the pipeline, layered
+  architecture, layout dispatch, page render order and script lifecycle.
+  Reason: make the project understandable at a glance for users and AI models;
+  the wiki remains the deeper source of truth.
+
 ### 2026-11-21 — truthiness for nonempty collections
 - Replaced all 60 `.length > 0` comparisons with `.length` across `src/`,
   `test/`, and `scripts/`. Reason: JavaScript treats any nonzero length as
