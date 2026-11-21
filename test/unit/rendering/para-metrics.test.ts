@@ -46,7 +46,6 @@ describe('<para> metrics (jfTextAttr Spacing/SpaceBefore/SpaceAfter/MarginL/Marg
       { lineAdvance: 20, paddingTop: 5, paddingBottom: 7 }
     );
     expect(blockHeight).toBeCloseTo(40, 10);
-    // blockTop = 100 − 5; first baseline = blockTop − ascent(0.8×10)
     expect(baselines[0]).toBeCloseTo(95 - 8, 10);
     expect(baselines[1]).toBeCloseTo(baselines[0] - 20, 10);
   });
@@ -58,7 +57,6 @@ describe('<para> metrics (jfTextAttr Spacing/SpaceBefore/SpaceAfter/MarginL/Marg
 
   it('first-line indent does not affect continuation lines', () => {
     const lines = breakLinesInfo('aa bb cc', 6, measure, { firstLineIndent: 3 });
-    // first line limit 3 → 'aa'; continuation limit 6 → 'bb cc'
     expect(lines.map((l) => l.text)).toEqual(['aa', 'bb cc']);
   });
 });

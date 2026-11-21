@@ -3,7 +3,6 @@ import { success, failure } from '../../lib/result-type';
 import { resolveXPath, resolveXPathRelative } from '../../lib/xpath-resolver';
 import { ERROR_CODES } from '../../errors/error-codes';
 
-/** Deep-clone the layout model and attach resolvedValue to each data-bound field. */
 export function resolveBindings(layout: LayoutModel, data: DataObject): Result<LayoutModel> {
   try {
     const cloned = deepCloneLayout(layout);
@@ -30,12 +29,6 @@ function resolveNode(node: LayoutNode, data: DataObject, scope: DataObject): Lay
   return node;
 }
 
-/**
- * XFA dataRefs are evaluated from the nearest bound ancestor's data node.
- * A row bound to `$.Element_2646` therefore makes a child `$.Element_2651`
- * address `Element_2646.Element_2651`, not a root sibling. Root lookup stays
- * as a fallback for templates that use absolute-looking refs throughout.
- */
 function resolveRef(ref: string, data: DataObject, scope: DataObject): unknown {
   const scoped = scope !== data ? resolveXPathRelative(ref, scope) : undefined;
   return scoped !== undefined ? scoped : resolveXPath(ref, data);
@@ -58,19 +51,16 @@ function resolveSubform(node: SubformNode, data: DataObject, scope: DataObject):
 }
 
 function resolveField(node: FieldNode, data: DataObject, scope: DataObject): FieldNode {
-  // If data-bound, resolve from data
   if (node.bindMatch === 'dataRef' && node.bindRef) {
     const resolved = resolveRef(node.bindRef, data, scope);
     if (resolved !== undefined) {
       return { ...node, resolvedValue: resolved };
     }
-    // If binding failed but there's a defaultValue, use it
     if (node.defaultValue !== undefined) {
       return { ...node, resolvedValue: node.defaultValue };
     }
     return { ...node, resolvedValue: resolved };
   }
-  // If no binding, use defaultValue if available
   if (node.defaultValue !== undefined && node.resolvedValue === undefined) {
     return { ...node, resolvedValue: node.defaultValue };
   }
@@ -78,7 +68,6 @@ function resolveField(node: FieldNode, data: DataObject, scope: DataObject): Fie
 }
 
 function resolveDraw(node: DrawNode, data: DataObject): DrawNode {
-  // Draws are typically static; only resolve if they have a bind ref (rare)
   return node;
 }
 

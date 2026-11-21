@@ -8,50 +8,16 @@ import {
   setGraphicsState,
 } from 'pdf-lib';
 
-/**
- * Low-level PDF graphics-state helpers: transparency (ExtGState) and the
- * page-level transparency group.
- *
- * Adobe emits alpha through the PDF ExtGState dictionary:
- *   - fill opacity     → `/ca`   (pdfdocument:144010-144012 PDEExtGStateCreateNew
- *                                  + PDEExtGStateSetOpacityFill)
- *   - stroke opacity   → `/CA`   (pdfdocument:138444-138447 PDEExtGStateSetOpacityStroke)
- *   - page group       → `/Group << /S /Transparency /CS /DeviceRGB >>`
- *                                  (pdfldriver:61272-61300 FUN_19750570)
- */
-
 export interface OpacityOptions {
-  /** 0..1 fill alpha (`/ca`). */
   fill?: number;
-  /** 0..1 stroke alpha (`/CA`). */
   stroke?: number;
 }
 
-/** Alpha values already registered, per document, to avoid duplicate resources. */
 const extGStateCache = new WeakMap<PDFDocument, Map<string, string>>();
 const groupPages = new WeakSet<PDFPage>();
 
-/** Pages whose `setFont` has already been wrapped. */
 const dedupedPages = new WeakSet<PDFPage>();
 
-/**
- * Make a page register each distinct font in `/Resources /Font` exactly once.
- *
- * pdf-lib's `PDFPage.setFont()` unconditionally calls
- * `PDFPageLeaf.newFontDictionary()`, which mints a **fresh random key every
- * time** (`PDFDict.uniqueKey` → `addRandomSuffix`) and never reuses an existing
- * entry — its source carries a standing TODO acknowledging this. Because
- * `drawText` calls `setFont()` on every single run, a form with 550 text runs
- * emitted 550 `/Font` entries pointing at just 3 underlying font objects:
- * tens of KB of redundant resource names, on a file that is already larger
- * than Designer's output.
- *
- * The fix is to reuse the previously assigned key whenever the font object is
- * unchanged. `setFont` sets two fields (`font`, `fontKey`) that `drawText` only
- * ever reads back, so overriding it is behaviour-preserving: the content stream
- * still selects a valid font resource, it just selects the *same* one instead of
- * an identical new one.
- */
 export function dedupePageFontResources(pdfPage: PDFPage): void {
   if (dedupedPages.has(pdfPage)) return;
   dedupedPages.add(pdfPage);
@@ -80,11 +46,6 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/**
- * Begin a transparency scope: push `q` and select an ExtGState holding the
- * requested alphas. Returns true when a state was pushed (caller must call
- * [[endOpacityScope]]).
- */
 export function beginOpacityScope(pdfPage: PDFPage, options: OpacityOptions): boolean {
   const ca = isTransparent(options.fill) ? clamp01(options.fill!) : undefined;
   const CA = isTransparent(options.stroke) ? clamp01(options.stroke!) : undefined;
@@ -113,20 +74,14 @@ export function beginOpacityScope(pdfPage: PDFPage, options: OpacityOptions): bo
   return true;
 }
 
-/** Close a scope opened by [[beginOpacityScope]]. */
 export function endOpacityScope(pdfPage: PDFPage, started: boolean): void {
   if (started) pdfPage.pushOperators(popGraphicsState());
 }
 
-/** True when alpha was used on this page (its transparency group is required). */
 export function pageUsesTransparency(pdfPage: PDFPage): boolean {
   return groupPages.has(pdfPage);
 }
 
-/**
- * Mark the page as a transparency group (Adobe sets this for every page that
- * contains alpha). Idempotent — safe to call once per page.
- */
 export function applyPageTransparencyGroup(pdfPage: PDFPage): void {
   if (!pageUsesTransparency(pdfPage)) return;
   const doc = pdfPage.doc;

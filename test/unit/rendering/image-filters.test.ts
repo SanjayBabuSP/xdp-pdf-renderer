@@ -14,7 +14,6 @@ function be32(value: number): number[] {
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
-/** Pack fixed-width codes MSB-first (test helper). */
 function packCodes(codes: number[], width: number): Uint8Array {
   const bits: number[] = [];
   for (const code of codes) {
@@ -32,7 +31,6 @@ function packCodes(codes: number[], width: number): Uint8Array {
 
 describe('G14 — RunLengthDecode', () => {
   it('decodes literal runs, repeat runs and EOD', () => {
-    // literal 3 ("ABC"), repeat 3× "X", EOD
     const data = Uint8Array.from([2, ...ascii('ABC'), 254, 0x58, 128]);
     expect(new TextDecoder().decode(decodeRunLength(data))).toBe('ABCXXX');
   });
@@ -49,7 +47,6 @@ describe('G14 — LZWDecode', () => {
   });
 
   it('honours the CLEAR code', () => {
-    // CLEAR, 'A', 'B', EOD
     const packed = packCodes([256, 65, 66, 257], 9);
     expect(new TextDecoder().decode(decodeLzw(packed))).toBe('AB');
   });

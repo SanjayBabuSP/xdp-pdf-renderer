@@ -5,27 +5,29 @@ import { layoutFlowSubform, layoutRootFlow } from './flow-engine';
 import { layoutPositionSubform, layoutLeafField, layoutLeafDraw, layoutExclGroup } from './position-engine';
 import { layoutTableSubform } from './table-engine';
 
-// ─── Layout dispatcher ─────────────────────────────────────────────────────
-// evidence: engine selection per node, xfalayout_disasm.c:15853-15926:
-//   0x1b0000/1/2 (lr-tb, rl-tb, tb) → XFAFlowLayout
-//   0x1b0003 (position)            → XFAPositionLayout
-//   0x1b0004 (table)               → XFATableLayout
-//   anything else                  → XFAPositionLayout (fallback)
-// and the per-child coercion at :49800-49900: invalid layout value →
-// position (warn 0x72a6), row/rl-row outside a table → illegal (position
-// fallback). Legacy rl-tb→position coercion depends on a Designer legacy
-// flag we don't model — rl-tb flows right-to-left here (Appendix B: flow).
-
-/** Resolve all layout positions to absolute coordinates in page-1 content space. */
 export function calculatePositions(layout: LayoutModel): Result<LayoutModel> {
   const firstPage = layout.pages[0];
   const rootCtx: LayoutContext = firstPage
     ? { x: firstPage.contentArea.x, y: firstPage.contentArea.y, availableWidth: firstPage.contentArea.w }
     : { x: 0, y: 0, availableWidth: 0 };
-  // Positioned once against the first page's content area; applyPagination
-  // translates each page's slice onto that page's own content-area origin.
   const children = layoutRootFlow(layout.children, rootCtx, layoutNode);
-  return success({ ...layout, children });
+  const pages = layout.pages.map((page) => ({
+    ...page,
+    masterPageChildren: page.masterPageChildren.map((child) => {
+      const positioned =
+        child.type === 'subform' &&
+        (child.layout === 'position' || child.layout === undefined);
+      const ctx: LayoutContext = positioned
+        ? { x: 0, y: 0, availableWidth: page.contentArea.w }
+        : {
+            x: child.position?.x ?? 0,
+            y: child.position?.y ?? 0,
+            availableWidth: page.contentArea.w,
+          };
+      return layoutNode(child, ctx).node;
+    }),
+  }));
+  return success({ ...layout, pages, children });
 }
 
 function layoutNode(node: LayoutNode, ctx: LayoutContext): LayoutResult {
@@ -42,7 +44,6 @@ function layoutSubform(node: SubformNode, ctx: LayoutContext): LayoutResult {
       return layoutTableSubform(node, ctx, layoutNode);
     case 'row':
     case 'rl-row':
-      // Illegal outside a table (evidence above) — position fallback.
       return layoutPositionSubform(node, ctx, layoutNode);
     case 'tb':
       return layoutFlowSubform(node, ctx, 'tb', layoutNode);

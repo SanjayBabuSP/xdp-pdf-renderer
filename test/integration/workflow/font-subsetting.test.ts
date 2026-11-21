@@ -3,12 +3,6 @@ import * as path from 'path';
 import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 
-/**
- * G10 — embedded fonts are subsetted to the glyphs actually used. A form that
- * needs the bundled Unicode fallback (for a non-WinAnsi character) must embed a
- * font file far smaller than the full TTF.
- */
-
 const FULL_FONT = path.join(__dirname, '../../..', 'assets/fonts/DejaVuSans.ttf');
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>

@@ -1,15 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
-/**
- * `<para>` paragraph metrics reach the PDF text matrix:
- *  - `lineHeight` overrides the 1.2 × size line advance,
- *  - `marginLeft` insets the text block,
- *  - `textIndent` shifts the first line of each paragraph.
- * evidence: xfa.dll atoms lineHeight/marginLeft/textIndent; jfTextAttr::Spacing
- * (jftext_disasm.c:3920) / MarginL (:2888).
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
            xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -71,7 +62,6 @@ const RICH_PARAGRAPHS =
   '&lt;body&gt;&lt;p&gt;aaaa &lt;b&gt;bbbb&lt;/b&gt; cccc&lt;/p&gt;&lt;p&gt;dddd eeee&lt;/p&gt;&lt;/body&gt;';
 const RICH_SINGLE_LINE = '&lt;body&gt;&lt;p&gt;abcd&lt;/p&gt;&lt;/body&gt;';
 
-/** Text origin (x, y) of every unrotated `Tm` in the content stream. */
 function textOrigins(content: string): Array<{ x: number; y: number }> {
   const re = /1 0 0 1 ([-\d.]+) ([-\d.]+) Tm/g;
   const out: Array<{ x: number; y: number }> = [];
@@ -90,7 +80,6 @@ describe('<para> rendering', () => {
     expect(extractText(content).join('')).toContain('aaaa');
     const origins = textOrigins(content);
     expect(origins.length).toBeGreaterThanOrEqual(2);
-    // second line steps down by 1.2 × 10 = 12pt
     expect(origins[0].y - origins[1].y).toBeCloseTo(12, 1);
   });
 
@@ -107,9 +96,7 @@ describe('<para> rendering', () => {
     const content = await contentStream(result.data);
     const origins = textOrigins(content);
     expect(origins.length).toBeGreaterThanOrEqual(2);
-    // lineHeight steps down by 30pt (not 12pt)
     expect(origins[0].y - origins[1].y).toBeCloseTo(30, 1);
-    // first line x = marginLeft(5) + textIndent(12); continuation = 5
     expect(origins[0].x).toBeCloseTo(17, 1);
     expect(origins[1].x).toBeCloseTo(5, 1);
   });
@@ -131,11 +118,8 @@ describe('<para> rendering', () => {
     expect(extractText(content).join(' ')).toContain('bbbb');
     const origins = textOrigins(content);
     expect(origins).toHaveLength(5);
-    // Each paragraph starts at marginLeft + textIndent.
     expect(origins[0].x).toBeCloseTo(17, 1);
     expect(origins[3].x).toBeCloseTo(17, 1);
-    // Styled segments stay in document order on the same baseline, then the
-    // next paragraph steps by the explicit lineHeight.
     expect(origins[0].y).toBeCloseTo(origins[2].y, 3);
     expect(origins[0].y - origins[3].y).toBeCloseTo(30, 1);
   });
@@ -179,7 +163,6 @@ describe('<para> rendering', () => {
     const [top, middle] = renders;
     expect(top).toHaveLength(5);
     expect(middle).toHaveLength(5);
-    // Two 12pt lines in a 100pt box leave 76pt of slack; middle uses half.
     expect(top[0].y - middle[0].y).toBeCloseTo(38, 1);
     expect(middle.map((origin) => origin.x)).toEqual(top.map((origin) => origin.x));
     for (let i = 0; i < top.length; i++) {

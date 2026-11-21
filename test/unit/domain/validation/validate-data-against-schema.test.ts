@@ -114,7 +114,6 @@ describe('validate-data-against-schema', () => {
     });
   });
 
-  // ADS parity brief §5.6: real SAP data must validate leniently (codes kept).
   describe('lenient mode (strict: false) — SAP real-world tolerance', () => {
     const sapData: DataObject = {
       Amount: 'not-a-number',

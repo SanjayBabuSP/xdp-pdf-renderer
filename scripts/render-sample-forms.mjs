@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Renders every form listed in test/fixtures/sample-forms/forms.json with the
-// built package (dist/) into test/fixtures/sample-forms/results/ for visual
-// review. Run with `npm run sample-forms` (builds first).
 
 import fs from 'node:fs';
 import path from 'node:path';

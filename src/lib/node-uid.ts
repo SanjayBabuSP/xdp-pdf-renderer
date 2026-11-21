@@ -1,20 +1,5 @@
 import { LayoutNode } from '../types';
 
-/**
- * Stamp every node in the given forest with a unique `uid`.
- *
- * Adobe LiveCycle identifies template elements by their XDP `id` attribute
- * (falling back to `name`). Script results must be reconciled back onto the
- * exact node they were produced against, so every layout node needs a key
- * that is unique within the model.
- *
- * The base for a node is its already-assigned `uid` (XDP id/name captured at
- * parse time), then its `name`, then a synthetic counter. Collisions get a
- * `#N` suffix in document order.
- *
- * Called after parsing and again after repeat expansion (which clones nodes
- * and would otherwise leave duplicate ids behind).
- */
 export function stampUids(forests: LayoutNode[][]): void {
   const seen = new Set<string>();
   let synthetic = 0;

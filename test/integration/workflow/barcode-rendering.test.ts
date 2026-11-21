@@ -2,11 +2,6 @@ import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { parseXdp } from '../../../src/domain/parsing/parse-xdp';
 import { contentStream, extractText, pathRectCount } from '../../helpers/pdf-content';
 
-/**
- * G1 — barcode fields were parsed (`ui.type === 'barcode'`) but `renderBarcode`
- * had zero call sites, so the field fell through to plain text rendering.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
            xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -87,7 +82,6 @@ describe('G1 — barcode fields render as vector bars', () => {
     const content = await contentStream(result.data);
     expect(rectCount(content)).toBeGreaterThan(20);
 
-    // Without HRI the payload must not be drawn as text.
     const text = extractText(content).join(' ');
     expect(text).not.toContain('ABC-1234');
   });

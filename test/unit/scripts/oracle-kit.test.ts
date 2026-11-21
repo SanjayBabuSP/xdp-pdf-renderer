@@ -6,11 +6,6 @@ import { parseXmlData } from '../../../src/domain/parsing/parse-xml-data';
 
 const KIT = path.join(__dirname, '..', '..', '..', 'scripts', 'oracle-kit');
 
-/**
- * Oracle-kit smoke test: the committed synthetic probes must stay parseable
- * (an unparseable probe breaks the company-laptop workflow), and the kit
- * scripts must be present. No rendering here — speed over coverage.
- */
 describe('oracle-kit probes', () => {
   const probes = ['p1-metrics', 'p2-borders', 'p3-subforms'];
 

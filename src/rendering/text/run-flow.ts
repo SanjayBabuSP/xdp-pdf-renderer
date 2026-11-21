@@ -1,13 +1,3 @@
-/**
- * Run flow — measure and wrap a sequence of styled runs (rich text) with a
- * per-run font and size, so `<span>` sizing/weight changes survive wrapping
- * instead of being flattened by `stripHtml`.
- *
- * Wrapping rules mirror `line-breaker.ts` (0.5pt tolerance, break
- * prohibition) but the unit of measurement is a styled token rather than a
- * plain string: a word may straddle several runs, so it is measured run by
- * run and drawn the same way (no kerning across the run seam).
- */
 
 import type { PDFFont } from 'pdf-lib';
 import type { RgbColor } from '../../types';
@@ -19,66 +9,42 @@ import {
 } from './line-breaker';
 import { JUST_H, type JustHCode } from './justifier';
 
-/** A run of text sharing one font, size and colour. */
 export interface StyledRun {
   text: string;
   size: number;
   font: PDFFont;
   color?: RgbColor;
+  underline?: boolean;
 }
 
-/** One drawn piece of a line: text at an x offset from the line origin. */
 export interface RunSegment {
   text: string;
   x: number;
-  /** Index into the input runs — carries font/size/colour. */
   run: number;
 }
 
-/** Paragraph box controls for a run of styled text. */
 export interface RunParagraphOptions {
-  /** Explicit line advance, points; defaults to 1.2 × the largest run size. */
   lineAdvance?: number;
-  /** Left inset of the paragraph text block, points. */
   marginLeft?: number;
-  /** Right inset of the paragraph text block, points. */
   marginRight?: number;
-  /** First-line indent, points, applied to each paragraph’s first line. */
   firstLineIndent?: number;
-  /**
-   * Horizontal justification for the line. Codes 4/5 redistribute the line’s
-   * unused width across its space-class glyphs; the other codes only affect
-   * the caller’s line origin. evidence: jftext_disasm.c:73245.
-   */
   justify?: JustHCode;
 }
 
 export interface RunLine {
   segments: RunSegment[];
-  /** Natural width — sum of the drawn pieces (segments are drawn separately). */
   width: number;
-  /**
-   * First-line indent consumed while wrapping this line. The renderer adds it
-   * to the line origin; it is not included in `width`.
-   */
   indent: number;
-  /** Line box height: 1.2 × the largest run size on the line (font:10517). */
   advance: number;
-  /** Largest run ascent on the line, box top → baseline. */
   ascent: number;
-  /** Closes a hard-break paragraph (`\n`), or is the final line of the text. */
   paragraphEnd: boolean;
 }
 
 export interface RunLineOptions {
   maxWidth: number;
-  /** Width of `text` as rendered by run `run` (kerning on, as drawn). */
   measure: (text: string, run: number) => number;
-  /** Size used for blank lines produced by consecutive line breaks. */
   baseSize: number;
-  /** Allowed overshoot before a forced break; default 0.5. */
   tolerance?: number;
-  /** Paragraph insets, first-line indent, and explicit line advance. */
   paragraph?: RunParagraphOptions;
 }
 
@@ -105,13 +71,6 @@ interface NewlineToken {
 
 type Token = WordToken | SpaceToken | NewlineToken;
 
-/**
- * Wrap `runs` into lines no wider than `maxWidth` (plus tolerance).
- *
- * Lines carry their own `advance`/`ascent` so a 16pt run inside an 8pt
- * paragraph grows that line's box, and each segment keeps the x offset it
- * must be drawn at from the line origin.
- */
 export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine[] {
   const tolerance = opts.tolerance ?? LINE_BREAK_TOLERANCE;
   const measure = opts.measure;
@@ -130,8 +89,7 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
   let startsParagraph = true;
 
   const pushLine = (paragraphEnd: boolean): void => {
-    // Trailing whitespace is trimmed off the end of a line (line-breaker.ts).
-    while (current.length > 0 && current[current.length - 1].kind === 'space') {
+    while (current.length && current[current.length - 1].kind === 'space') {
       width -= (current.pop() as SpaceToken).width;
     }
     lines.push(
@@ -145,8 +103,7 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
 
   const addWord = (pieces: Piece[], w: number): void => {
     if (wordCount === 0) {
-      // Leading whitespace never starts a line (line-breaker.ts skips it).
-      while (current.length > 0 && current[current.length - 1].kind === 'space') {
+      while (current.length && current[current.length - 1].kind === 'space') {
         width -= (current.pop() as SpaceToken).width;
       }
     }
@@ -160,9 +117,6 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
       addWord(token.pieces, token.width);
       return;
     }
-    // A single word wider than the frame is split by characters
-    // (line-breaker.ts `splitLongToken`). Only the first chunk of a
-    // paragraph’s first line is narrowed by the indent.
     const chunks = hardSplit(
       token,
       (chunkIndex) => lineWidthFor(isFirstLine && chunkIndex === 0),
@@ -188,10 +142,6 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
       continue;
     }
 
-    // Pending spaces become interior once the word follows, so the candidate
-    // width includes them; pushLine trims them if the line ends there.
-    // `startsParagraph` stays true for every token on the current first line and
-    // is cleared when that line is committed.
     const fits = width + token.width <= lineWidthFor(startsParagraph) + tolerance;
     if (fits) {
       addWord(token.pieces, token.width);
@@ -205,10 +155,6 @@ export function layoutRunLines(runs: StyledRun[], opts: RunLineOptions): RunLine
   return lines;
 }
 
-/**
- * Baselines for `lines` stacked inside `[box.bottom, box.top]` — same
- * alignment rules as `layoutLines`, but each line steps by its own advance.
- */
 export function layoutRunBaselines(
   lines: RunLine[],
   box: { top: number; bottom: number },
@@ -235,12 +181,9 @@ export function layoutRunBaselines(
   return baselines;
 }
 
-/** Total height of the laid-out block — for the overflow-clip test. */
 export function runBlockHeight(lines: RunLine[]): number {
   return lines.reduce((sum, line) => sum + line.advance, 0);
 }
-
-// ── Internals ────────────────────────────────────────────────────────────────
 
 function tokenize(runs: StyledRun[], measure: (text: string, run: number) => number): Token[] {
   const tokens: Token[] = [];
@@ -278,7 +221,12 @@ function tokenize(runs: StyledRun[], measure: (text: string, run: number) => num
         tokens.push({ kind: 'nl' });
         continue;
       }
-      if (/\s/.test(ch)) {
+      if (ch === ' ') {
+        flushSpace();
+        appendChar(word, ch, run);
+        continue;
+      }
+      if (ch === ' ' || ch === '\t' || ch === '\f' || ch === '\v') {
         flushWord();
         appendChar(space, ' ', run);
         continue;
@@ -332,12 +280,10 @@ function buildLine(
     }
   }
 
-  // jftext Justify distributes unused width across space-class glyphs while
-  // preserving each styled piece; code 4 skips a paragraph’s final line.
   const justifyLine =
     (justify === JUST_H.justifyAll || (justify === JUST_H.justify && !paragraphEnd)) &&
     gapCount > 0 &&
-    rawSegments.length > 0;
+    rawSegments.length;
   let segments: RunSegment[] = rawSegments.map(({ text, x, run }) => ({ text, x, run }));
   if (justifyLine) {
     const marginLeft = Math.max(opts.paragraph?.marginLeft ?? 0, 0);
@@ -379,10 +325,6 @@ interface Chunk {
   width: number;
 }
 
-/**
- * Split an over-wide word into chunks. The width limit can vary by chunk so a
- * paragraph’s first-line indent applies only to its first chunk.
- */
 function hardSplit(
   token: WordToken,
   maxLineWidth: number | ((chunkIndex: number) => number),
@@ -394,7 +336,7 @@ function hardSplit(
   let width = 0;
 
   const flush = (): void => {
-    if (pieces.length > 0) chunks.push({ pieces, width });
+    if (pieces.length) chunks.push({ pieces, width });
     pieces = [];
     width = 0;
   };
@@ -403,9 +345,8 @@ function hardSplit(
     for (const ch of piece.text) {
       const chWidth = measure(ch, piece.run);
       const maxWidth = typeof maxLineWidth === 'function' ? maxLineWidth(chunks.length) : maxLineWidth;
-      if (pieces.length > 0 && width + chWidth > maxWidth + tolerance) {
+      if (pieces.length && width + chWidth > maxWidth + tolerance) {
         const lastChar = pieces[pieces.length - 1].text.slice(-1);
-        // Prohibited breaks let the line stretch (line-breaker.ts).
         if (NO_BREAK_BEFORE.has(ch) || NO_BREAK_AFTER.has(lastChar)) {
           appendCharTo(pieces, ch, piece.run);
           width += chWidth;
@@ -418,7 +359,7 @@ function hardSplit(
     }
   }
   flush();
-  return chunks.length > 0 ? chunks : [{ pieces: token.pieces, width: token.width }];
+  return chunks.length ? chunks : [{ pieces: token.pieces, width: token.width }];
 }
 
 function appendCharTo(bucket: Piece[], ch: string, run: number): void {

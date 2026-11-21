@@ -1,10 +1,5 @@
 import { XfaEventDispatcher, eventBubbles, BUBBLING_EVENTS, NON_BUBBLING_EVENTS } from '../../../src/adobe/xfa-event-bubbling';
 
-/**
- * G3 — the XFA event propagation model. The dispatcher is generic over node
- * type; these tests use strings to make the propagation order obvious.
- */
-
 const parents: Record<string, string | null> = {
   root: null,
   container: 'root',

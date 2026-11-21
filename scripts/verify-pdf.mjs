@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/**
- * Oracle verification harness — renders each oracle fixture with the current
- * engine and pixel-diffs the result against Designer's `expected.pdf`.
- *
- * Evidence/plan: reference/IMPLEMENTATION-PLAN.md Phase 0.
- *
- * Usage:
- *   node scripts/verify-pdf.mjs [options] [oracleDir...]
- *
- * Options:
- *   --threshold <pct>   Max per-page pixel diff % to pass (default 1.0)
- *   --dpi <n>           Rasterization DPI (default 150)
- *   --only <name>       Only run oracles whose directory name contains <name>
- *   --render-only       Render actual PDFs but skip diffing (no expected.pdf needed)
- *
- * Oracle directory layout (default search paths: test/final-test, test/oracles/<name>):
- *   <dir>/form.xdp (any *.xdp)  <dir>/*.xsd  <dir>/*.xml  <dir>/expected.pdf
- *
- * Artifacts are written to <dir>/.verify/ (actual.out.pdf, diff-page-N.png).
- */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,7 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const require = createRequire(import.meta.url);
 
-// ── args ─────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
 function opt(name, fallback) {
   const i = argv.indexOf(`--${name}`);
@@ -41,7 +20,6 @@ const dpi = Number(opt('dpi', '150'));
 const only = opt('only', null);
 const renderOnly = argv.includes('--render-only');
 
-// positional args = anything not consumed as option keys/values
 const consumed = new Set();
 for (const key of ['threshold', 'dpi', 'only']) {
   const i = argv.indexOf(`--${key}`);
@@ -52,7 +30,6 @@ for (const key of ['threshold', 'dpi', 'only']) {
 }
 const dirs = argv.filter((a) => !consumed.has(a) && a !== '--render-only');
 
-// ── locate oracles ───────────────────────────────────────────────────────────
 function findOracles() {
   const roots = dirs.length
     ? dirs.map((d) => path.resolve(repoRoot, d))
@@ -83,7 +60,6 @@ function pick(dir, ext) {
   return f ? path.join(dir, f) : null;
 }
 
-// ── rasterize ────────────────────────────────────────────────────────────────
 async function rasterize(pdfPath, scale) {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const standardFontDataUrl = path.join(repoRoot, 'node_modules', 'pdfjs-dist', 'standard_fonts') + path.sep;
@@ -112,7 +88,6 @@ async function rasterize(pdfPath, scale) {
   return pages;
 }
 
-// ── diff ─────────────────────────────────────────────────────────────────────
 async function diffPages(aPages, bPages, outDir) {
   const { PNG } = require('pngjs');
   const pixelmatch = require('pixelmatch');
@@ -126,7 +101,6 @@ async function diffPages(aPages, bPages, outDir) {
       continue;
     }
     if (a.width !== b.width || a.height !== b.height) {
-      // Rescale b onto a's grid by nearest-neighbor before comparing.
       const sa = PNG.sync.read(a.png);
       const sb = PNG.sync.read(b.png);
       const out = new PNG({ width: sa.width, height: sa.height });
@@ -163,7 +137,6 @@ async function diffPages(aPages, bPages, outDir) {
   return results;
 }
 
-// ── main ─────────────────────────────────────────────────────────────────────
 async function main() {
   const oracles = findOracles();
   if (oracles.length === 0) {
@@ -173,7 +146,6 @@ async function main() {
     return 0;
   }
 
-  // dist build required
   const distEntry = path.join(repoRoot, 'dist', 'index.js');
   if (!fs.existsSync(distEntry)) {
     console.error('verify-pdf: dist/index.js missing — run `npm run build` first.');

@@ -2,13 +2,6 @@ import { LayoutNode, SubformNode } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 
-// ─── Flow engine (tb / lr / rl-tb) ────────────────────────────────────────
-// evidence: engine dispatch — layout enums 0,1,2 (lr-tb, rl-tb, tb) select
-// XFAFlowLayout, xfalayout_disasm.c:15853-15926; child placement + cursor
-// advance at FUN_1854e9e0 (:51943); commit+alignment FUN_1854cf00 (:50374:
-// hAlign/vAlign from the node's 0x215/0x2cf properties; box-model geometry
-// :23440-23560 — left/center/right → start/mid/end offsets).
-
 export type FlowDirection = 'tb' | 'lr' | 'rl';
 
 function childHAlign(node: LayoutNode): string | undefined {
@@ -18,6 +11,7 @@ function childHAlign(node: LayoutNode): string | undefined {
 
 function childVAlign(node: LayoutNode): string | undefined {
   if (node.type === 'field') return node.para?.vAlign ?? node.ui?.vAlign;
+  if (node.type === 'draw') return node.para?.vAlign;
   return undefined;
 }
 
@@ -25,7 +19,7 @@ function alignOffset(align: string | undefined, slot: number, extent: number, ax
   const free = slot - extent;
   if (free <= 0) return 0;
   const a = (align ?? (axis === 'h' ? 'left' : 'top')).toLowerCase();
-  if (a === 'center') return free / 2;
+  if (a === 'center' || a === 'middle') return free / 2;
   if (a === 'right' || a === 'bottom') return free;
   return 0;
 }
@@ -43,19 +37,6 @@ function declaredWidth(node: LayoutNode): number | undefined {
   return undefined;
 }
 
-/**
- * Stack children along the flow axis inside the subform's content box.
- *
- * tb: children stacked downward; children narrower than the box are offset
- *     horizontally per their hAlign (default start).
- * lr: children placed left-to-right on a shared line; children shorter than
- *     the line are offset vertically per vAlign (default top).
- * rl: like lr but the line runs right-to-left.
- *
- * The subform's own box: w = declared or available width; h = declared
- * (fixed) or the used flow extent, clamped by minH/maxH
- * (xfatemplate_disasm.c:8510-8700).
- */
 export function layoutFlowSubform(
   node: SubformNode,
   ctx: LayoutContext,
@@ -63,8 +44,6 @@ export function layoutFlowSubform(
   layoutChild: ChildLayouter
 ): LayoutResult {
   const width = resolveExtent(node.position, 'width', ctx.availableWidth);
-  // Content box inside the container's margin insets (same convention as the
-  // position engine: children flow from the content origin).
   const mLeft = node.margin?.leftInset ?? 0;
   const mRight = node.margin?.rightInset ?? 0;
   const mTop = node.margin?.topInset ?? 0;
@@ -86,8 +65,6 @@ export function layoutFlowSubform(
     }
     usedHeight = yOffset;
   } else {
-    // lr / rl: children run along the line and wrap to the next line when
-    // they no longer fit (XFAFlowLayout line breaking, FUN_1854e9e0).
     let xOffset = 0;
     let yOffset = 0;
     let lineHeight = 0;
@@ -95,16 +72,12 @@ export function layoutFlowSubform(
       const authored = declaredWidth(child);
       const cw = authored ?? Math.max(0, contentW - xOffset);
       if (authored !== undefined && xOffset > 0 && cw > 0 && xOffset + cw > contentW + 1e-6) {
-        // Wrap: commit the current line and restart at the content origin.
         yOffset += lineHeight;
         xOffset = 0;
         lineHeight = 0;
       }
       const childX = direction === 'rl' ? baseX + contentW - xOffset - cw : baseX + xOffset;
 
-      // First pass at line-top to learn the child's height, then re-place at
-      // its vAlign offset when the line is taller than the child (top-aligned
-      // children — the common case — only lay out once).
       const childCtx = {
         x: childX,
         y: baseY + yOffset,
@@ -117,8 +90,6 @@ export function layoutFlowSubform(
         result = layoutChild(child, { ...childCtx, y: baseY + yOffset + vOff });
       }
       children.push(result.node);
-      // Advance by the actual extent for content-sized children; otherwise by
-      // the declared column/slot width.
       const advance = authored ?? result.node.position?.w ?? cw;
       xOffset += advance;
       lineHeight = Math.max(lineHeight, vOff + result.height);
@@ -137,10 +108,6 @@ export function layoutFlowSubform(
   };
 }
 
-/**
- * Stack a bare list of top-level nodes vertically (the document root has no
- * subform wrapper — LayoutModel.children sits directly on the model).
- */
 export function layoutRootFlow(
   nodes: LayoutNode[],
   ctx: LayoutContext,

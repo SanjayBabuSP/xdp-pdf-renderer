@@ -60,7 +60,6 @@ describe('FormCalc value properties ($.rawValue / .formattedValue)', () => {
       'Example Pumps GmbH'
     );
     expect(self.resolvedValue).toBe('Example Pumps GmbH');
-    // Writes mirror straight through to the layout node the renderer reads.
     expect(layout.resolvedValue).toBe('Example Pumps GmbH');
   });
 

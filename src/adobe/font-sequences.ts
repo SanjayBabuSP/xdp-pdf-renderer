@@ -1,23 +1,13 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Font Substitution Sequences — Fallback chains for font resolution
-// Implements the <fontInfo><seq> mechanism from Adobe XDC/XCI files
-// ────────────────────────────────────────────────────────────────────────────
 
 import { familyKey } from '../rendering/font-registry';
 export interface FontSequenceRule {
-  /** The font family name to match */
   fromFamily: string;
-  /** The posture (regular, italic) to match */
   fromPosture?: string;
-  /** The weight (normal, bold) to match */
   fromWeight?: string;
-  /** Ordered list of fallback font families */
   sequence: string[];
 }
 
-/** Default font substitution sequences matching Adobe's standard mappings */
 export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
-  // Serif sequences
   {
     fromFamily: 'Times',
     sequence: ['Times New Roman', 'TimesRoman', 'serif'],
@@ -39,7 +29,6 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     sequence: ['Palatino Linotype', 'Book Antiqua', 'Times New Roman', 'serif'],
   },
 
-  // Sans-serif sequences
   {
     fromFamily: 'Helvetica',
     sequence: ['Arial', 'Helvetica Neue', 'Liberation Sans', 'sans-serif'],
@@ -65,7 +54,6 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     sequence: ['Lucida Grande', 'sans-serif'],
   },
 
-  // Monospace sequences
   {
     fromFamily: 'Courier',
     sequence: ['Courier New', 'CourierPrime', 'Liberation Mono', 'monospace'],
@@ -83,7 +71,6 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     sequence: ['Consolas', 'Courier New', 'monospace'],
   },
 
-  // CJK fallbacks
   {
     fromFamily: 'MS Mincho',
     sequence: ['Yu Mincho', 'Hiragino Mincho Pro', 'Noto Serif CJK JP', 'serif'],
@@ -95,10 +82,6 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     fromFamily: 'SimSun',
     sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'NSimSun', 'Noto Serif CJK SC', 'serif'],
   },
-  // ponytail: SimSun-ExtB needs CJK Extension B coverage no bundled face fully
-  // has; Adobe Song Std L (GB18030) is the closest available, so ExtB rarities
-  // may still fall back per-glyph. Ceiling: partial ExtB; upgrade path is a
-  // fuller CJK font (e.g. Noto Sans CJK) via options.fontDirs.
   {
     fromFamily: 'SimSun-ExtB',
     sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'serif'],
@@ -107,8 +90,6 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     fromFamily: 'SimHei',
     sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Microsoft YaHei', 'Noto Sans CJK SC', 'sans-serif'],
   },
-  // Windows CJK UI families Designer templates request. Without these they
-  // fall to the DejaVu fallback, which has no CJK glyphs (tofu boxes).
   {
     fromFamily: 'Microsoft YaHei',
     sequence: ['Adobe Heiti Std R', 'Kozuka Gothic Pr6N R', 'Noto Sans CJK SC', 'sans-serif'],
@@ -126,13 +107,11 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
     sequence: ['Adobe Song Std L', 'Kozuka Mincho Pr6N R', 'Noto Serif CJK SC', 'serif'],
   },
 
-  // Korean
   {
     fromFamily: 'Gulim',
     sequence: ['Malgun Gothic', 'Noto Sans CJK KR', 'sans-serif'],
   },
 
-  // Special
   {
     fromFamily: 'Symbol',
     sequence: ['Symbol', 'serif'],
@@ -143,23 +122,12 @@ export const DEFAULT_FONT_SEQUENCES: FontSequenceRule[] = [
   },
 ];
 
-/**
- * Find the best fallback font for a given font family.
- * Traverses the substitution sequence to find the first available font.
- *
- * @param family - The requested font family
- * @param availableFonts - Set of available font family names
- * @param posture - Font posture (optional, for matching)
- * @param weight - Font weight (optional, for matching)
- * @returns The best matching font family, or the original if no match
- */
 export function resolveFontSequence(
   family: string,
   availableFonts: Set<string>,
   posture?: string,
   weight?: string
 ): string {
-  // Find matching sequence rule
   const rule = DEFAULT_FONT_SEQUENCES.find(
     (r) =>
       r.fromFamily.toLowerCase() === family.toLowerCase() &&
@@ -169,13 +137,10 @@ export function resolveFontSequence(
 
   if (!rule) return family;
 
-  // Try each font in the sequence (spaceless match: manifest keys are
-  // normalized, so `Adobe Song Std L` also matches `adobesongstdl`).
   for (const candidate of rule.sequence) {
     if (availableFonts.has(candidate)) {
       return candidate;
     }
-    // Case- and space-insensitive check
     const normCandidate = familyKey(candidate);
     for (const available of availableFonts) {
       if (familyKey(available) === normCandidate) {
@@ -187,11 +152,7 @@ export function resolveFontSequence(
   return family;
 }
 
-/**
- * Add a custom font substitution sequence rule.
- */
 export function addFontSequenceRule(rules: FontSequenceRule[], rule: FontSequenceRule): void {
-  // Remove existing rule for same family
   const idx = rules.findIndex(
     (r) =>
       r.fromFamily.toLowerCase() === rule.fromFamily.toLowerCase() &&
@@ -205,10 +166,6 @@ export function addFontSequenceRule(rules: FontSequenceRule[], rule: FontSequenc
   }
 }
 
-/**
- * Create a font sequence from a semicolon-separated string.
- * Format: "Family1;Family2;Family3" or "Family1*weight*posture;Family2"
- */
 export function parseFontSequenceString(input: string): FontSequenceRule[] {
   const rules: FontSequenceRule[] = [];
   const entries = input.split(';').map((s) => s.trim()).filter(Boolean);
@@ -220,7 +177,7 @@ export function parseFontSequenceString(input: string): FontSequenceRule[] {
     const posture = parts[2]?.trim();
     const sequence = parts.slice(3).map((s) => s.trim()).filter(Boolean);
 
-    if (family && sequence.length > 0) {
+    if (family && sequence.length) {
       rules.push({
         fromFamily: family,
         fromWeight: weight,

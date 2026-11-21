@@ -71,7 +71,6 @@ describe('layout engines (dispatcher)', () => {
       ]),
     ]);
     const flow = out[0] as SubformNode;
-    // First child hugs the right edge of the 487-wide box.
     expect(flow.children[0].position!.x).toBe(54 + 487 - 100);
     expect(flow.children[1].position!.x).toBe(54 + 487 - 100 - 150);
   });
@@ -94,7 +93,7 @@ describe('layout engines (dispatcher)', () => {
     ]);
     const pos = out[0] as SubformNode;
     expect(pos.children.map((c) => c.position!.y)).toEqual([64, 94, 124]);
-    expect(pos.position!.h).toBe(100); // 10 + 3×30
+    expect(pos.position!.h).toBe(100);
   });
 
   it('table with colSpan cells splits columns by span occupancy', () => {
@@ -107,14 +106,12 @@ describe('layout engines (dispatcher)', () => {
     ]);
     const tbl = out[0] as SubformNode;
     const row = tbl.children[0] as SubformNode;
-    // 3 column slots → 159 each: first cell 159, spanned cell 318.
     expect(row.children[0].position!.w).toBeCloseTo(487 / 3, 5);
     expect(row.children[1].position!.w).toBeCloseTo((487 / 3) * 2, 5);
     expect(tbl.position!.h).toBe(20);
   });
 
   it('table without columnWidths infers columns from authored cell widths', () => {
-    // evidence: auto slots take max cell width (xfalayout_disasm.c:96505).
     const out = run([
       subform('tbl', 'table', { x: 0, y: 0 }, [
         subform('r1', 'row', { y: 0 }, [field('a', { h: 20, w: 100 }), field('b', { h: 20, w: 200 })]),
@@ -135,8 +132,6 @@ describe('layout engines (dispatcher)', () => {
       ]),
     ]);
     const rows = (out[0] as SubformNode).children as SubformNode[];
-    // col0 = max(80, 150) = 150, col1 = max(120, 90) = 120: columns align
-    // across rows while cells keep their authored widths.
     expect(rows[0].children[1].position!.x).toBe(54 + 150);
     expect(rows[1].children[1].position!.x).toBe(54 + 150);
     expect(rows[0].children[0].position!.w).toBe(80);
@@ -156,8 +151,6 @@ describe('layout engines (dispatcher)', () => {
   });
 
   it('table honors colSpan on draws, not just fields (Example-1 header)', () => {
-    // A leading draw with colSpan 5 spans 5 authored columns; ignoring it
-    // placed every later cell ~150pt left of Adobe's position.
     const tbl = subform('tbl', 'table', { x: 0, y: 0 }, [
       subform('r1', 'row', { y: 0 }, [
         { type: 'draw', name: 'd', position: { h: 9 }, colSpan: 5 } as DrawNode,
@@ -168,7 +161,6 @@ describe('layout engines (dispatcher)', () => {
     tbl.columnWidths = [10, 10, 10, 10, 10, 30, 30];
     const out = run([tbl]);
     const row = (out[0] as SubformNode).children[0] as SubformNode;
-    // draw covers cols 0-4 (50pt); field a starts at 54+50.
     expect(row.children[0].position!.w).toBe(50);
     expect(row.children[1].position!.x).toBe(104);
   });

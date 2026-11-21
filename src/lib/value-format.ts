@@ -1,21 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Value formatting — XFA `<bind><picture>` / `<format><picture>` display rules.
-//
-// Shared by the PDF renderer (field value painting) and the FormCalc field
-// accessor (`.formattedValue`), so it lives in lib/ rather than in either
-// consumer.
-//
-// Supports four picture grammars:
-//   • numeric masks          `###,###.##`, `$z,zz9.99`, `$z,zz9.99|($z,zz9.99)`
-//   • simple date patterns   `DD/MM/YYYY`, `yyyy-mm-dd`
-//   • compound pictures      `date{M/D/YYYY} time{h:MM:SS A}` (G13)
-//   • text templates         `text{'('999')' 999-9999}` (G14 follow-up)
-//
-// The numeric token set (`0 # 9 z , . CR DB %` and `|` alternates) follows the
-// locale picture tables compiled into `jfutility.dll`
-// (reference/decompiled/jfutility_disasm.c:31412 `z,zz9.zzz`, `$ z,zz9.99s`, …)
-// and the Designer preset list in `LocalesList.xml`.
-// ────────────────────────────────────────────────────────────────────────────
 
 export function formatValue(value: unknown, picture?: string, locale?: string): string {
   if (value == null) return '';
@@ -26,8 +8,6 @@ export function formatValue(value: unknown, picture?: string, locale?: string): 
   const compound = formatCompoundValue(value, pattern, locale);
   if (compound !== null) return compound;
 
-  // Numeric masks are tested before dates: a picture such as `$z,zz9.99DB`
-  // contains a `D` that would otherwise be mistaken for a day token.
   if (looksLikeNumberPattern(pattern)) {
     return formatNumberValue(value, pattern);
   }
@@ -39,18 +19,8 @@ export function formatValue(value: unknown, picture?: string, locale?: string): 
   return String(value);
 }
 
-// ─── Compound pictures: date{…} / time{…} ────────────────────────────────
-
 const COMPOUND_RE = /(datetime|date|time|text|num)\{([^}]*)\}/gi;
 
-/**
- * Format a value through a compound picture such as
- * `date{D-MMM}`, `date{M/D/YYYY} time{h:MM:SS A}` or
- * `text{'('999')' 999-9999}`.
- * Evidence: ConvertWord.exe_disasm.c:92370, jfutility_disasm.c:31xxx;
- * pattern presets in `LocalesList.xml`.
- * Returns null when the pattern has no compound directive.
- */
 function formatCompoundValue(value: unknown, pattern: string, locale?: string): string | null {
   COMPOUND_RE.lastIndex = 0;
   if (!COMPOUND_RE.test(pattern)) return null;
@@ -59,9 +29,6 @@ function formatCompoundValue(value: unknown, pattern: string, locale?: string): 
     const k = kind.toLowerCase();
     if (k === 'text') return formatTextTemplate(value, body);
     if (k === 'num') return formatNumberValue(value, body || 'zzz,zzz,zz9.99');
-    // Picture-directed parse first so an already-formatted display value
-    // (e.g. script output "06-11-2026" for `date{DD-MM-YYYY}`) is not
-    // reinterpreted as US MM-DD-YYYY and day/month-swapped on reformat.
     const effective = body || (k === 'time' ? 'h:MM:SS A' : 'M/D/YYYY');
     const pictured = typeof value === 'string' ? parseDateByPicture(value, effective) : null;
     const date = pictured ?? coerceDate(value);
@@ -71,10 +38,6 @@ function formatCompoundValue(value: unknown, pattern: string, locale?: string): 
   });
 }
 
-/**
- * `text{…}` template: `9` consumes a digit, `A` a letter, `O`/`X` any
- * character, single-quoted runs are literal, everything else is literal.
- */
 function formatTextTemplate(value: unknown, template: string): string {
   const source = String(value);
   let out = '';
@@ -114,43 +77,28 @@ function formatTextTemplate(value: unknown, template: string): string {
   return out;
 }
 
-// ─── Simple date patterns ────────────────────────────────────────────────
-
 function looksLikeDatePattern(pattern: string): boolean {
   const upper = pattern.toLowerCase();
   return /(y|m|d)/.test(upper) && (upper.includes('y') || upper.includes('d'));
 }
 
 function formatDateValue(value: unknown, pattern: string, locale?: string): string {
-  // Picture-directed parse first: a value that already matches the picture
-  // (e.g. script output `Num2Date(Date(), "DD-MM-YYYY")` → "06-11-2026")
-  // must not be reinterpreted as US MM-DD-YYYY by coerceDate's `new Date`
-  // fallback (which would swap day/month on reformat). Falls back to
-  // coercion for ISO/raw values.
   const pictured = typeof value === 'string' ? parseDateByPicture(value, pattern) : null;
   const date = pictured ?? coerceDate(value);
   if (!date) return String(value);
   return formatDateBody(date, pattern, locale);
 }
 
-/**
- * Parse a numeric date string using the picture's token order
- * (`DD-MM-YYYY`, `M/D/YYYY`, …). Returns null unless exactly three numeric
- * groups map to a plausible calendar date. Makes formatting idempotent for
- * already-formatted display values.
- */
 function parseDateByPicture(value: string, pattern: string): Date | null {
   const tokens: Array<'d' | 'm' | 'y'> = [];
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i].toUpperCase();
     if (ch === 'D' && tokens[tokens.length - 1] !== 'd') tokens.push('d');
     else if (ch === 'M' && tokens[tokens.length - 1] !== 'm') {
-      // `M` after an hour token is minutes, not month (see formatDateBody).
       tokens.push('m');
     } else if (ch === 'Y' && tokens[tokens.length - 1] !== 'y') tokens.push('y');
   }
   if (tokens.length !== 3) return null;
-  // Time pictures (`h:MM`) must not be misread as dates.
   if (/[hHkK]/.test(pattern.replace(/'[^']*'/g, '')) || /S\b/.test(pattern)) return null;
   const groups = value.trim().split(/[^0-9]+/).filter(Boolean);
   if (groups.length !== 3) return null;
@@ -170,7 +118,6 @@ function parseDateByPicture(value: string, pattern: string): Date | null {
   return dt;
 }
 
-/** Format a date with XFA date tokens (Y/M/D/E). Matching is case-insensitive. */
 function formatDateBody(date: Date, body: string, locale?: string): string {
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + 1;
@@ -192,7 +139,6 @@ function formatDateBody(date: Date, body: string, locale?: string): string {
   return applyTokens(body, tokens);
 }
 
-/** Format a time with XFA time tokens (H/h/K=hour, M=minute, S=second, A=AM/PM). */
 function formatTimeBody(date: Date, body: string): string {
   const hours24 = date.getUTCHours();
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
@@ -217,7 +163,6 @@ function formatTimeBody(date: Date, body: string): string {
   return applyTokens(body, tokens);
 }
 
-/** Greedily scan `body`, replacing the longest matching token at each position. */
 function applyTokens(body: string, tokens: Array<[RegExp, () => string]>): string {
   let out = '';
   let i = 0;
@@ -260,14 +205,12 @@ function coerceDate(value: unknown): Date | null {
   const normalized = value.trim();
   if (!normalized) return null;
 
-  // Time-only values (`14:30`, `14:30:05`) cannot be parsed by `new Date`.
   const timeOnly = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(normalized);
   if (timeOnly) {
     const d = new Date(Date.UTC(1970, 0, 1, Number(timeOnly[1]), Number(timeOnly[2]), Number(timeOnly[3] ?? 0)));
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  // Date-only values are interpreted at UTC midnight so output is timezone-stable.
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
   if (dateOnly) {
     const d = new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])));
@@ -278,9 +221,6 @@ function coerceDate(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// ─── Numeric masks ───────────────────────────────────────────────────────
-
-/** A numeric picture uses at least one placeholder or the percent token. */
 function looksLikeNumberPattern(pattern: string): boolean {
   if (/\{/.test(pattern)) return false;
   return /[0#9z%]/.test(pattern);
@@ -292,7 +232,6 @@ function formatNumberValue(value: unknown, pattern: string): string {
   const number = coerceNumber(value);
   if (number === null) return String(value);
 
-  // `|` separates the positive and negative sub-pictures.
   const bar = pattern.indexOf('|');
   const positivePart = bar >= 0 ? pattern.slice(0, bar) : pattern;
   const negativePart = bar >= 0 ? pattern.slice(bar + 1) : undefined;
@@ -301,18 +240,11 @@ function formatNumberValue(value: unknown, pattern: string): string {
   const part = negative && negativePart !== undefined ? negativePart : positivePart;
   const addSign = negative && negativePart === undefined;
 
-  // `%` in a picture scales the value by 100 (Excel/XFA behaviour).
   const scaled = /%/.test(part) ? Math.abs(number) * 100 : Math.abs(number);
 
   return renderNumberTemplate(scaled, part, addSign);
 }
 
-/**
- * Render a number through a picture template. Placeholders:
- *   `0` always prints a digit, `#` prints nothing when absent,
- *   `9`/`z` print a space when absent, `,` groups, `.` separates decimals.
- * Literals (currency symbols, `CR`, `DB`, `%`) are copied verbatim.
- */
 function renderNumberTemplate(abs: number, template: string, addSign: boolean): string {
   const dot = template.indexOf('.');
   const intTemplate = dot >= 0 ? template.slice(0, dot) : template;
@@ -336,13 +268,10 @@ function renderIntegerTemplate(template: string, digits: string, addSign: boolea
     .map((c, i) => (INT_PLACEHOLDER.test(c) ? i : -1))
     .filter((i) => i >= 0);
 
-  // A picture is a minimum width: digits beyond the placeholder count are
-  // still printed (e.g. `0.00` on 12.345 → `12.35`, not `2.35`).
   const overflowCount = Math.max(0, digits.length - placeholderIdx.length);
   const overflow = overflowCount > 0 ? digits.slice(0, overflowCount) : '';
   const significant = overflowCount > 0 ? digits.slice(overflowCount) : digits;
 
-  // Right-align the remaining digits into the placeholders.
   const rendered = new Map<number, string>();
   let d = significant.length - 1;
   for (let k = placeholderIdx.length - 1; k >= 0; k--) {
@@ -377,7 +306,6 @@ function renderIntegerTemplate(template: string, digits: string, addSign: boolea
       continue;
     }
     if (ch === ',') {
-      // Emit the separator only when significant output remains to its left.
       const leftHasContent = placeholderIdx.some(
         (idx) => idx < i && (rendered.get(idx) ?? '') !== '' && (rendered.get(idx) ?? '') !== ' '
       );

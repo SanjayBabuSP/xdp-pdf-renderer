@@ -13,9 +13,6 @@ const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 
 const DATA = `<?xml version="1.0" encoding="UTF-8"?><value><v1>shown one</v1><v2>hidden two</v2><v3>shown three</v3></value>`;
 
-// ADS parity brief §5.1: presence-hidden content must emit no text run and
-// take no space — not even inside tables, where row engines walk children
-// directly and could bypass the top-level filter.
 const XDP = `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">

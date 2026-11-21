@@ -1,11 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { PDFDocument } from 'pdf-lib';
 
-/**
- * End-to-end multi-page render: 40 stacked rows × 30pt exceed the 734pt
- * content area, so pagination must produce a second PDF page with content
- * (coordinate-based paging — plan Phase 2 task 3).
- */
 const FIELD_COUNT = 40;
 
 function buildXdp(): string {

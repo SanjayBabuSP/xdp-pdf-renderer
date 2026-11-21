@@ -29,7 +29,6 @@ const XSD_TYPE_MAP: Record<string, SimpleXsdType> = {
   anyURI: 'anyURI',
 };
 
-/** Parse an XSD XML string into the internal SchemaModel. */
 export function parseXsd(xsdXml: string, maxInputSize?: number): Result<SchemaModel> {
   let parsed: Record<string, unknown>;
   try {
@@ -66,7 +65,7 @@ function findSchema(parsed: Record<string, unknown>): unknown {
 
 function findRootElement(schema: unknown): unknown {
   const elements = toArray<unknown>(getChild(schema, 'xs:element'));
-  if (elements.length > 0) return elements[0];
+  if (elements.length) return elements[0];
   const elements2 = toArray<unknown>(getChild(schema, 'xsd:element'));
   return elements2[0] ?? null;
 }

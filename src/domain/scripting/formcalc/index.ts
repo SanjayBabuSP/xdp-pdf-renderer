@@ -1,6 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// FormCalc — Public API re-export
-// ────────────────────────────────────────────────────────────────────────────
 
 export { FormCalcLexer, TokenType } from './lexer';
 export type { Token } from './lexer';

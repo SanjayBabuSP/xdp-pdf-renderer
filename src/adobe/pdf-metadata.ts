@@ -1,26 +1,6 @@
 import { PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { DocumentMetadata } from '../types';
 
-/**
- * PDF document metadata — Adobe parity (G18).
- *
- * What Adobe's PDF driver writes into a generated PDF
- * (evidence: pdfldriver_disasm.c:70670-70760 XMPWrapper block, pdfldriver:63510,
- * pdfdocument_disasm.c:154831, pdfldriver:1723-1729 createAcroFormDict):
- *
- *   • XMP packet (`/Metadata` stream):
- *       xmp:MetadataDate  — now
- *       xmp:CreatorTool   — from the template
- *       pdf:Producer      — the generating driver
- *       xmpMM:DocumentID  — `uuid:<16 random bytes>`
- *       dc:title          — rdf:Alt localized text
- *       dc:creator        — rdf:Seq
- *       dc:description    — rdf:Alt localized text
- *   • Info dict (Title/Author/Producer/CreatorTool mirrors of the XMP values)
- *   • `/ViewerPreferences << /DisplayDocTitle true >>`
- *   • `/NeedsRendering true` on the catalog for dynamic XFA forms
- */
-
 const PRODUCER = 'xdp-pdf-renderer (Adobe LiveCycle Designer compatible)';
 
 export interface MetadataOptions {
@@ -36,7 +16,6 @@ function xmpEscape(value: string): string {
 }
 
 function uuid(): string {
-  // RFC 4122 v4-shaped identifier (Adobe prefixes xmpMM:DocumentID with "uuid:").
   const hex = (): string =>
     [...Array(4)]
       .map(() => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0'))
@@ -86,10 +65,6 @@ function buildXmpPacket(meta: DocumentMetadata, options: MetadataOptions, now: D
 <?xpacket end="w"?>`;
 }
 
-/**
- * Write the metadata block Adobe's driver emits. Call once per document,
- * before security is applied (the XMP stream participates in encryption).
- */
 export function applyDocumentMetadata(
   doc: PDFDocument,
   meta: DocumentMetadata | undefined,
@@ -101,7 +76,6 @@ export function applyDocumentMetadata(
   const producer = options.producer ?? PRODUCER;
   const creatorTool = options.creatorTool ?? 'Adobe LiveCycle Designer 11.0';
 
-  // Info dict — pdf-lib writes /Title /Author /Producer /Creator /CreationDate.
   if (title) doc.setTitle(title);
   if (author) doc.setAuthor(author);
   doc.setProducer(producer);
@@ -109,7 +83,6 @@ export function applyDocumentMetadata(
   doc.setCreationDate(now);
   doc.setModificationDate(now);
 
-  // XMP /Metadata stream.
   const xml = buildXmpPacket(meta ?? {}, options, now);
   const stream = doc.context.flateStream(xml);
   const dict = stream.dict;
@@ -117,8 +90,6 @@ export function applyDocumentMetadata(
   dict.set(PDFName.of('Subtype'), PDFName.of('XML'));
   doc.catalog.set(PDFName.of('Metadata'), doc.context.register(stream));
 
-  // /ViewerPreferences << /DisplayDocTitle true >> — Adobe always writes true
-  // when the title is present (pdfldriver_disasm.c:63510).
   if (title) {
     const prefs = PDFDict.withContext(doc.context);
     prefs.set(PDFName.of('DisplayDocTitle'), doc.context.obj(true));
@@ -126,11 +97,6 @@ export function applyDocumentMetadata(
   }
 }
 
-/**
- * pdf-lib's `save()` unconditionally restamps `/Producer` with its own string
- * (`PDFDocument.updateInfoDict`). Wrap it so the Adobe-parity values survive
- * serialization. Must be called before the first save.
- */
 export function preserveInfoOverrides(doc: PDFDocument, options: MetadataOptions = {}): void {
   const producer = options.producer ?? PRODUCER;
   const creatorTool = options.creatorTool ?? 'Adobe LiveCycle Designer 11.0';
@@ -147,10 +113,6 @@ export function preserveInfoOverrides(doc: PDFDocument, options: MetadataOptions
   };
 }
 
-/**
- * `/NeedsRendering true` — the XFA dynamic-form switch Adobe's
- * createAcroFormDict writes for XFA forms (pdfldriver_disasm.c:1729).
- */
 export function setNeedsRendering(doc: PDFDocument): void {
   doc.catalog.set(PDFName.of('NeedsRendering'), doc.context.obj(true));
 }

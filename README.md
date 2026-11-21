@@ -46,6 +46,13 @@ xdp-pdf validate --xdp template.xdp --xsd schema.xsd --data data.xml
 xdp-pdf inspect --xdp template.xdp --output json
 ```
 
+## For AI agents and contributors
+
+[`docs/AI_WIKI.md`](docs/AI_WIKI.md) is the source of truth for architecture,
+behaviour, and the rationale behind implementation decisions. Source files
+intentionally contain no explanatory comments; any code change must update the
+wiki in the same commit.
+
 ## Architecture
 
 The module follows a **Handler → Workflow → Domain → Lib** layered pattern:

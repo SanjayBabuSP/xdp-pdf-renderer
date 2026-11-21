@@ -41,18 +41,6 @@ import { ERROR_CODES } from '../../errors/error-codes';
 import { stampUids } from '../../lib/node-uid';
 import { validateXfaNamespaces } from '../../adobe/xfa-namespace-validation';
 
-/**
- * Default font equate rules from Adobe LiveCycle Designer 11.0's Designer.xci.
- * These are applied as fallbacks when the XDP's <config> section does not
- * specify its own font substitution rules. Matches the reference behavior
- * where Designer.xci is always loaded as the base configuration.
- *
- * This mirrors the full rule set in `src/rendering/font-substitution.ts`
- * (both the <agent> and <present> blocks of Designer.xci, including the
- * CJK/Adobe Kozuka/Mincho/Myriad families). Rules with `force: true` are
- * applied unconditionally; the rest only substitute when the requested font
- * is unavailable (decided by the font manager).
- */
 const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Helvetica Black_*_*', to: 'Arial Black_*_*', force: false },
   { from: 'HelveticaBlack_*_*', to: 'Arial Black_*_*', force: false },
@@ -63,8 +51,6 @@ const DEFAULT_FONT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Courier_*_*', to: 'Courier New_*_*', force: false },
   { from: 'Times_*_*', to: 'Times New Roman_*_*', force: false },
   { from: 'TimesNewRoman_*_*', to: 'Times New Roman_*_*', force: false },
-  // CJK and Adobe families from Designer.xci (<agent> block; the <present>
-  // block differs only in one force flag — force wins, so agent values rule).
   { from: 'Kozuka Gothic Pro-VI B_*_*', to: 'Kozuka Gothic Pro-VI B_bold_normal', force: true },
   { from: 'Kozuka Gothic Pro-VI H_*_*', to: 'Kozuka Gothic Pro-VI H_bold_normal', force: true },
   { from: 'Kozuka Gothic Pro-VI M_*_*', to: 'Kozuka Gothic Pro-VI M_*_*', force: false },
@@ -95,14 +81,8 @@ const TEMPLATE_NAMESPACES = [
   'http://www.xfa.org/schema/xfa-template/3.6/',
 ];
 
-/** Parse an XDP XML string into the internal LayoutModel. */
 export interface XdpParseOptions {
-  /**
-   * Reject templates whose XFA version is recognised but unsupported
-   * (2.0–2.7, 3.0–3.5). Default false: parse with a warning.
-   */
   strict?: boolean;
-  /** Override the XML input size cap (bytes). */
   maxInputSize?: number;
 }
 
@@ -120,9 +100,6 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   const template = findTemplate(root as Record<string, unknown>);
   if (!template) return failure(ERROR_CODES.MISSING_TEMPLATE.code, ERROR_CODES.MISSING_TEMPLATE.message);
 
-  // G16: validate the template namespace / XFA version (xfa-namespace-validation).
-  // Unsupported-but-known versions fail in strict mode, otherwise they warn and
-  // are parsed in backward-compatible mode.
   const namespaceResult = validateXfaNamespaces(
     collectNamespaces(root as Record<string, unknown>, template),
     options.strict === true,
@@ -137,14 +114,6 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   const rootSubform = findRootSubform(template);
   if (!rootSubform) return failure(ERROR_CODES.MISSING_ROOT_SUBFORM.code, ERROR_CODES.MISSING_ROOT_SUBFORM.message);
 
-  // Document-order index: fast-xml-parser's default (grouped) parse loses the
-  // interleaved document order of mixed child types (<field/><draw/><field/>…
-  // becomes {field:[…], draw:[…]}), which scrambles flow (tb/lr) containers
-  // that must lay out children in author order — exactly what Preview PDF
-  // does (XFATemplate model preserves sibling order; xfalayout walks it in
-  // sequence). A parallel preserveOrder parse recovers the per-parent child
-  // tag sequence; parseChildren below consumes it. Falls back to grouped
-  // order when the second parse fails (fail-safe: never worse than before).
   const orderedRootKids = orderedTemplateKids(xdpXml);
   const orderedRootSubformKids = firstOrderedSubformKids(orderedRootKids);
 
@@ -153,18 +122,9 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   const config = parseConfig(getChild(root as Record<string, unknown>, 'config'));
   const connection = parseConnectionSet(getChild(root as Record<string, unknown>, 'connectionSet'));
   const variables = parseVariables(getChild(rootSubform, 'variables'));
-  // The root subform is collapsed to rootSubformName — carry its <event>
-  // elements (ready ref=$form / $layout, overlay, docReady, …) so the script
-  // dispatcher can fire them. evidence: XFAModelImpl::ready dispatches
-  // 'ready' on the model alias node (xfa_disasm.c:49230-49275).
   const rootEvents = parseEvents(getChild(rootSubform, 'event'));
-  // Adobe sources the output PDF's title/description from the XDP's own
-  // `x:xmpmeta` (dc:title) and `$template.#subform.#desc`
-  // (pdfdocument_disasm.c:157678-158340; pdfldriver_disasm.c:70670-70760).
   const metadata = parseDocumentMetadata(root as Record<string, unknown>, rootSubform);
 
-  // Every node needs a unique identity so script results can be reconciled
-  // back onto the exact node they were produced against.
   stampUids([children, ...pages.map((page) => page.masterPageChildren)]);
 
   return success({
@@ -178,15 +138,10 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
     ...connection,
     metadata,
     version: namespaceResult.detectedVersion ?? undefined,
-    warnings: namespaceResult.warnings.length > 0 ? namespaceResult.warnings : undefined,
+    warnings: namespaceResult.warnings.length ? namespaceResult.warnings : undefined,
   } as LayoutModel);
 }
 
-/**
- * Pull document metadata out of the XDP: `<x:xmpmeta><rdf:RDF><dc:title>` /
- * `dc:description` / `dc:creator` when the metadata packet is present, with
- * the template `<desc><text>` (or `<toolTip>`) as the fallback Adobe uses.
- */
 function parseVariables(variables: unknown): Record<string, string> | undefined {
   if (!variables || typeof variables !== 'object') return undefined;
   const out: Record<string, string> = {};
@@ -195,7 +150,7 @@ function parseVariables(variables: unknown): Record<string, string> | undefined 
     if (!name) continue;
     out[name] = textContent(entry) ?? '';
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return Object.keys(out).length ? out : undefined;
 }
 
 function parseDocumentMetadata(
@@ -209,21 +164,18 @@ function parseDocumentMetadata(
   if (title) out.title = title;
   if (description) out.description = description;
   if (author) out.author = author;
-  return Object.keys(out).length > 0 ? out : undefined;
+  return Object.keys(out).length ? out : undefined;
 }
 
-/** `<rdf:li>` text of a simple `dc:<property>` element in the XDP's XMP packet. */
 function readXmpLiteral(root: Record<string, unknown>, property: string): string | undefined {
   const packet = getChild(root, 'x:xmpmeta') ?? getChild(root, 'xmpmeta');
   if (!packet) return undefined;
   const element = findNestedKey(packet, property);
   if (!element) return undefined;
-  // dc:title / dc:description wrap their text in `<rdf:Alt><rdf:li>…`.
   const text = textContent(element) ?? textContent(findNestedKey(element, 'li'));
   return text && text.trim() !== '' ? text.trim() : undefined;
 }
 
-/** Depth-first search for the first object property with `name` (or namespaced). */
 function findNestedKey(node: unknown, name: string, depth = 0): unknown {
   if (!node || typeof node !== 'object' || depth > 6) return undefined;
   for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
@@ -239,13 +191,11 @@ function readXmpCreator(root: Record<string, unknown>): string | undefined {
   if (!packet) return undefined;
   const creator = findNestedKey(packet, 'creator');
   if (!creator) return undefined;
-  // dc:creator is an rdf:Seq; the first li carries the author.
   const list = findNestedKey(creator, 'li');
   const text = textContent(list ?? creator);
   return text && text.trim() !== '' ? text.trim() : undefined;
 }
 
-/** `$template.#subform.#desc` — `<desc><text>…</text></desc>` on the root subform. */
 function readDescText(rootSubform: unknown): string | undefined {
   const desc = getChild(rootSubform, 'desc');
   if (!desc) return undefined;
@@ -253,7 +203,6 @@ function readDescText(rootSubform: unknown): string | undefined {
   return text && text.trim() !== '' ? text.trim() : undefined;
 }
 
-/** Collect `xmlns` / `xmlns:*` declarations from the XDP root and template. */
 function collectNamespaces(
   root: Record<string, unknown>,
   template: unknown,
@@ -274,7 +223,6 @@ function collectNamespaces(
 
 function findTemplate(root: Record<string, unknown>): unknown {
   if (root['template']) return root['template'];
-  // Try namespace-prefixed keys
   for (const key of Object.keys(root)) {
     if (key === 'template' || key.endsWith(':template')) return root[key];
   }
@@ -291,14 +239,12 @@ function parsePages(rootSubform: unknown, orderedKids?: OrderedItem[]): PageDefi
   if (!pageSet) return [defaultPage()];
 
   const pageAreas = toArray(getChild(pageSet, 'pageArea'));
-  // Match ordered pageArea items to normal ones by position among pageAreas.
   const orderedAreas = (orderedKids ?? []).filter((i) => i.tag === 'pageArea');
   return pageAreas
     .map((pa, i) => parsePageArea(pa, orderedAreas[i]?.kids))
     .filter(Boolean) as PageDefinition[];
 }
 
-/** Find a direct ordered child element by local tag name. */
 function orderedChild(nodes: unknown[] | undefined, name: string): unknown[] | undefined {
   if (!nodes) return undefined;
   for (const entry of nodes) {
@@ -310,7 +256,6 @@ function orderedChild(nodes: unknown[] | undefined, name: string): unknown[] | u
   return undefined;
 }
 
-/** Build the `<exData>` inner markup for an ordered element's children. */
 function orderedExDataHtml(children: unknown[]): string | undefined {
   const valueKids = orderedChild(children, 'value');
   const exDataKids = orderedChild(valueKids, 'exData');
@@ -318,7 +263,16 @@ function orderedExDataHtml(children: unknown[]): string | undefined {
   return serializeOrderedHtml(exDataKids).trim();
 }
 
-/** Serialize preserveOrder nodes back to XHTML, keeping mixed-content order. */
+function orderedCaptionHtml(order: OrderedItem | undefined): string | undefined {
+  if (!order) return undefined;
+  const captionKids = orderedChild(order.kids, 'caption');
+  if (!captionKids) return undefined;
+  const valueKids = orderedChild(captionKids, 'value');
+  const exDataKids = orderedChild(valueKids, 'exData');
+  if (!exDataKids) return undefined;
+  return serializeOrderedHtml(exDataKids).trim() || undefined;
+}
+
 function serializeOrderedHtml(nodes: unknown[]): string {
   let out = '';
   for (const entry of nodes) {
@@ -349,7 +303,7 @@ function serializeOrderedHtml(nodes: unknown[]): string {
       } else {
         out += `>${serializeOrderedHtml(val)}</${key}>`;
       }
-      break; // one element tag per preserveOrder entry
+      break;
     }
   }
   return out;
@@ -392,34 +346,15 @@ function defaultPage(): PageDefinition {
   };
 }
 
-/**
- * Document-order child sequence recovered from a parallel `preserveOrder`
- * parse (see orderedTemplateKids). Each item is one child element in author
- * order: `tag` is the local element name, `kids` its own ordered children
- * (for containers — threaded down the recursion), `index` its position among
- * same-tag siblings (to pair with the grouped normal-parse arrays).
- */
 interface OrderedItem {
   tag: string;
   kids: OrderedItem[];
-  /** Occurrence index among same-tag siblings under the same parent. */
   index: number;
-  /**
-   * `<value><exData>` inner markup reconstructed from the preserveOrder parse.
-   * Unlike the grouped fast-xml-parser tree this keeps #text and inline spans
-   * interleaved, which is required for embeds inside rich paragraphs.
-   */
   richText?: string;
 }
 
-/** Child tags that become layout nodes, in XFA vocabulary (local names). */
 const ORDERED_NODE_TAGS = new Set(['subform', 'subformSet', 'area', 'field', 'draw', 'exclGroup']);
 
-/**
- * Re-parse `xdpXml` with `preserveOrder: true` and return the ordered child
- * items of the `<template>` element. Returns undefined on any failure —
- * callers fall back to grouped (legacy) order.
- */
 function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
   try {
     const parser = new XMLParser({
@@ -427,8 +362,7 @@ function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
       attributeNamePrefix: '@_',
       allowBooleanAttributes: true,
       parseAttributeValue: false,
-      // Keep whitespace-only text nodes: `<span style="xfa-spacerun:yes"> </span>`
-      // is a meaningful inter-word space in rich-text embeds.
+      parseTagValue: false,
       trimValues: false,
       processEntities: false,
       cdataPropName: '__cdata',
@@ -446,20 +380,12 @@ function orderedTemplateKids(xdpXml: string): OrderedItem[] | undefined {
   }
 }
 
-/**
- * Find the ordered kids of the first `<subform>` (the root subform) inside
- * ordered template kids. Undefined when unavailable (legacy order fallback).
- */
 function firstOrderedSubformKids(templateKids: OrderedItem[] | undefined): OrderedItem[] | undefined {
   if (!templateKids) return undefined;
   const first = templateKids.find((i) => i.tag === 'subform');
   return first?.kids;
 }
 
-/**
- * Within already-converted ordered items, find the first item whose tag
- * matches one of `names` (exact or namespace-suffixed) and return its kids.
- */
 function kidsOfItems(items: OrderedItem[], names: string[]): OrderedItem[] | undefined {
   for (const item of items) {
     if (names.some((n) => item.tag === n || item.tag.endsWith(`:${n}`))) return item.kids;
@@ -467,11 +393,6 @@ function kidsOfItems(items: OrderedItem[], names: string[]): OrderedItem[] | und
   return undefined;
 }
 
-/**
- * Convert a raw `preserveOrder` node array into OrderedItems, numbering
- * same-tag siblings so they pair 1:1 with the grouped normal-parse arrays.
- * Non-element entries (#text, comments, PIs) are skipped.
- */
 function toOrderedItems(node: unknown): OrderedItem[] {
   if (!Array.isArray(node)) return [];
   const counters = new Map<string, number>();
@@ -481,8 +402,6 @@ function toOrderedItems(node: unknown): OrderedItem[] {
     for (const [key, value] of Object.entries(entry as Record<string, unknown>)) {
       if (key === ':@' || key.startsWith('?') || key === '#text' || key === '__cdata' || key === '__comment') continue;
       if (!Array.isArray(value)) continue;
-      // Strip namespace prefix for pairing (`xdp:xdp` → `xdp`); child tags
-      // inside <template> are unprefixed in practice.
       const tag = key.includes(':') ? key.slice(key.lastIndexOf(':') + 1) : key;
       const index = counters.get(tag) ?? 0;
       counters.set(tag, index + 1);
@@ -492,14 +411,13 @@ function toOrderedItems(node: unknown): OrderedItem[] {
         index,
         richText: orderedExDataHtml(value),
       });
-      break; // one tag per entry
+      break;
     }
   }
   return out;
 }
 
 function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode[] {
-  // Raw grouped arrays (normal parse) — parsed lazily in document order below.
   const raw: Record<string, unknown[]> = {
     subform: toArray<unknown>(getChild(parent, 'subform')),
     subformSet: toArray<unknown>(getChild(parent, 'subformSet')),
@@ -508,7 +426,6 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
     draw: toArray<unknown>(getChild(parent, 'draw')),
     exclGroup: toArray<unknown>(getChild(parent, 'exclGroup')),
   };
-  // Group ordered items per tag; item.index pairs with the grouped array slot.
   const orderedByTag = new Map<string, OrderedItem[]>();
   if (orderedKids) {
     for (const item of orderedKids) {
@@ -541,21 +458,17 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
   };
 
   const nodes: LayoutNode[] = [];
-  if (orderedKids && orderedKids.length > 0) {
+  if (orderedKids && orderedKids.length) {
     const used = new Map<string, number>();
     for (const item of orderedKids) {
       if (!ORDERED_NODE_TAGS.has(item.tag)) continue;
       const slot = used.get(item.tag) ?? 0;
       used.set(item.tag, slot + 1);
-      // Prefer the occurrence-paired slot; fall back to sequential consume
-      // when the two parses disagree on counts.
       const rawNode = raw[item.tag][item.index] ?? raw[item.tag][slot];
       if (rawNode === undefined) continue;
       const parsed = parseOne(item.tag, rawNode, item);
       if (parsed) nodes.push(parsed);
     }
-    // Any raw leftovers the order parse missed (parse disagreement) append
-    // in legacy group order rather than being dropped.
     const consumed = new Set<string>();
     for (const item of orderedKids) {
       if (!ORDERED_NODE_TAGS.has(item.tag)) continue;
@@ -571,16 +484,11 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
     return nodes;
   }
 
-  // Legacy grouped order (no order index available).
   raw.subform.forEach((s) => nodes.push(parseSubform(s)));
-  // <subformSet> holds mutually-exclusive alternatives; the active one is
-  // selected by @initial (default: the first child). Previously the whole
-  // element was silently dropped, losing an entire branch of the template.
   raw.subformSet.forEach((set) => {
     const active = parseSubformSet(set);
     if (active) nodes.push(active);
   });
-  // <area> is a subform-shaped, data-unbound container.
   raw.area.forEach((a) => nodes.push(parseArea(a)));
   raw.field.forEach((f) => nodes.push(parseField(f)));
   raw.draw.forEach((d) => nodes.push(parseDraw(d)));
@@ -589,11 +497,6 @@ function parseChildren(parent: unknown, orderedKids?: OrderedItem[]): LayoutNode
   return nodes;
 }
 
-/**
- * `<subformSet>` — a group of alternative subforms of which exactly one is
- * instantiated. `@initial` selects the default (0-based; anything unparseable
- * falls back to the first child, which is what Designer seeds a new set with).
- */
 function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode | undefined {
   const subs = toArray<unknown>(getChild(set, 'subform'));
   if (subs.length === 0) return undefined;
@@ -601,9 +504,6 @@ function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode
   const orderedSubs = (orderedKids ?? []).filter((i) => i.tag === 'subform');
   const pick = (i: number): SubformNode => parseSubform(subs[i], orderedSubs[i]?.kids);
 
-  // XFA subformSet default relation is `ordered`: every child is
-  // instantiated, in document order. `choice` instantiates only the selected
-  // alternative (`@initial`, default first). `unordered` may instantiate all.
   const children: SubformNode[] = [];
   if (relation === 'choice') {
     const parsed = Number.parseInt(attr(set, 'initial') ?? '0', 10);
@@ -613,17 +513,12 @@ function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode
     for (let i = 0; i < subs.length; i++) children.push(pick(i));
   }
 
-  // The set is a SOM scope (`set.alt0`); its alternatives stay children so
-  // both names remain addressable. Without a name a single-choice set is
-  // transparent (nothing to address).
   const setName = attr(set, 'name');
   if (!setName && children.length === 1) return children[0];
   return {
     type: 'subform',
     name: setName,
     uid: attr(set, 'id') ?? undefined,
-    // Ordered sets behave as a content-flow group; a table parent lays their
-    // row children directly against its own columns (table-engine.ts).
     layout: relation === 'ordered' ? 'tb' : 'position',
     isSubformSet: true,
     setRelation: relation,
@@ -637,7 +532,6 @@ function parseSubformSet(set: unknown, orderedKids?: OrderedItem[]): SubformNode
   };
 }
 
-/** `<area>` — layout container with no data binding (renders like a plain subform). */
 function parseArea(area: unknown, orderedKids?: OrderedItem[]): SubformNode {
   return parseSubform(area, orderedKids);
 }
@@ -652,7 +546,6 @@ function parseSubform(subform: unknown, orderedKids?: OrderedItem[]): SubformNod
     type: 'subform',
     name: attr(subform, 'name'),
     uid: attr(subform, 'id') ?? undefined,
-    // XFA default is absolute "position" layout when unspecified — only tb/lr/table/row opt into flow.
     layout: (attr(subform, 'layout') as SubformNode['layout']) ?? 'position',
     bindMatch: bind?.match,
     bindRef: bind?.ref,
@@ -678,7 +571,6 @@ function parseField(field: unknown, order?: OrderedItem): FieldNode {
   const ui = getChild(field, 'ui');
   const uiElement = ui ? findUiElement(ui) : undefined;
 
-  // Parse <value> element for default/initial value
   const valueEl = getChild(field, 'value');
   const defaultValue = parseDefaultValue(valueEl);
   const parsedValue = parseDrawValue(valueEl);
@@ -687,7 +579,6 @@ function parseField(field: unknown, order?: OrderedItem): FieldNode {
   }
   const imageValue = parsedValue?.type === 'image' ? parsedValue : undefined;
 
-  // Parse <relevant> attribute for conditional visibility
   const relevant = attr(field, 'relevant');
 
   return {
@@ -699,7 +590,7 @@ function parseField(field: unknown, order?: OrderedItem): FieldNode {
     formatPicture: parseFormatPicture(field, bind),
     ui: parseUi(ui),
     font: parseFont(getChild(field, 'font')),
-    caption: parseCaption(getChild(field, 'caption')),
+    caption: parseCaption(getChild(field, 'caption'), orderedCaptionHtml(order)),
     para: parsePara(getChild(field, 'para')),
     access: attr(field, 'access'),
     position: parsePosition(field),
@@ -709,7 +600,10 @@ function parseField(field: unknown, order?: OrderedItem): FieldNode {
     presence: (attr(field, 'presence') as PresenceValue) ?? 'visible',
     margin: parseMargin(getChild(field, 'margin')),
     colSpan: attr(field, 'colSpan') ? parseInt(attr(field, 'colSpan')!) : undefined,
-    border: parseBorder(getChild(field, 'border') ?? (uiElement ? getChild(uiElement, 'border') : undefined)),
+    border: fieldBorderWithUiFallback(
+      getChild(field, 'border'),
+      uiElement ? getChild(uiElement, 'border') : undefined
+    ),
     relevant: relevant ?? undefined,
     defaultValue,
     imageValue,
@@ -737,8 +631,6 @@ function findUiElement(ui: unknown): unknown {
 
 function parseExclGroup(eg: unknown, orderedKids?: OrderedItem[]): ExclGroupNode {
   const bind = parseBind(getChild(eg, 'bind'));
-  // XFA allows field/draw/subform/nested-exclGroup here; parseChildren handles
-  // all of them. The old `field`-only collection dropped every other child.
   const children = parseChildren(eg, orderedKids);
   return {
     type: 'exclGroup',
@@ -788,10 +680,6 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
   if (!value) return undefined;
   const image = getChild(value, 'image');
   if (image) {
-    // XFA image attributes (xfaimageservice_disasm.c:9324, :9281):
-    //   aspect="none|fit|actual|width|height"
-    //   xdpi/ydpi (or xres/yres) for actual-mode DPI sizing
-    //   hAlign/vAlign for alignment within spare space
     const aspectRaw = attr(image, 'aspect');
     const xdpiRaw = attr(image, 'xdpi') ?? attr(image, 'xres');
     const ydpiRaw = attr(image, 'ydpi') ?? attr(image, 'yres');
@@ -811,10 +699,6 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
 
   const exData = getChild(value, 'exData');
   if (exData) {
-    // exData arrives in two shapes: entity-escaped markup as plain text, or
-    // real nested elements (`<body><p><span xfa:embed="#id"/></p></body>`).
-    // textContent() only sees #text, so nested markup must be re-serialized —
-    // otherwise every `xfa:embed` reference is lost before it is resolved.
     const hasNestedMarkup =
       typeof exData === 'object' &&
       exData !== null &&
@@ -827,9 +711,6 @@ function parseDrawValue(value: unknown): DrawNode['value'] {
         : textContent(exData) ?? '',
     };
   }
-  // fast-xml-parser represents a self-closing shape such as `<circle/>` as an
-  // empty string. Test element presence rather than truthiness so geometric
-  // shapes keep their XFA default border.
   const rectangle = getChild(value, 'rectangle');
   if (rectangle !== undefined) {
     return { type: 'rectangle', shapeBorder: parseBorder(rectangle) };
@@ -866,19 +747,10 @@ function parseColor(colorEl: unknown): RgbColor | undefined {
   return { r: parts[0], g: parts[1], b: parts[2] };
 }
 
-/**
- * Parse a border/rectangle/line shape element (all share the same edge/fill/corner structure in XFA).
- * A single <edge> applies uniformly to all 4 sides; up to 4 <edge> elements apply as [top, right, bottom, left].
- */
 function parseBorder(el: unknown): BorderSpec | undefined {
   if (!el) return undefined;
-  // Field/subform borders pass the <border> element directly, while draw shapes
-  // (<rectangle>/<arc>/<circle>/<line>) carry an inner <border> child. Unwrap it
-  // so both forms resolve edge/fill/corner identically.
   const scope = getChild(el, 'border') ?? el;
   const edgeEls = toArray<unknown>(getChild(scope, 'edge'));
-  // XFA orders border sides by <edge index> (0..3); fall back to document order
-  // when the attribute is absent. Rendering draws them 0,2,1,3 (designrenderer:6283+).
   const edges: EdgeSpec[] = [];
   edgeEls.forEach((edge, i) => {
     const parsed: EdgeSpec = {
@@ -887,8 +759,6 @@ function parseBorder(el: unknown): BorderSpec | undefined {
       color: parseColor(getChild(edge, 'color')),
       style: attr(edge, 'stroke'),
       opacity: parseEdgeOpacity(edge),
-      // Cap/join: designrenderer:6182 edgeInfo->capStyle / joinStyle.
-      // XFA attributes: cap="square"|"round"|"butt", join="miter"|"round"|"bevel".
       cap: attr(edge, 'cap') ?? undefined,
       join: attr(edge, 'join') ?? undefined,
     };
@@ -905,54 +775,89 @@ function parseBorder(el: unknown): BorderSpec | undefined {
         color: parseColor(getChild(fillEl, 'color')),
         opacity: parseFillOpacity(fillEl),
         fillType: attr(fillEl, 'fillType'),
-        // Gradient end colour: XFA stores it in a <linear color="…"/> or second
-        // <color> child when fillType is a gradient type.
-        // evidence: renderer:35845 uses color1/color2 for axial gradient bounds.
         color2: parseFillColor2(fillEl),
       }
     : undefined;
-  const cornerEl = getChild(scope, 'corner') ?? getChild(el, 'corner');
-  const cornerRadius = cornerEl && attr(cornerEl, 'radius') ? toPointsOrZero(attr(cornerEl, 'radius')) : undefined;
+  const scopeCorners = toArray<unknown>(getChild(scope, 'corner'));
+  const cornerEls = scope !== el
+    ? [...scopeCorners, ...toArray<unknown>(getChild(el, 'corner'))]
+    : scopeCorners;
+  const cornerSlots: Array<number | undefined> = [];
+  cornerEls.forEach((corner, i) => {
+    const presence = attr(corner, 'presence');
+    const radiusRaw = attr(corner, 'radius');
+    const radius = radiusRaw ? toPointsOrZero(radiusRaw) : undefined;
+    const value = presence === 'hidden' || presence === 'invisible' || presence === 'inactive'
+      ? undefined
+      : radius;
+    const indexRaw = attr(corner, 'index');
+    const index = indexRaw != null ? Number.parseInt(indexRaw, 10) : i;
+    if (Number.isInteger(index) && index >= 0 && index <= 3) cornerSlots[index] = value;
+    else cornerSlots.push(value);
+  });
+  const multiCornerSet = cornerEls.length > 1;
+  const loneIndexed =
+    cornerEls.length === 1 && attr(cornerEls[0], 'index') != null;
+  const loneUnindexedStamp = cornerEls.length === 1 && !loneIndexed;
+  const cornerRadii = (multiCornerSet || loneIndexed) &&
+    cornerSlots.some((v) => v != null && v > 0)
+    ? cornerSlots
+    : undefined;
+  const firstCorner = cornerEls[0];
+  const cornerRadius = !loneUnindexedStamp && firstCorner && attr(firstCorner, 'radius')
+    ? toPointsOrZero(attr(firstCorner, 'radius'))
+    : undefined;
 
-  if (compacted.length === 0 && !fill && cornerRadius == null) return undefined;
+  if (compacted.length === 0 && !fill && cornerRadius == null && cornerRadii == null) return undefined;
   return {
     presence: attr(scope, 'presence') ?? attr(el, 'presence'),
-    edges: compacted.length > 0 ? edges : undefined,
+    edges: compacted.length ? edges : undefined,
     fill,
     cornerRadius,
+    cornerRadii,
   };
 }
 
-/** `<fill opacity="…">` or `<fill><opacity value="…"/></fill>`. */
+function fieldBorderWithUiFallback(outerEl: unknown, uiBorderEl: unknown): BorderSpec | undefined {
+  const outer = parseBorder(outerEl);
+  if (outer && !isEffectivelyHiddenBorder(outer)) return outer;
+  const inner = parseBorder(uiBorderEl);
+  if (inner && outer?.fill && !inner.fill) inner.fill = outer.fill;
+  return inner ?? outer;
+}
+
+function isEffectivelyHiddenBorder(border: BorderSpec | undefined): boolean {
+  if (!border) return true;
+  if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return true;
+  const edges = border.edges ?? [];
+  const visibleEdge = edges.some(
+    (e) => e && e.presence !== 'hidden' && e.presence !== 'invisible' && e.style !== 'none'
+  );
+  const visibleFill =
+    !!border.fill?.color &&
+    border.fill.presence !== 'hidden' &&
+    border.fill.presence !== 'invisible';
+  if (!visibleEdge && !visibleFill) return true;
+  return false;
+}
+
 function parseFillOpacity(fillEl: unknown): number | undefined {
   const child = getChild(fillEl, 'opacity');
   const fromChild = child ? (attr(child, 'value') ?? textContent(child)) : undefined;
   return parseOpacityValue(attr(fillEl, 'opacity') ?? fromChild);
 }
 
-/**
- * Parse the gradient end colour (color2) from a fill element.
- *
- * XFA stores the end colour of a gradient in two ways:
- *   1. A `<linear color="r,g,b">` child element (the common path in Designer 11).
- *   2. A second `<color>` child following the first.
- *
- * evidence: renderer:35845 buildLinearGradient uses color1 and color2 params.
- */
 function parseFillColor2(fillEl: unknown): RgbColor | undefined {
-  // Path 1: <linear color="r,g,b"/> child
   const linearEl = getChild(fillEl, 'linear');
   if (linearEl) {
     const c = attr(linearEl, 'color');
     if (c) return parseColorString(c);
   }
-  // Path 2: second <color> child (rare but spec-legal)
   const colorEls = toArray<unknown>(getChild(fillEl, 'color'));
   if (colorEls.length >= 2) return parseColor(colorEls[1]);
   return undefined;
 }
 
-/** Parse a comma-separated `"r,g,b"` color string (used in <linear color="…"/>). */
 function parseColorString(raw: string): RgbColor | undefined {
   const parts = raw.split(',').map((s) => parseInt(s.trim(), 10));
   if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
@@ -961,17 +866,12 @@ function parseColorString(raw: string): RgbColor | undefined {
   return undefined;
 }
 
-/** `<edge><opacity value="…"/></edge>` (stroke alpha, pdfdocument:138444). */
 function parseEdgeOpacity(edge: unknown): number | undefined {
   const child = getChild(edge, 'opacity');
   const fromChild = child ? (attr(child, 'value') ?? textContent(child)) : undefined;
   return parseOpacityValue(attr(edge, 'opacity') ?? fromChild);
 }
 
-/**
- * `<assist>` — accessibility annotations (`toolTip`, `description`, `name`,
- * `usage`). Readable from scripts as `$.assist.toolTip`.
- */
 function parseAssist(el: unknown): AssistSpec | undefined {
   const assist = getChild(el, 'assist');
   if (!assist) return undefined;
@@ -984,10 +884,9 @@ function parseAssist(el: unknown): AssistSpec | undefined {
   if (description) spec.description = description;
   if (name) spec.name = name;
   if (usage) spec.usage = usage;
-  return Object.keys(spec).length > 0 ? spec : undefined;
+  return Object.keys(spec).length ? spec : undefined;
 }
 
-/** `<extras><<name> value="..."/></extras>` — author baggage, `$.extras.<name>`. */
 function parseExtras(el: unknown): ExtrasSpec | undefined {
   const extras = getChild(el, 'extras');
   if (extras == null || typeof extras !== 'object') return undefined;
@@ -995,9 +894,6 @@ function parseExtras(el: unknown): ExtrasSpec | undefined {
   for (const [name, raw] of Object.entries(extras as Record<string, unknown>)) {
     if (name === '#text' || name === '__cdata' || name === '__comment') continue;
     for (const child of toArray<unknown>(raw)) {
-      // fast-xml-parser yields a bare string/number/boolean for simple
-      // elements and an object (`{@_value}` / `{#text}`) once attributes,
-      // CDATA or nested markup are involved.
       if (typeof child !== 'object') {
         const text = String(child);
         if (text !== '') out[name] = text;
@@ -1009,13 +905,9 @@ function parseExtras(el: unknown): ExtrasSpec | undefined {
       if (text !== undefined && text !== '') out[name] = text;
     }
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return Object.keys(out).length ? out : undefined;
 }
 
-/**
- * `<traversal order="..."><field name="a" .../></traversal>` — the authored
- * focus order for a container. Preserved for the AcroForm tab-order writer.
- */
 function parseTraversal(el: unknown): TraversalSpec | undefined {
   const traversal = getChild(el, 'traversal');
   if (!traversal) return undefined;
@@ -1025,16 +917,10 @@ function parseTraversal(el: unknown): TraversalSpec | undefined {
   const fields = toArray<unknown>(getChild(traversal, 'field'))
     .map((f) => attr(f, 'name'))
     .filter((n): n is string => !!n);
-  if (fields.length > 0) spec.fields = fields;
-  return Object.keys(spec).length > 0 ? spec : undefined;
+  if (fields.length) spec.fields = fields;
+  return Object.keys(spec).length ? spec : undefined;
 }
 
-/**
- * Display picture for a field. Adobe keeps two pictures: `bind/picture`
- * parses the incoming data, `format/picture` (or the fallback `value/picture`)
- * formats the outgoing display. We render display, so the format/value pair
- * wins and `bind/picture` is only a fallback when neither exists.
- */
 function parseFormatPicture(field: unknown, bind: BindSpec | undefined): string | undefined {
   const formatPicture = textContent(getChild(getChild(field, 'format'), 'picture'));
   const valuePicture = textContent(getChild(getChild(field, 'value'), 'picture'));
@@ -1064,10 +950,6 @@ function parseColumnWidths(raw: string | undefined): number[] | undefined {
     .split(/\s+/)
     .map((v) => toPointsOrZero(v))
     .map((v) => (v > 0 ? v : -1));
-  // evidence: XFATableLayout parses columnWidths space-tokenized with `-1`
-  // (or non-positive) stored as the auto marker (xfalayout_disasm.c:97860 —
-  // FUN_1857b5c0 reads attr 0x1d8, token `-1` → unit span -1). Dropping those
-  // tokens shifts every later column, so they are preserved, not filtered.
   if (widths.length === 0) return undefined;
   return widths;
 }
@@ -1101,13 +983,6 @@ function parsePosition(el: unknown): Position {
 
 const BREAK_VALUES = ['contentArea', 'pageArea', 'pageEven', 'pageFront', 'pageOdd'] as const;
 
-/**
- * breakBefore/breakAfter attributes + optional <keep> element.
- * evidence: xfa.dll atom block "breakAfter, breakBefore … contentArea,
- * pageArea, pageEven, pageFront, pageOdd"; default auto (0x350000,
- * AcroForm.ppi_disasm.c:794816); keep has three enum properties all
- * defaulting to auto (xfalayout_disasm.c:66094 hasActiveKeep).
- */
 function parseBreaks(el: unknown): {
   breakBefore?: BreakValue;
   breakAfter?: BreakValue;
@@ -1123,9 +998,6 @@ function parseBreaks(el: unknown): {
   if (bb) out.breakBefore = bb;
   if (ba) out.breakAfter = ba;
 
-  // Designer writes the modern form as child elements:
-  //   <breakBefore targetType="pageArea" startNew="1"/>
-  // The legacy form is the attribute handled above.
   for (const [tag, key] of [
     ['breakBefore', 'breakBefore'],
     ['breakAfter', 'breakAfter'],
@@ -1150,32 +1022,31 @@ function parseBreaks(el: unknown): {
         keep[key] = String(val);
       }
     }
-    if (Object.keys(keep).length > 0) out.keep = keep;
+    if (Object.keys(keep).length) out.keep = keep;
   }
   return out;
 }
 
-function parseCaption(caption: unknown): CaptionSpec | undefined {
+function parseCaption(caption: unknown, richHtml?: string): CaptionSpec | undefined {
   if (!caption) return undefined;
   const reserve = attr(caption, 'reserve') ? toPointsOrZero(attr(caption, 'reserve')) : undefined;
   const placement = attr(caption, 'placement') as CaptionSpec['placement'] | undefined;
   const valueEl = getChild(caption, 'value');
   let text = textContent(getChild(valueEl, 'text'));
   if (text == null) {
-    // Rich-text caption (`<value><exData><body><p>…`); Adobe renders it.
-    // example: Example-1 `AKJSZ MGYAWXDT:<spacerun/><u>+</u>`.
     text = extractRichTextContent(getChild(valueEl, 'exData')) ?? undefined;
   }
   const font = parseFont(getChild(caption, 'font'));
-  return { reserve, placement, text, font };
+  let html = richHtml;
+  if (!html) {
+    const ex = getChild(valueEl, 'exData');
+    if (ex) html = serializeHtmlFragment(ex) || undefined;
+  }
+  return { reserve, placement, text, font, richHtml: html };
 }
 
 function parsePara(para: unknown): ParaSpec | undefined {
   if (!para) return undefined;
-  // XFA <para> carries alignment plus paragraph metrics. Property names are the
-  // xfa.dll atoms `lineHeight`, `spaceAbove`, `spaceBelow`, `textIndent`,
-  // `marginLeft`, `marginRight`; jfTextAttr exposes them as Spacing (:3920),
-  // SpaceBefore (:3920)/SpaceAfter (:3782) and MarginL/MarginR (:2888/:2957).
   const spec: ParaSpec = {
     vAlign: attr(para, 'vAlign'),
     hAlign: attr(para, 'hAlign'),
@@ -1190,7 +1061,6 @@ function parsePara(para: unknown): ParaSpec | undefined {
   return hasValue ? spec : undefined;
 }
 
-/** Read a `<para>` measurement attribute as points; undefined when absent/empty. */
 function paraPoints(para: unknown, name: string): number | undefined {
   const raw = attr(para, name);
   if (raw == null || raw.trim() === '') return undefined;
@@ -1202,17 +1072,13 @@ function parseEvents(eventEl: unknown): EventSpec[] | undefined {
   const events = toArray<unknown>(eventEl);
   if (events.length === 0) return undefined;
   return events.map((e) => {
-    // Each <event> can have one or more <script> children with different contentTypes
     const scriptEls = toArray<unknown>(getChild(e, 'script'));
     const firstScript = scriptEls[0];
     const scriptContent = textContent(firstScript) ?? textContent(getChild(e, 'script'));
 
-    // Extract contentType and runAt from the <script> element
     const contentType = attr(firstScript, 'contentType');
     const runAt = attr(firstScript, 'runAt');
 
-    // Normalize event name from 'activity' attribute
-    // Reference: xfascripthandler.dll maps <event activity="..."> to canonical events
     const rawActivity = attr(e, 'activity');
     const rawName = attr(e, 'name');
     const normalizedActivity = normalizeEventActivity(rawActivity, rawName);
@@ -1228,16 +1094,6 @@ function parseEvents(eventEl: unknown): EventSpec[] | undefined {
   });
 }
 
-/**
- * Normalize event activity values to canonical XFA event names.
- * Reference: xfascripthandler.dll event name mapping table.
- *
- * Adobe LiveCycle maps <event activity="..."> values like this:
- *   activity="initialize" → "initialize"
- *   activity="click" → "click"
- *   activity="docReady" → "docReady"
- * Also handles SAP convention: name="event__calculate" → "calculate"
- */
 function normalizeEventActivity(activity?: string, name?: string): string | undefined {
   if (activity) {
     const lower = activity.toLowerCase();
@@ -1280,9 +1136,7 @@ function normalizeEventActivity(activity?: string, name?: string): string | unde
     return activityMap[lower] ?? lower;
   }
 
-  // Infer from name attribute when activity is missing
   if (name) {
-    // Handle SAP naming convention: "event__calculate" → "calculate"
     const sapMatch = name.match(/^event__(.+)$/);
     if (sapMatch) return sapMatch[1].toLowerCase();
     return name;
@@ -1294,7 +1148,6 @@ function normalizeEventActivity(activity?: string, name?: string): string | unde
 function parseCalculate(calculate: unknown): { override?: string; script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string } } | undefined {
   if (!calculate) return undefined;
   const override = attr(calculate, 'override');
-  // <calculate> can contain a <script> child with the actual calculation expression
   const scriptEl = getChild(calculate, 'script');
   const scriptContent = textContent(scriptEl);
   const contentType = attr(scriptEl, 'contentType');
@@ -1319,7 +1172,6 @@ function parseValidate(validate: unknown): { script?: { content: string; content
 
 function parseDefaultValue(valueEl: unknown): unknown {
   if (!valueEl) return undefined;
-  // <value> can contain <text>, <image>, or <boolean>, <integer>, <float>, <date>, <time>, <dateTime>, <decimal>
   const textEl = getChild(valueEl, 'text');
   if (textEl) return textContent(textEl);
   const booleanEl = getChild(valueEl, 'boolean');
@@ -1341,8 +1193,6 @@ function parseDefaultValue(valueEl: unknown): unknown {
 
 function parseUi(ui: unknown): UiSpec | undefined {
   if (!ui) return undefined;
-  // fast-xml-parser yields `''` for a self-closing element, so test for key
-  // *presence* rather than truthiness (`<ui><signature/></ui>`).
   const has = (name: string): boolean => getChild(ui, name) !== undefined;
   if (has('textEdit')) {
     const te = getChild(ui, 'textEdit');
@@ -1419,7 +1269,6 @@ function parseUi(ui: unknown): UiSpec | undefined {
   return { type: 'unknown' };
 }
 
-/** XFA `<items>` may hold `<text>` plus any scalar value element. */
 const CHOICE_ITEM_SCALARS = new Set([
   'text', 'integer', 'float', 'decimal', 'boolean', 'dateTime', 'date', 'time', 'null', 'base64Binary',
 ]);
@@ -1439,7 +1288,6 @@ function parseChoiceListItems(cl: unknown): ChoiceListItem[] {
           if (content === '' && explicit === undefined) continue;
           result.push({ text: content || String(explicit ?? ''), value: String(value) });
         } else if (value !== '') {
-          // Scalar item types display their canonical string form.
           result.push({ text: content || String(value), value: String(value) });
         }
       }
@@ -1459,9 +1307,6 @@ function parseMargin(margin: unknown): MarginSpec | undefined {
 }
 
 function parseConfig(config: unknown): ConfigSpec | undefined {
-  // If no <config> section exists, still provide default Designer.xci font equate rules.
-  // This matches Adobe LiveCycle Designer behavior where Designer.xci is always loaded
-  // as the base configuration, even when the XDP doesn't embed its own <config>.
   if (!config) {
     return {
       fontEquateRules: [...DEFAULT_FONT_EQUATE_RULES],
@@ -1472,11 +1317,9 @@ function parseConfig(config: unknown): ConfigSpec | undefined {
   const psMap = getChild(config, 'psMap');
   const fontEntries = toArray<unknown>(getChild(psMap, 'font'));
 
-  // Parse font equate rules from <present><pdf><fontInfo><map><equate> (from XCI reference)
   const fontEquateRules = parseFontEquateRules(pdf);
 
-  // Merge with defaults: XDP-specific rules take precedence, defaults fill in gaps
-  const mergedRules = fontEquateRules.length > 0
+  const mergedRules = fontEquateRules.length
     ? mergeFontEquateRules(fontEquateRules, DEFAULT_FONT_EQUATE_RULES)
     : [...DEFAULT_FONT_EQUATE_RULES];
 
@@ -1513,11 +1356,6 @@ function parseFontEquateRules(pdf: unknown): FontEquateRule[] {
     .filter(Boolean) as FontEquateRule[];
 }
 
-/**
- * Merge XDP-specific font equate rules with defaults.
- * Rules from the XDP take precedence; defaults fill in for
- * 'from' patterns not covered by the XDP rules.
- */
 function mergeFontEquateRules(xdpRules: FontEquateRule[], defaultRules: FontEquateRule[]): FontEquateRule[] {
   const merged = [...xdpRules];
   const xdpFromPatterns = new Set(xdpRules.map((r) => r.from.toLowerCase()));
@@ -1539,5 +1377,4 @@ function parseConnectionSet(connSet: unknown): { xsdUri?: string; xsdRootElement
   };
 }
 
-// Validate namespace is recognized (warns but doesn't fail)
 void TEMPLATE_NAMESPACES;

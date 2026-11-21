@@ -1,4 +1,3 @@
-// Packet-aware walk over a tokenized XDP, XSD or XML data file.
 
 import { tokenize, parseAttrs, localName } from './xml-tokens.mjs';
 
@@ -15,7 +14,6 @@ function packetFor(kind, stack, local) {
   return stack.length === 1 ? local : stack[1].packet;
 }
 
-/** { qname, local, attrs, packet, xhtml } for an open/empty tag; xhtml marks rich-text subtrees. */
 export function elementOf(kind, stack, token) {
   const local = localName(token.name);
   const attrs = parseAttrs(token.raw);
@@ -24,7 +22,6 @@ export function elementOf(kind, stack, token) {
   return { qname: token.name, local, attrs, packet: packetFor(kind, stack, local), xhtml };
 }
 
-/** Walks elements with packet context; calls visitor hooks. */
 export function walk(file, visit) {
   const stack = [];
   tokenize(file.text).forEach((token, index, tokens) => {

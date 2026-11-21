@@ -1,12 +1,3 @@
-/**
- * Stroke-width quantisation.
- *
- * Designer writes stroke widths rounded to three decimal places. Authored
- * thicknesses are commonly in millimetres, so the raw point value is a long
- * binary fraction; emitting it unrounded made our `w` operators differ from
- * Designer's in the last digits (1.067 vs 1.06696226) even when the geometry was
- * otherwise correct.
- */
 
 import {
   DEFAULT_EDGE_THICKNESS_PT,
@@ -27,7 +18,6 @@ const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 
 const DATA = `<?xml version="1.0" encoding="UTF-8"?><value><dummy>x</dummy></value>`;
 
-/** Millimetre thickness -> point value via the same factor the parser uses. */
 const MM_TO_PT = 2.83465;
 
 function xdp(thickness: string): string {
@@ -71,8 +61,6 @@ describe('quantizeStrokeWidth', () => {
   });
 
   it('covers every millimetre-authored width seen in the real fixtures', () => {
-    // The three widths Designer emitted for the MechanicalSeal grid, and the
-    // values we produced before the fix.
     const designer = [0.5, 1.067, 1.634];
     const ours = [0.5, 0.50003226, 1.06696226, 1.63389226];
     const oursRounded = [...new Set(ours.map(quantizeStrokeWidth))].sort((a, b) => a - b);
@@ -121,7 +109,6 @@ describe('rendered stroke widths', () => {
         expect(w).toBe(quantizeStrokeWidth(w));
         expect(w).toBeCloseTo(w, 3);
       }
-      // The raw mm->pt product must never survive into the content stream.
       expect(content).not.toContain(String(0.3764 * MM_TO_PT));
     }
   });

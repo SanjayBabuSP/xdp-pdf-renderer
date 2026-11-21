@@ -1,22 +1,12 @@
-// ────────────────────────────────────────────────────────────────────────────
-// XFA Namespace Validation — Strict validation of XFA template namespaces
-// Supports XFA 2.8, 3.3, 3.6, and provides backward compatibility warnings
-// ────────────────────────────────────────────────────────────────────────────
 
 export interface NamespaceValidationResult {
-  /** Whether the namespace is valid */
   valid: boolean;
-  /** The detected namespace version */
   detectedVersion: string | null;
-  /** Warning messages */
   warnings: string[];
-  /** Error messages */
   errors: string[];
-  /** Whether backward compatibility mode is needed */
   backwardCompat: boolean;
 }
 
-/** Known XFA template namespaces */
 const KNOWN_NAMESPACES: Record<string, { version: string; supported: boolean }> = {
   'http://www.xfa.org/schema/xfa-template/2.0/': { version: '2.0', supported: false },
   'http://www.xfa.org/schema/xfa-template/2.1/': { version: '2.1', supported: false },
@@ -36,7 +26,6 @@ const KNOWN_NAMESPACES: Record<string, { version: string; supported: boolean }> 
   'http://www.xfa.org/schema/xfa-template/3.6/': { version: '3.6', supported: true },
 };
 
-/** Elements/attributes that differ between XFA versions */
 const VERSION_DIFFERENCES: Record<string, Record<string, string>> = {
   '3.3': {
     'subform@layout': 'Added "position" as explicit layout mode',
@@ -52,10 +41,6 @@ const VERSION_DIFFERENCES: Record<string, Record<string, string>> = {
   },
 };
 
-/**
- * Validate XFA namespace declarations in an XDP document.
- * Detects the XFA version and provides compatibility warnings.
- */
 export function validateXfaNamespaces(
   namespaceDeclarations: Record<string, string>,
   strict: boolean = false
@@ -68,7 +53,6 @@ export function validateXfaNamespaces(
     backwardCompat: false,
   };
 
-  // Find the template namespace
   let templateNs: string | null = null;
   for (const [, uri] of Object.entries(namespaceDeclarations)) {
     if (uri.includes('xfa-template')) {
@@ -102,7 +86,6 @@ export function validateXfaNamespaces(
       );
       result.backwardCompat = true;
 
-      // Check for version-specific features
       const diffs = VERSION_DIFFERENCES[nsInfo.version];
       if (diffs) {
         for (const [feature, description] of Object.entries(diffs)) {
@@ -121,10 +104,6 @@ export function validateXfaNamespaces(
   return result;
 }
 
-/**
- * Validate namespace prefixes used in an XDP document.
- * Checks for common issues like incorrect prefix usage.
- */
 export function validateNamespacePrefixes(
   prefixes: Record<string, string>,
   strict: boolean = false
@@ -140,7 +119,6 @@ export function validateNamespacePrefixes(
       }
     }
 
-    // Check for misspelled common prefixes
     if (prefix === 'xpatemplate') {
       warnings.push(
         `Possible misspelled namespace prefix: '${prefix}'. Did you mean 'xfa-templates'?`
@@ -151,13 +129,8 @@ export function validateNamespacePrefixes(
   return warnings;
 }
 
-/**
- * Get version-specific feature flags.
- * Returns which features are available in a given XFA version.
- */
 export function getVersionFeatures(version: string): Record<string, boolean> {
   const features: Record<string, boolean> = {
-    // Base features (available in all versions)
     'field': true,
     'subform': true,
     'draw': true,
@@ -176,7 +149,6 @@ export function getVersionFeatures(version: string): Record<string, boolean> {
     'occur': true,
     'value': true,
 
-    // Version-specific features
     'layout.position': version >= '2.8',
     'layout.tbrl': version >= '3.6',
     'assist': version >= '3.3',

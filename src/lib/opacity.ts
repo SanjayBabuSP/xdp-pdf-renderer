@@ -1,4 +1,3 @@
-/** XFA opacity → 0..1 (accepts "0.5", "50%", "50"). */
 export function parseOpacityValue(raw: string | undefined): number | undefined {
   if (raw == null || raw.trim() === '') return undefined;
   const text = raw.trim();

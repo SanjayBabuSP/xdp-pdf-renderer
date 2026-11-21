@@ -1,47 +1,36 @@
 import { DataObject, DataValue } from '../types';
 
-/**
- * Resolve an XFA-style bind reference against a data object.
- *
- * Supported patterns:
- *   $.Name                     → data.Name
- *   $.Quotation.OEM            → data.Quotation.OEM
- *   $.revisionHistory[*]       → data.revisionHistory (full array)
- *   $.to_Perf[0].Value         → data.to_Perf[0].Value
- */
 export function resolveXPath(ref: string, data: DataObject): DataValue | undefined {
   const path = stripDataRefPrefix(ref);
   if (path == null) return undefined;
   return resolvePath(path, data);
 }
 
-/**
- * XFA dataRefs normally start with `$.`, but Designer also emits bare paths
- * (`Element_0002.Element_0023[0].Element_2014`). Treat both as data paths.
- */
 function stripDataRefPrefix(ref: string): string | null {
   if (ref.startsWith('$.')) return ref.slice(2);
   if (ref.startsWith('$')) return null;
   return ref;
 }
 
-/**
- * Resolve a `$.path` dataRef relative to an already-bound data scope (the
- * nearest bound ancestor's data node), as XFA dataRefs are evaluated.
- */
 export function resolveXPathRelative(ref: string, scope: DataObject): DataValue | undefined {
   const path = stripDataRefPrefix(ref);
   if (path == null) return undefined;
-  return resolvePath(path, scope);
+  const direct = resolvePath(path, scope);
+  if (direct !== undefined) return direct;
+  const stripped = stripFirstSegment(path);
+  if (stripped != null && stripped !== path) return resolvePath(stripped, scope);
+  return undefined;
+}
+
+function stripFirstSegment(path: string): string | null {
+  const dot = findNextDot(path);
+  if (dot < 0) return null;
+  return path.slice(dot + 1);
 }
 
 function resolvePath(path: string, current: unknown): DataValue | undefined {
   if (!path || current == null) return current as DataValue;
 
-  // A wildcard segment (`Nodes[*].Child`) leaves an array in `current`.
-  // Continue the remaining path from every item and flatten the results, so
-  // XFA nested repeat bindings (`$.Element_2659[*].Element_2660`) resolve to
-  // the concatenation of each occurrence's children.
   if (Array.isArray(current)) {
     const out: DataValue[] = [];
     for (const item of current) {
@@ -50,7 +39,7 @@ function resolvePath(path: string, current: unknown): DataValue | undefined {
       if (Array.isArray(resolved)) out.push(...resolved);
       else out.push(resolved);
     }
-    return out.length > 0 ? (out as unknown as DataValue) : undefined;
+    return out.length ? (out as unknown as DataValue) : undefined;
   }
 
   const dotIndex = findNextDot(path);

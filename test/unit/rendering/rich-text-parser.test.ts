@@ -107,7 +107,7 @@ describe('RichTextParser', () => {
       const runs = parseRichText('<span style="font-size:16px">Pixel text</span>');
       const sizedRun = runs.find((r) => r.fontSize != null);
       expect(sizedRun).toBeDefined();
-      expect(sizedRun!.fontSize).toBe(12); // 16px * 0.75 = 12pt
+      expect(sizedRun!.fontSize).toBe(12);
     });
   });
 

@@ -11,14 +11,8 @@ const CONVERSIONS: Record<Unit, number> = {
   px: 0.75,
 };
 
-const UNIT_PATTERN = /^([+-]?[\d.]+)(in|cm|mm|pt|px)$/;
+const UNIT_PATTERN = /^([+-]?[\d.]+)\s*(in|cm|mm|pt|px)/i;
 
-/**
- * Stock paper sizes in points, derived from Adobe LiveCycle Designer 11.0's
- * Designer.xdc <medium> catalog (reference/config_files/Designer.xdc).
- * values are the PDF device's short/long side in points. Keys are normalized
- * to lowercase so lookups are case-insensitive.
- */
 const SOURCE_STOCK_SIZES: Record<string, { short: number; long: number }> = {
   default: { short: 612, long: 792 },
   letter: { short: 612, long: 792 },
@@ -101,12 +95,10 @@ const SOURCE_STOCK_SIZES: Record<string, { short: number; long: number }> = {
   superBSuperBA3: { short: 864.57, long: 1380.47 },
 };
 
-/** Lowercase-normalized stock sizes for case-insensitive lookups. */
 export const STOCK_SIZES: Record<string, { short: number; long: number }> = Object.fromEntries(
   Object.entries(SOURCE_STOCK_SIZES).map(([key, size]) => [key.toLowerCase(), size])
 );
 
-/** Convert a dimension string like "19.05mm" or "72pt" to points. */
 export function toPoints(valueWithUnit: string): Result<number> {
   const trimmed = valueWithUnit.trim();
   const match = trimmed.match(UNIT_PATTERN);
@@ -118,23 +110,20 @@ export function toPoints(valueWithUnit: string): Result<number> {
   }
 
   const value = parseFloat(match[1]);
-  const unit = match[2] as Unit;
+  const unit = match[2].toLowerCase() as Unit;
   return success(value * CONVERSIONS[unit]);
 }
 
-/** Convert a dimension string to points, returning 0 on failure. */
 export function toPointsOrZero(valueWithUnit: string | undefined): number {
   if (!valueWithUnit) return 0;
   const r = toPoints(valueWithUnit);
   return r.success ? r.data : 0;
 }
 
-/** Look up a stock paper size by name (e.g. "a4", "letter"), in points. */
 export function stockSizePoints(stock: string): { short: number; long: number } | undefined {
   return STOCK_SIZES[stock.toLowerCase()];
 }
 
-/** All known stock medium names from the Designer.xdc catalog. */
 export function stockMediumNames(): string[] {
   return Object.keys(STOCK_SIZES);
 }

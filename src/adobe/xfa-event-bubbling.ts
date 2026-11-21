@@ -1,54 +1,25 @@
-// ────────────────────────────────────────────────────────────────────────────
-// XFA DOM Event Bubbling Model — Event propagation and handling
-// Implements the XFA event lifecycle matching Adobe LiveCycle Designer.
-//
-// XFA fires events on a target node and, for a documented subset, lets them
-// *bubble* to enclosing containers. The propagation itself is generic: the
-// scripting dispatcher registers one handler per (node, event) and this
-// dispatcher walks target → root running whatever is registered.
-// ────────────────────────────────────────────────────────────────────────────
 
 import type { XfaNode, XfaEventName } from '../domain/scripting/script-types';
 
 export type EventPhase = 'capture' | 'target' | 'bubble';
 
 export interface XfaEvent<T = XfaNode> {
-  /** Event name */
   name: string;
-  /** Target node that triggered the event */
   target: T;
-  /** Current node processing the event (changes while bubbling) */
   currentTarget: T;
-  /** Event phase */
   phase: EventPhase;
-  /** Whether event propagation is stopped */
   propagationStopped: boolean;
-  /** Whether default behavior is prevented */
   defaultPrevented: boolean;
-  /** Whether the event was already handled */
   handled: boolean;
-  /** Event timestamp */
   timestamp: number;
-  /** Custom event data */
   data?: unknown;
 }
 
 export type EventHandler<T = XfaNode> = (event: XfaEvent<T>) => void;
 
-/**
- * XFA event dispatcher implementing DOM-style propagation over an arbitrary
- * node type (the scripting dispatcher instantiates it with `ScriptableNode`).
- *
- * Order (matching Adobe LiveCycle):
- *   1. Capture phase: root → target (top-down) — only `capture` listeners.
- *   2. Target phase: all listeners on the target.
- *   3. Bubble phase: target → root (bottom-up) — only `bubble` listeners, and
- *      only when the event is a bubbling event.
- */
 export class XfaEventDispatcher<T = XfaNode> {
   private listeners = new Map<string, Array<{ node: T; handler: EventHandler<T>; capture: boolean; priority: number }>>();
 
-  /** @param parentProvider - returns a node's parent, or null at the root */
   constructor(private parentProvider: (node: T) => T | null = () => null) {}
 
   addEventListener(
@@ -74,11 +45,6 @@ export class XfaEventDispatcher<T = XfaNode> {
     if (idx >= 0) list.splice(idx, 1);
   }
 
-  /**
-   * Dispatch an event at `target`. Returns `true` unless a handler called
-   * `preventDefault()`. Propagation is governed by the event's
-   * `propagationStopped` flag, which handlers may set.
-   */
   dispatch(target: T, eventName: string, data?: unknown): boolean {
     const event: XfaEvent<T> = {
       name: String(eventName),
@@ -95,18 +61,15 @@ export class XfaEventDispatcher<T = XfaNode> {
     const chain = this.propagationChain(target);
     const bubbles = eventBubbles(event.name);
 
-    // 1. Capture phase (root → target), capture listeners only.
     for (const node of chain) {
       if (event.propagationStopped) break;
       this.run(node, event, 'capture', true);
     }
 
-    // 2. Target phase — every listener on the target.
     if (!event.propagationStopped) {
       this.run(target, event, 'target', false);
     }
 
-    // 3. Bubble phase (parent → root) for bubbling events.
     if (bubbles && !event.propagationStopped) {
       for (let i = chain.length - 2; i >= 0; i--) {
         if (event.propagationStopped) break;
@@ -150,9 +113,6 @@ export class XfaEventDispatcher<T = XfaNode> {
   }
 }
 
-/**
- * Create an XfaEvent object.
- */
 export function createXfaEvent<T = XfaNode>(name: string, target: T, data?: unknown): XfaEvent<T> {
   return {
     name,
@@ -167,9 +127,6 @@ export function createXfaEvent<T = XfaNode>(name: string, target: T, data?: unkn
   };
 }
 
-/**
- * Pre-defined XFA events matching Adobe LiveCycle Designer.
- */
 export const XFA_EVENTS = {
   INITIALIZE: 'initialize',
   CALCULATE: 'calculate',
@@ -192,7 +149,6 @@ export const XFA_EVENTS = {
   POST_EXECUTE: 'postExecute',
 } as const;
 
-/** Events that bubble up the XFA tree (target → ancestors). */
 export const BUBBLING_EVENTS: ReadonlySet<string> = new Set<string>([
   'click',
   'change',
@@ -204,7 +160,6 @@ export const BUBBLING_EVENTS: ReadonlySet<string> = new Set<string>([
   'postSave',
 ]);
 
-/** Events that do NOT bubble (fire only on the target node). */
 export const NON_BUBBLING_EVENTS: ReadonlySet<string> = new Set<string>([
   'initialize',
   'indexChange',
@@ -225,7 +180,6 @@ export const NON_BUBBLING_EVENTS: ReadonlySet<string> = new Set<string>([
   'postSign',
 ]);
 
-/** Whether an event propagates to ancestor nodes. */
 export function eventBubbles(eventName: string): boolean {
   return BUBBLING_EVENTS.has(eventName);
 }

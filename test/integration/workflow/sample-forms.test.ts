@@ -16,11 +16,6 @@ import { dispatchScripts, dispatchPostLayoutScripts } from '../../../src/domain/
 import { LayoutNode, PaginatedLayout, Result } from '../../../src/types';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
-/**
- * Renders the sanitized real-world forms in test/fixtures/sample-forms through
- * the public API, the way an npm consumer would. See that folder's README.
- */
-
 interface SampleForm {
   name: string;
   xdp: string;
@@ -54,7 +49,6 @@ function imageCount(doc: PDFDocument): number {
   return count;
 }
 
-/** Distinct data values (with a letter, 4+ chars) from the XML data file. */
 function dataValues(form: SampleForm): string[] {
   const values = [...read(form.data).matchAll(/>([^<>]{4,})</g)].map((m) => m[1]!.trim());
   return [...new Set(values.filter((v) => /\p{L}/u.test(v) && !/^(true|false)$/.test(v)))];
@@ -101,16 +95,10 @@ describe.each(manifest.forms.filter((form) => !form.knownIssue))('sample form $n
 
 describe('sample schemas', () => {
   const schemas = manifest.schemasOnly;
-  (schemas.length > 0 ? it.each(schemas) : it.skip.each(['(none)']))('%s parses', (rel) => {
+  (schemas.length ? it.each(schemas) : it.skip.each(['(none)']))('%s parses', (rel) => {
     expect(parseXsd(read(rel)).success).toBe(true);
   });
 });
-
-// ── Geometry regression: no two field boxes may overlap ────────────────────
-// The real-world defects this guards: positioned fields stretching to the
-// container width (LeadTime blocks) and pagination unit-shifts growing a
-// fragmenting container so its next-page fragment collides with the following
-// sibling (paragraph lines). Both showed up as field↔field overlap here.
 
 function unwrap<T>(res: Result<T>, what: string): T {
   if (!res.success) throw new Error(`${what} failed: ${JSON.stringify(res.error)}`);

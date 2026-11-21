@@ -1,47 +1,18 @@
-// ────────────────────────────────────────────────────────────────────────────
-// SOM Expression Resolver — Full XFA Scripting Object Model path resolution
-//
-// Reference: xfa.dll + xfaform.dll (SOM expression handling)
-// SOM paths let scripts navigate the XFA form tree, e.g.:
-//   $form.Page1.Header.CompanyName.rawValue
-//   $.parent.Amount
-//   Table.Row[2].Total
-//   $record.COMPANY.NAME
-// ────────────────────────────────────────────────────────────────────────────
 
 import { ScriptableNode, XfaNode } from './script-types';
 
-// ─── SOM Resolution Result ───────────────────────────────────────────────
-
 export interface SomResolutionResult {
-  /** The resolved node(s). Multiple results for wildcard/predicate queries. */
   nodes: ScriptableNode[];
-  /** Whether the resolution was successful */
   found: boolean;
-  /** The property name being accessed (e.g., 'rawValue', 'presence') if the terminal segment is a property */
   property?: string;
 }
 
-// ─── SOM Segment Types ──────────────────────────────────────────────────
-
 interface SomSegment {
-  /** Name of the node/property */
   name: string;
-  /** Index predicate: [0], [1], [*] → -1 for all, undefined for none */
   index?: number;
-  /** Whether this segment accesses all matching nodes ([*]) */
   wildcard: boolean;
 }
 
-// ─── SOM Expression Parser ─────────────────────────────────────────────
-
-/**
- * Parse a SOM expression string into segments.
- * Examples:
- *   "Page1.Header.CompanyName" → [{name:"Page1"}, {name:"Header"}, {name:"CompanyName"}]
- *   "Table.Row[2].Amount" → [{name:"Table"}, {name:"Row", index:2}, {name:"Amount"}]
- *   "Table.Row[*].Amount" → [{name:"Table"}, {name:"Row", wildcard:true}, {name:"Amount"}]
- */
 export function parseSomExpression(expression: string): SomSegment[] {
   const segments: SomSegment[] = [];
   const parts = expression.split('.');
@@ -65,8 +36,6 @@ export function parseSomExpression(expression: string): SomSegment[] {
   return segments;
 }
 
-// ─── Known XFA Properties (not node names) ──────────────────────────────
-
 const XFA_PROPERTIES = new Set([
   'rawValue', 'value', 'presence', 'access', 'mandatory', 'relevant',
   'name', 'type', 'x', 'y', 'w', 'h',
@@ -78,8 +47,6 @@ const XFA_PROPERTIES = new Set([
   'validate', 'calculate', 'format',
   'dataNode', 'boundNode',
 ]);
-
-// ─── SOM Resolver ───────────────────────────────────────────────────────
 
 export class SomExpressionResolver {
   private nodeMap: Map<string, ScriptableNode>;
@@ -97,7 +64,6 @@ export class SomExpressionResolver {
     this.dataRoot = dataRoot;
     this.formRootPath = formRootPath;
 
-    // Build parent and children lookup maps from the flat nodeMap
     this.parentMap = new Map();
     this.childrenMap = new Map();
 
@@ -115,13 +81,6 @@ export class SomExpressionResolver {
     }
   }
 
-  /**
-   * Resolve a SOM expression relative to a context node.
-   *
-   * @param expression - The SOM expression (e.g., "$.parent.Amount", "$form.Page1.Field")
-   * @param contextPath - The SOM path of the current node (for $ resolution)
-   * @returns Resolution result with matched nodes
-   */
   resolve(expression: string, contextPath: string): SomResolutionResult {
     if (!expression || expression.trim() === '') {
       return { nodes: [], found: false };
@@ -129,7 +88,6 @@ export class SomExpressionResolver {
 
     const trimmed = expression.trim();
 
-    // ── Handle special prefixes ─────────────────────────────────────
     if (trimmed === '$' || trimmed === 'this') {
       const node = this.nodeMap.get(contextPath);
       return node ? { nodes: [node], found: true } : { nodes: [], found: false };
@@ -141,7 +99,6 @@ export class SomExpressionResolver {
     }
 
     if (trimmed.startsWith('$$.')) {
-      // $$ = containing subform
       const containingSubform = this.findContainingSubform(contextPath);
       if (!containingSubform) return { nodes: [], found: false };
       const rest = trimmed.substring(3);
@@ -163,7 +120,6 @@ export class SomExpressionResolver {
     }
 
     if (trimmed === '$form' || trimmed === 'xfa.form') {
-      // Return the form root node
       const rootNode = this.nodeMap.get(this.formRootPath);
       return rootNode ? { nodes: [rootNode], found: true } : { nodes: [], found: false };
     }
@@ -175,31 +131,18 @@ export class SomExpressionResolver {
 
     if (trimmed.startsWith('$host') || trimmed.startsWith('$event')
         || trimmed.startsWith('$layout')) {
-      // These are special objects handled by the script engines, not the SOM resolver
       return { nodes: [], found: false, property: trimmed };
     }
 
-    // ── Scoped resolution: try relative first, then global ──────────
-    // This matches Adobe's scoping: bare names resolve relative to the
-    // containing subform first, then walk up to the form root.
     const relativeResult = this.resolveScoped(trimmed, contextPath);
     if (relativeResult.found) return relativeResult;
 
-    // Absolute fallback: try from form root
     const rootResult = this.resolveFromRoot(trimmed);
     if (rootResult.found) return rootResult;
 
-    // Adobe's SOM also resolves named objects across the form when no
-    // ancestor-scoped match exists (scripts reference nested rows such as
-    // Subform_0069 from a sibling table area). Fall back to a global name
-    // lookup before giving up.
     return this.resolveByFirstName(trimmed);
   }
 
-  /**
-   * Resolve a SOM path by locating the first segment anywhere in the form
-   * tree, then walking the remaining segments from that node.
-   */
   private resolveByFirstName(path: string): SomResolutionResult {
     const segments = parseSomExpression(path);
     if (segments.length === 0) return { nodes: [], found: false };
@@ -222,53 +165,35 @@ export class SomExpressionResolver {
     return { nodes: [], found: false };
   }
 
-  /**
-   * Resolve a SOM path relative to a specific node.
-   */
   private resolveRelative(path: string, basePath: string): SomResolutionResult {
     const segments = parseSomExpression(path);
     return this.walkSegments(segments, basePath);
   }
 
-  /**
-   * Resolve a SOM path from the form root.
-   */
   private resolveFromRoot(path: string): SomResolutionResult {
     const segments = parseSomExpression(path);
-    // Try from form root path first
     const result = this.walkSegments(segments, this.formRootPath);
     if (result.found) return result;
 
-    // Try from empty root (for top-level nodes)
     return this.walkSegments(segments, '');
   }
 
-  /**
-   * Scoped resolution: walk up from context to form root trying to resolve
-   * the expression at each level.
-   */
   private resolveScoped(path: string, contextPath: string): SomResolutionResult {
     const segments = parseSomExpression(path);
     let current = contextPath;
 
     while (current !== '') {
-      // Try resolving from this scope
       const result = this.walkSegments(segments, current);
       if (result.found) return result;
 
-      // Walk up to parent
       const parentPath = this.parentMap.get(current);
       if (!parentPath && parentPath !== '') break;
       current = parentPath ?? '';
     }
 
-    // Try from the root (empty path)
     return this.walkSegments(segments, '');
   }
 
-  /**
-   * Walk SOM segments starting from a base path.
-   */
   private walkSegments(segments: SomSegment[], basePath: string): SomResolutionResult {
     if (segments.length === 0) {
       const node = this.nodeMap.get(basePath);
@@ -281,20 +206,17 @@ export class SomExpressionResolver {
       const segment = segments[i];
       const isLast = i === segments.length - 1;
 
-      // Check if this is a property access on the final segment
       if (isLast && XFA_PROPERTIES.has(segment.name)) {
-        // Return the current nodes with the property name
         const nodes: ScriptableNode[] = [];
         for (const cp of currentPaths) {
           const node = this.nodeMap.get(cp);
           if (node) nodes.push(node);
         }
-        return nodes.length > 0
+        return nodes.length
           ? { nodes, found: true, property: segment.name }
           : { nodes: [], found: false };
       }
 
-      // Handle 'parent' navigation
       if (segment.name === 'parent') {
         const nextPaths: string[] = [];
         for (const cp of currentPaths) {
@@ -306,7 +228,6 @@ export class SomExpressionResolver {
         continue;
       }
 
-      // Find children matching this segment name
       const nextPaths: string[] = [];
 
       for (const cp of currentPaths) {
@@ -317,19 +238,15 @@ export class SomExpressionResolver {
         });
 
         if (segment.wildcard) {
-          // [*] — all matching children
           nextPaths.push(...matching);
         } else if (segment.index !== undefined) {
-          // [n] — specific index (0-based in our model, but XFA uses 0-based too for SOM)
           if (segment.index < matching.length) {
             nextPaths.push(matching[segment.index]);
           }
         } else {
-          // No index — first match (or all matches for intermediate segments)
-          if (matching.length > 0) {
+          if (matching.length) {
             nextPaths.push(matching[0]);
           } else {
-            // Try direct path construction
             const directPath = cp ? `${cp}.${segment.name}` : segment.name;
             if (this.nodeMap.has(directPath)) {
               nextPaths.push(directPath);
@@ -342,21 +259,17 @@ export class SomExpressionResolver {
       if (currentPaths.length === 0) return { nodes: [], found: false };
     }
 
-    // Collect resolved nodes
     const nodes: ScriptableNode[] = [];
     for (const path of currentPaths) {
       const node = this.nodeMap.get(path);
       if (node) nodes.push(node);
     }
 
-    return nodes.length > 0
+    return nodes.length
       ? { nodes, found: true }
       : { nodes: [], found: false };
   }
 
-  /**
-   * Find the containing subform for a given node path.
-   */
   private findContainingSubform(path: string): string | null {
     let current = this.parentMap.get(path);
     while (current !== undefined && current !== '') {
@@ -367,9 +280,6 @@ export class SomExpressionResolver {
     return this.formRootPath || null;
   }
 
-  /**
-   * Resolve a path from the data model ($record).
-   */
   private resolveFromData(path: string): SomResolutionResult {
     const parts = path.split('.');
     let current: unknown = this.dataRoot;
@@ -383,7 +293,6 @@ export class SomExpressionResolver {
 
     if (current === undefined) return { nodes: [], found: false };
 
-    // Wrap data values as pseudo-nodes
     const pseudoNode: ScriptableNode = {
       type: 'data',
       name: parts[parts.length - 1],
@@ -393,9 +302,6 @@ export class SomExpressionResolver {
     return { nodes: [pseudoNode], found: true };
   }
 
-  /**
-   * Get all nodes matching a name (for FormCalc aggregate functions).
-   */
   resolveAllByName(name: string): ScriptableNode[] {
     const results: ScriptableNode[] = [];
     for (const [path, node] of this.nodeMap) {
@@ -405,30 +311,18 @@ export class SomExpressionResolver {
     return results;
   }
 
-  /**
-   * Get a node by its exact SOM path.
-   */
   getNodeByPath(path: string): ScriptableNode | undefined {
     return this.nodeMap.get(path);
   }
 
-  /**
-   * Get the parent path for a given node path.
-   */
   getParentPath(path: string): string | undefined {
     return this.parentMap.get(path);
   }
 
-  /**
-   * Get all child paths for a given node path.
-   */
   getChildPaths(path: string): string[] {
     return this.childrenMap.get(path) ?? [];
   }
 
-  /**
-   * Build the full SOM path for a node (for somExpression property).
-   */
   getFullSomPath(path: string): string {
     return path;
   }

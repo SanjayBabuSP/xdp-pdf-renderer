@@ -2,18 +2,6 @@ import { Result, LayoutModel, LayoutNode, PresenceValue } from '../../types';
 import { success } from '../../lib/result-type';
 import { createRelevanceTest } from './relevance';
 
-/**
- * Evaluate conditional visibility and remove hidden/inactive nodes.
- *
- * Two sources of visibility are honoured:
- *  1. `@presence` — already resolved by the script dispatcher
- *     (`$.presence = "hidden"`).
- *  2. `@relevant` — a FormCalc expression; false ⇒ the object is not part of
- *     the form (G2, see `relevance.ts`).
- *
- * `data` is optional: without it there is nothing for `@relevant` to resolve
- * references against, so only `@presence` is applied.
- */
 export function evaluateConditions(
   layout: LayoutModel,
   data?: Record<string, unknown>
@@ -55,7 +43,6 @@ function resolveNodePresence(node: LayoutNode, relevant?: RelevanceTest): Layout
 }
 
 function evaluateNodeConditions(node: LayoutNode, relevant?: RelevanceTest): LayoutNode {
-  // `@relevant` may decorate any object type — field, subform, draw, exclGroup.
   const stillRelevant = relevant ? relevant(node) : undefined;
   if (stillRelevant === false) {
     return { ...node, presence: 'hidden' } as LayoutNode;
@@ -79,9 +66,7 @@ function resolveFieldPresence(node: {
 }): PresenceValue {
   const current = node.presence ?? 'visible';
 
-  // Apply common pattern: hide if no resolved value
   if (current === 'visible' && node.resolvedValue == null) {
-    // Keep visible — allow rendering with empty value
     return 'visible';
   }
 

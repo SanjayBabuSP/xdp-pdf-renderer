@@ -9,12 +9,6 @@ import {
 import { renderBarcode } from '../../../src/rendering/barcode-renderer';
 import pdf417Tables from '../../../src/config/pdf417-tables.json';
 
-/**
- * PDF417 (G15a) — built on Adobe's own tables dumped from `pdf417pmp.dll`
- * (see scripts/pdf417-dump-tables.py) with the algorithm layer from
- * `reference/decompiled/pdf417pmp_disasm.c`.
- */
-
 const bytes = (n: number) => [...Array(n)].map(() => 0);
 
 describe('PDF417 — Adobe cluster pattern tables (dumped from pdf417pmp.dll)', () => {
@@ -25,7 +19,6 @@ describe('PDF417 — Adobe cluster pattern tables (dumped from pdf417pmp.dll)', 
   });
 
   it('first patterns match the decompiled string symbols', () => {
-    // s_31111136_12b13088 / s_51111125_12b15138 / s_21111155_12b171e8
     expect(pdf417Tables.clusters.cluster0[0]).toBe('31111136');
     expect(pdf417Tables.clusters.cluster3[0]).toBe('51111125');
     expect(pdf417Tables.clusters.cluster6[0]).toBe('21111155');
@@ -81,7 +74,7 @@ describe('PDF417 — structure (FUN_12b0c9c0 row painting)', () => {
   it('cycles clusters 0/3/6 across rows', () => {
     const symbol = encodePdf417('ABC123');
     const clusterOf = (pattern: string): number => {
-      const cluster = pattern.slice(8, 16); // left indicator, after the 8-char start pattern
+      const cluster = pattern.slice(8, 16);
       const table = (['cluster0', 'cluster3', 'cluster6'] as const).find((name) =>
         (pdf417Tables.clusters as Record<string, string[]>)[name].includes(cluster),
       );
@@ -95,7 +88,6 @@ describe('PDF417 — structure (FUN_12b0c9c0 row painting)', () => {
     for (const level of [0, 2, 5, 8]) {
       const symbol = encodePdf417('ECC', { errorCorrectionLevel: level });
       expect(ecCountForLevel(level)).toBe(1 << (level + 1));
-      // The painted codewords are exactly the full symbol: data + EC.
       expect(symbol.columns * symbol.rows).toBe(symbol.codewords.length);
     }
   });
@@ -117,7 +109,6 @@ describe('PDF417 — Reed-Solomon remainder (FUN_12b0ba90)', () => {
     const parity = symbol.codewords.slice(dataCount);
     expect(parity).toHaveLength(count);
 
-    // Independent LFSR over the data codewords (FUN_12b0ba90's remainder loop).
     const remainder = new Array<number>(count).fill(0);
     for (const value of data) {
       const temp = (value + remainder[count - 1]) % MOD;
@@ -126,7 +117,6 @@ describe('PDF417 — Reed-Solomon remainder (FUN_12b0ba90)', () => {
       }
       remainder[0] = (MOD - ((coefficients[0] * temp) % MOD)) % MOD;
     }
-    // The encoder appends (MOD - remainder) % MOD per the decompile's final loop.
     expect(parity).toEqual(remainder.map((r) => (MOD - r) % MOD));
   });
 });
@@ -135,7 +125,7 @@ describe('PDF417 — deterministic golden encoding', () => {
   it('pins the codeword sequence for a fixed payload', () => {
     const symbol = encodePdf417('ABC123', { errorCorrectionLevel: 1, columns: 4, rows: 6 });
     expect(symbol.codewords.length).toBe(4 * 6);
-    expect(symbol.codewords[0]).toBe(4 * 6 - 4); // descriptor = data codewords
+    expect(symbol.codewords[0]).toBe(4 * 6 - 4);
     expect(symbol.rowPatterns).toHaveLength(6);
     expect(symbol.rowPatterns[0].startsWith('81111113')).toBe(true);
   });
@@ -149,10 +139,8 @@ describe('PDF417 — deterministic golden encoding', () => {
 
 describe('PDF417 — module painting', () => {
   it('rowToModules fills exactly the dark runs', () => {
-    // '31111136' = dark3 light1 dark1 light1 dark1 light1 dark3 light6
     const modules = rowToModules('31111136', 17);
     expect(modules).toHaveLength(17);
-    // Dark runs: 3 + 1 + 1 + 3 = 8 of 17 modules.
     expect(modules.filter(Boolean)).toHaveLength(8);
     expect(modules.slice(0, 3).every(Boolean)).toBe(true);
     expect(modules[3]).toBe(false);

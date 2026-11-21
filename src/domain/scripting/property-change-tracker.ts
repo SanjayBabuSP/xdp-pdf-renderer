@@ -1,51 +1,31 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Property Change Tracker — Tracks script-driven mutations to XFA nodes
-//
-// Reference: xfa.dll + xfaform.dll (property change propagation)
-// When scripts modify node properties (presence, access, value, etc.),
-// these changes must flow back to the LayoutModel for correct rendering.
-// ────────────────────────────────────────────────────────────────────────────
 
-import { LayoutModel, LayoutNode, PresenceValue } from '../../types';
+import { LayoutModel, LayoutNode, PresenceValue, RgbColor } from '../../types';
 import { ScriptableNode } from './script-types';
-
-// ─── Property Change Record ────────────────────────────────────────────
+import { parseStyleColor } from './xfa-object-model';
 
 export interface PropertyChange {
-  /** SOM path of the node */
   nodePath: string;
-  /** Property name that changed */
   property: string;
-  /** Value before the change */
   oldValue: unknown;
-  /** Value after the change */
   newValue: unknown;
-  /** Timestamp of the change */
   timestamp: number;
 }
 
-/**
- * Tracks property mutations during script execution and applies them
- * back to the LayoutModel.
- */
 export class PropertyChangeTracker {
   private changes: PropertyChange[] = [];
   private nodeSnapshots = new Map<string, Map<string, unknown>>();
 
-  /**
-   * Snapshot the current state of a node before scripts run.
-   */
   snapshot(path: string, node: ScriptableNode): void {
     const props = new Map<string, unknown>();
     props.set('resolvedValue', node.resolvedValue);
     props.set('presence', node.presence);
     props.set('access', node.access);
+    props.set('fillColor', node.fillColor ?? null);
+    props.set('fontColor', node.fontColor ?? null);
+    props.set('borderColor', node.borderColor ?? null);
     this.nodeSnapshots.set(path, props);
   }
 
-  /**
-   * Record a property change.
-   */
   recordChange(path: string, property: string, oldValue: unknown, newValue: unknown): void {
     this.changes.push({
       nodePath: path,
@@ -56,9 +36,6 @@ export class PropertyChangeTracker {
     });
   }
 
-  /**
-   * Compare current node state against snapshot and record any differences.
-   */
   detectChanges(path: string, node: ScriptableNode): void {
     const snapshot = this.nodeSnapshots.get(path);
     if (!snapshot) return;
@@ -80,16 +57,14 @@ export class PropertyChangeTracker {
     if (currentAccess !== snapAccess) {
       this.recordChange(path, 'access', snapAccess, currentAccess);
     }
+    for (const prop of ['fillColor', 'fontColor', 'borderColor'] as const) {
+      const cur = (node as unknown as Record<string, unknown>)[prop] ?? null;
+      if (cur !== snapshot.get(prop)) {
+        this.recordChange(path, prop, snapshot.get(prop), cur);
+      }
+    }
   }
 
-  /**
-   * Apply all tracked changes back onto the layout tree.
-   *
-   * Identity-based: every ScriptableNode carries a reference to the exact
-   * LayoutNode it mirrors (`layoutNode`), so a `presence`/`resolvedValue`
-   * change made against one scriptable can never leak onto a same-named
-   * sibling. Only the properties that actually changed are written.
-   */
   applyByIdentity(nodes: ScriptableNode[]): ApplyResult {
     const result: ApplyResult = {
       valuesChanged: 0,
@@ -104,10 +79,6 @@ export class PropertyChangeTracker {
       const layoutNode = scriptable.layoutNode as LayoutNode | undefined;
       if (!layoutNode) continue;
 
-      // Deliberately NOT guarded by `prop in layoutNode`: the parser only
-      // creates optional keys it actually saw in the XDP, so a field with no
-      // declared `presence` has no `presence` key at all — and that is exactly
-      // the case a `$.presence = "hidden"` script needs to write.
       if (scriptable.resolvedValue !== snapshot.get('resolvedValue')) {
         (layoutNode as { resolvedValue?: unknown }).resolvedValue = scriptable.resolvedValue;
         result.valuesChanged++;
@@ -116,11 +87,22 @@ export class PropertyChangeTracker {
         (layoutNode as { presence?: PresenceValue }).presence =
           scriptable.presence as PresenceValue;
         result.presenceChanged++;
-        result.layoutDirty = true; // Presence changes affect layout
+        result.layoutDirty = true;
       }
       if (scriptable.access !== snapshot.get('access')) {
         (layoutNode as { access?: string }).access = scriptable.access;
         result.accessChanged++;
+      }
+      for (const prop of ['fillColor', 'fontColor', 'borderColor'] as const) {
+        const cur = (scriptable as unknown as Record<string, unknown>)[prop] ?? null;
+        if (cur !== snapshot.get(prop) && typeof cur === 'string') {
+          const parsed = parseStyleColor(cur);
+          if (parsed) {
+            applyStyleToLayout(layoutNode, prop, parsed);
+            result.valuesChanged++;
+            if (prop !== 'fontColor') result.layoutDirty = true;
+          }
+        }
       }
     }
 
@@ -131,52 +113,67 @@ export class PropertyChangeTracker {
     return scriptable.key ?? scriptable.path ?? scriptable.name ?? '';
   }
 
-  /**
-   * Get all changes recorded.
-   */
   getChanges(): ReadonlyArray<PropertyChange> {
     return this.changes;
   }
 
-  /**
-   * Get changes for a specific node path.
-   */
   getChangesForNode(path: string): PropertyChange[] {
     return this.changes.filter((c) => c.nodePath === path);
   }
 
-  /**
-   * Check if any presence changes were made (requires re-layout).
-   */
   hasPresenceChanges(): boolean {
     return this.changes.some((c) => c.property === 'presence');
   }
 
-  /**
-   * Check if any value changes were made.
-   */
   hasValueChanges(): boolean {
     return this.changes.some((c) => c.property === 'resolvedValue');
   }
 
-  /**
-   * Reset the tracker for a new execution cycle.
-   */
   reset(): void {
     this.changes = [];
     this.nodeSnapshots.clear();
   }
 }
 
-// ─── Apply Result ───────────────────────────────────────────────────────
-
 export interface ApplyResult {
-  /** Number of value (resolvedValue) changes applied */
   valuesChanged: number;
-  /** Number of presence changes applied */
   presenceChanged: number;
-  /** Number of access changes applied */
   accessChanged: number;
-  /** Whether layout needs recalculation (presence or position changes) */
   layoutDirty: boolean;
+}
+
+function applyStyleToLayout(
+  layoutNode: LayoutNode,
+  prop: 'fillColor' | 'fontColor' | 'borderColor',
+  color: RgbColor
+): void {
+  const ln = layoutNode as unknown as Record<string, unknown>;
+  if (prop === 'fontColor') {
+    const font = (ln.font as Record<string, unknown> | undefined) ?? {};
+    font.color = color;
+    ln.font = font;
+    return;
+  }
+  if (prop === 'fillColor') {
+    const border = (ln.border as Record<string, unknown> | undefined) ?? {};
+    const fill = (border.fill as Record<string, unknown> | undefined) ?? {};
+    fill.color = color;
+    if (fill.presence === 'hidden' || fill.presence === 'invisible') delete fill.presence;
+    border.fill = fill;
+    ln.border = border;
+    return;
+  }
+  const border = (ln.border as Record<string, unknown> | undefined) ?? {};
+  const edges = border.edges as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(edges) && edges.length) {
+    for (const e of edges) {
+      if (e && typeof e === 'object') {
+        e.color = color;
+        if (e.presence === 'hidden' || e.presence === 'invisible') delete e.presence;
+      }
+    }
+  } else {
+    border.edges = [{ color }];
+  }
+  ln.border = border;
 }

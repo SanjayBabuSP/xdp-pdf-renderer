@@ -1,23 +1,3 @@
-/**
- * Barcode renderer — Phase 7.
- *
- * Implements symbologies marked `support="software"` in `adobepdf.xdc:213-240`.
- * All barcodes are rendered as pure PDF vector graphics (filled rectangles /
- * path operations) with no external dependencies.
- *
- * Supported (software-rendered by Adobe):
- *   Code 39  — adobepdf.xdc:213-214 (code39 / code39limited)
- *   Code 128 — adobepdf.xdc:220-224 (code128A/B/C/SSCC)
- *   EAN-13   — adobepdf.xdc:225
- *   Codabar  — adobepdf.xdc:228
- *   2of5     — adobepdf.xdc:226-227 (Matrix + Industrial variants)
- *
- * Each encoder returns a `BarSpec` (array of bar widths + type) that the
- * renderer converts to PDF rectangles. Module width defaults to 2pt.
- *
- * Evidence: adobepdf.xdc:213-240 (barcode definitions),
- *           reference/barcode_data/BarcodeData.xml (geometry ranges).
- */
 
 import { PDFPage, rgb } from 'pdf-lib';
 import { pushGraphicsState, popGraphicsState } from 'pdf-lib';
@@ -28,34 +8,26 @@ import {
   rowToModules,
 } from './pdf417';
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
 export type BarType =
   | 'narrow-bar'
   | 'wide-bar'
   | 'narrow-space'
   | 'wide-space'
-  | /** POSTNET/PLANET ascender bar (full height). */ 'tall-bar'
-  | /** POSTNET/PLANET short bar (bottom-aligned, 40% height). */ 'short-bar'
+  |  'tall-bar'
+  |  'short-bar'
   | 'module-row';
 
 export interface Bar {
   type: BarType;
-  /** For 2D symbologies: the run-length pattern of one stacked row. */
   rowPattern?: string;
-  /** For 2D symbologies: total modules the row occupies (quiet-zone excluded). */
   rowWidth?: number;
 }
 
-/** Rendered barcode bar specification: alternating bars and spaces. */
 export interface BarSpec {
   bars: Bar[];
-  /** Recommended module width multiplier. */
   narrowWidth: number;
   wideWidth: number;
 }
-
-// ─── Code 39 ──────────────────────────────────────────────────────────────────
 
 const CODE39_CHARS: Record<string, string> = {
   '0': 'NNNWWNWNN', '1': 'WNNWNNNNW', '2': 'NWNWNNNNW',
@@ -75,7 +47,6 @@ const CODE39_CHARS: Record<string, string> = {
   '%': 'WNNNWNNNN', '*': 'NNNWWNWNN',
 };
 
-/** Encode a string as Code 39. Returns alternating bar/space as N/W sequence. */
 function encodeCode39(data: string): Bar[] {
   const bars: Bar[] = [];
   const chars = `*${data.toUpperCase()}*`;
@@ -84,19 +55,15 @@ function encodeCode39(data: string): Bar[] {
     if (!pattern) continue;
     for (let i = 0; i < pattern.length; i++) {
       const wide = pattern[i] === 'W';
-      // Code39 alternates: odd positions = bars, even = spaces
       const isBar = i % 2 === 0;
       if (isBar) bars.push({ type: wide ? 'wide-bar' : 'narrow-bar' });
       else bars.push({ type: wide ? 'wide-space' : 'narrow-space' });
     }
-    if (ci < chars.length - 1) bars.push({ type: 'narrow-space' }); // inter-char gap
+    if (ci < chars.length - 1) bars.push({ type: 'narrow-space' });
   }
   return bars;
 }
 
-// ─── Code 128 ─────────────────────────────────────────────────────────────────
-
-// Code 128B encoding table (values 32..126). 6-element patterns (3 bars + 3 spaces).
 const CODE128B_TABLE: number[][] = [
   [2,1,2,2,2,2],[2,2,2,1,2,2],[2,2,2,2,2,1],[1,2,1,2,2,3],[1,2,1,3,2,2],
   [1,3,1,2,2,2],[1,2,2,2,1,3],[1,2,2,3,1,2],[1,3,2,2,1,2],[2,2,1,2,1,3],
@@ -122,10 +89,8 @@ const CODE128B_TABLE: number[][] = [
 const CODE128_START_A = 103;
 const CODE128_START_B = 104;
 const CODE128_START_C = 105;
-/** Stop pattern (7 modules-runs, 13 modules total). */
 const CODE128_STOP = [2, 3, 3, 1, 1, 1, 2];
 
-/** Start-pattern module widths for subsets A / B / C (each 11 modules). */
 const CODE128_START_WIDTHS: Record<'A' | 'B' | 'C', number[]> = {
   A: [2, 1, 1, 4, 1, 2],
   B: [2, 1, 1, 2, 1, 4],
@@ -140,14 +105,6 @@ function emitRuns(bars: Bar[], widths: number[]): void {
   }
 }
 
-/**
- * Emit a complete Code 128 symbol: start + data symbols + mod-103 check + stop.
- *
- * The pattern table is indexed by **code value** (0..99), so value 0 is
- * space (212222) and value 94 is `~`. Data values are therefore:
- *   set A → ASCII 0..95, set B → ASCII 32..127 (value = ASCII - 32),
- *   set C → the integer value of a two-digit pair (0..99).
- */
 function emitCode128(
   subset: 'A' | 'B' | 'C',
   symbolValues: number[],
@@ -167,29 +124,21 @@ function emitCode128(
   return bars;
 }
 
-/** `code128B` — the Adobe default (`adobepdf.xdc:220`), printable ASCII. */
 function encodeCode128B(data: string): Bar[] {
   const symbols: number[] = [];
   for (const ch of data) {
     const code = ch.charCodeAt(0);
-    // Out-of-Code-B characters (control bytes, non-ASCII) collapse to '?'.
     symbols.push(code >= 32 && code <= 127 ? code - 32 : '?'.charCodeAt(0) - 32);
   }
   return emitCode128('B', symbols);
 }
 
-/** `code128A` — control-heavy payloads. Characters above ASCII 95 fall back to B. */
 function encodeCode128A(data: string): Bar[] {
   const codes = [...data].map((ch) => ch.charCodeAt(0));
   if (codes.some((c) => c > 95)) return encodeCode128B(data);
   return emitCode128('A', codes);
 }
 
-/**
- * `code128C` / `code128SSCC` — two digits per symbol (11 modules for 2 digits).
- * An odd-length digit run cannot start in subset C, so it encodes in subset B
- * rather than inventing a padding digit that would corrupt the payload.
- */
 function encodeCode128C(data: string): Bar[] {
   const digits = data.replace(/\D/g, '');
   if (digits.length < 2 || digits.length % 2 !== 0) return encodeCode128B(digits || data);
@@ -198,13 +147,10 @@ function encodeCode128C(data: string): Bar[] {
   return emitCode128('C', symbols);
 }
 
-/** `code128SSCC` — an 18-digit Serial Shipping Container Code, always even. */
 function encodeCode128Sscc(data: string): Bar[] {
   const digits = data.replace(/\D/g, '').padStart(18, '0').slice(-18);
   return encodeCode128C(digits);
 }
-
-// ─── EAN-13 ───────────────────────────────────────────────────────────────────
 
 const EAN_L: string[][] = [
   ['0001101'],['0011001'],['0010011'],['0111101'],['0100011'],
@@ -225,7 +171,6 @@ const EAN13_FIRST_DIGIT_PARITY = [
 
 function encodeEan13(data: string): Bar[] {
   const digits = data.replace(/\D/g, '').padStart(12, '0').slice(0, 12);
-  // Calculate check digit
   let sum = 0;
   for (let i = 0; i < 12; i++) sum += parseInt(digits[i]) * (i % 2 === 0 ? 1 : 3);
   const check = (10 - (sum % 10)) % 10;
@@ -240,29 +185,21 @@ function encodeEan13(data: string): Bar[] {
     }
   }
 
-  // Start guard: 101
   addBitPattern('101');
-  // Left 6 digits (1-6)
   for (let i = 1; i <= 6; i++) {
     const d = parseInt(full[i]);
     const table = parity[i - 1] === 'G' ? EAN_G : EAN_L;
     addBitPattern(table[d][0]);
   }
-  // Centre guard: 01010
   addBitPattern('01010');
-  // Right 6 digits (7-12)
   for (let i = 7; i <= 12; i++) {
     const d = parseInt(full[i]);
     addBitPattern(EAN_R[d][0]);
   }
-  // End guard: 101
   addBitPattern('101');
   return bars;
 }
 
-// ─── EAN-8 ────────────────────────────────────────────────────────────────────
-
-/** EAN-8: 7 data digits + check digit. adobepdf.xdc:218 (`ean8`, support=software). */
 function encodeEan8(data: string): Bar[] {
   const digits = data.replace(/\D/g, '').padStart(7, '0').slice(0, 7);
   let sum = 0;
@@ -281,19 +218,10 @@ function encodeEan8(data: string): Bar[] {
   return bars;
 }
 
-// ─── UPC-A ────────────────────────────────────────────────────────────────────
-
-/**
- * UPC-A: 11 data digits + check digit. Encoding-wise it is EAN-13 with a
- * leading `0`, which forces the `LLLLLL` left-half parity for all six left
- * digits. adobepdf.xdc:219 (`upcA`, support=software).
- */
 function encodeUpcA(data: string): Bar[] {
   const digits = data.replace(/\D/g, '').padStart(11, '0').slice(0, 11);
   return encodeEan13(`0${digits}`);
 }
-
-// ─── Codabar ──────────────────────────────────────────────────────────────────
 
 const CODABAR_CHARS: Record<string, string> = {
   '0':'00000011','1':'00001100','2':'00010010','3':'11000000',
@@ -309,7 +237,7 @@ function encodeCodabar(data: string): Bar[] {
   for (let ci = 0; ci < data.length; ci++) {
     const pattern = CODABAR_CHARS[data[ci].toUpperCase()];
     if (!pattern) continue;
-    if (ci > 0) bars.push({ type: 'narrow-space' }); // inter-char gap
+    if (ci > 0) bars.push({ type: 'narrow-space' });
     for (let i = 0; i < pattern.length; i++) {
       const wide = pattern[i] === '1';
       bars.push({ type: i % 2 === 0 ? (wide ? 'wide-bar' : 'narrow-bar') : (wide ? 'wide-space' : 'narrow-space') });
@@ -318,30 +246,17 @@ function encodeCodabar(data: string): Bar[] {
   return bars;
 }
 
-// ─── 2-of-5 Industrial ────────────────────────────────────────────────────────
-
 const I2OF5_DIGITS: string[] = [
   'NNWWN','WNNNW','NWNNW','WWNNN','NNWNW','WNWNN','NWWNN','NNNWW','WNNWN','NWNWN',
 ];
 
 type TwoOfFiveVariant = 'industrial' | 'interleaved' | 'matrix';
 
-/**
- * 2-of-5 family.
- *
- * - `industrial` / `matrix`: 5 bar-elements per digit (N/W), narrow gaps.
- * - `interleaved`: digits are taken in pairs — 2 bars from the first digit,
- *   2 spaces from the second (adobepdf.xdc:213).
- *
- * The `matrix` variant additionally closes the leading pattern with a narrow
- * space so the run starts on a bar, matching the `code2Of5Matrix` table.
- */
 function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar[] {
   const digits = data.replace(/\D/g, '');
   const bars: Bar[] = [];
 
   if (variant === 'interleaved') {
-    // Start: 4 narrow bars
     bars.push({ type: 'narrow-bar' }, { type: 'narrow-space' },
               { type: 'narrow-bar' }, { type: 'narrow-space' });
     const padded = digits.length % 2 === 1 ? `0${digits}` : digits;
@@ -353,15 +268,12 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
         bars.push({ type: b[j] === 'W' ? 'wide-space' : 'narrow-space' });
       }
     }
-    // Stop: wide bar, narrow space, wide bar, narrow space, narrow bar
     bars.push({ type: 'wide-bar' }, { type: 'narrow-space' },
               { type: 'wide-bar' }, { type: 'narrow-space' }, { type: 'narrow-bar' });
     return bars;
   }
 
   if (variant === 'matrix') {
-    // 2-of-5 Matrix (IATA): elements alternate bar/space starting on a bar,
-    // digits are separated by a single narrow space. adobepdf.xdc:226.
     bars.push({ type: 'narrow-bar' }, { type: 'narrow-space' });
     for (const d of digits) {
       const pattern = I2OF5_DIGITS[parseInt(d)];
@@ -376,8 +288,6 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
     return bars;
   }
 
-  // Industrial: every element is a bar, separated by narrow spaces.
-  // Start: NN
   bars.push({ type: 'narrow-bar' }, { type: 'narrow-space' },
             { type: 'narrow-bar' }, { type: 'narrow-space' });
   for (const d of digits) {
@@ -386,19 +296,14 @@ function encode2of5(data: string, variant: TwoOfFiveVariant = 'industrial'): Bar
       bars.push({ type: pattern[i] === 'W' ? 'wide-bar' : 'narrow-bar' });
       if (i < pattern.length - 1) bars.push({ type: 'narrow-space' });
     }
-    bars.push({ type: 'narrow-space' }); // inter-char gap
+    bars.push({ type: 'narrow-space' });
   }
-  // Stop: WNN
   bars.push({ type: 'wide-bar' }, { type: 'narrow-space' }, { type: 'narrow-bar' });
   return bars;
 }
 
-// ─── Code 93 ──────────────────────────────────────────────────────────────────
-
-/** Code 93 data alphabet (43 characters); shifts are values 43-46, `*` is 47. */
 const CODE93_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%';
 
-/** Width patterns indexed by Code 93 value (0-47). Each sums to 9 modules. */
 const CODE93_PATTERNS: number[][] = [
   [1,3,1,1,1,2],[1,1,1,2,1,3],[1,1,1,3,1,2],[1,1,1,4,1,1],
   [1,2,1,1,1,3],[1,2,1,2,1,2],[1,2,1,3,1,1],[1,1,1,1,1,4],
@@ -431,7 +336,6 @@ function code93CheckValues(values: number[]): number[] {
   return [c, k];
 }
 
-/** `code93` — full alphanumeric with two mod-47 check characters. */
 function encodeCode93(data: string): Bar[] {
   const bars: Bar[] = [];
   const emit = (value: number): void => emitRuns(bars, CODE93_PATTERNS[value]);
@@ -445,18 +349,14 @@ function encodeCode93(data: string): Bar[] {
   for (const v of values) emit(v);
   for (const check of code93CheckValues(values)) emit(check);
   emit(CODE93_START_STOP_VALUE);
-  bars.push({ type: 'narrow-bar' }); // termination bar
+  bars.push({ type: 'narrow-bar' });
   return bars;
 }
 
-// ─── UPC-E ────────────────────────────────────────────────────────────────────
-
-/** Parity of the six UPC-E digits for number system 0, indexed by check digit. */
 const UPCE_PARITY = [
   'EEEOOO','EEOEOO','EEOOEO','EEOOOE','EOEEOO','EOOEEO','EOOOEE','EOEOEO','EOEOOE','EOOEOE',
 ];
 
-/** Zero-suppress-expansion of a 6-digit UPC-E body to an 11-digit UPC-A prefix. */
 function expandUpcE(numberSystem: string, body: string): string {
   const d = body.padStart(6, '0').slice(-6);
   const [d1, d2, d3, d4, d5, d6] = d;
@@ -474,7 +374,6 @@ function expandUpcE(numberSystem: string, body: string): string {
   }
 }
 
-/** `upcE` — 6-digit UPC-E (optionally prefixed by the number system digit). */
 function encodeUpcE(data: string): Bar[] {
   const digits = data.replace(/\D/g, '');
   const numberSystem = digits.length >= 7 ? digits[0] : '0';
@@ -501,16 +400,12 @@ function encodeUpcE(data: string): Bar[] {
   return bars;
 }
 
-// ─── MSI (Modified Plessey) ──────────────────────────────────────────────────
-
-/** MSI digit patterns: 12 modules each, `1` = bar, `0` = space. */
 const MSI_DIGITS: Record<string, string> = {
   '0': '100100100100', '1': '100100100110', '2': '100100110100', '3': '100100110110',
   '4': '100110100100', '5': '100110100110', '6': '100110110100', '7': '100110110110',
   '8': '110100100100', '9': '110100100110',
 };
 
-/** MSI mod-10 check digit (alternating weights from the right). */
 function msiCheckDigit(digits: string): number {
   let sum = 0;
   let double = true;
@@ -522,7 +417,6 @@ function msiCheckDigit(digits: string): number {
   return (10 - (sum % 10)) % 10;
 }
 
-/** `msi` — numeric MSI/Plessey with a mod-10 check digit. */
 function encodeMsi(data: string): Bar[] {
   const digits = data.replace(/\D/g, '');
   const full = digits + msiCheckDigit(digits);
@@ -536,14 +430,6 @@ function encodeMsi(data: string): Bar[] {
   return bars;
 }
 
-// ─── POSTNET / PLANET (USPS 2-height) ────────────────────────────────────────
-
-/**
- * USPS 5-bar digit encoding (USPS PUB 25). Weights are 7,4,2,1,0 across the
- * five bars; each digit carries exactly two talls whose weights sum to the
- * digit (mod 11 — 7+4=11 encodes 0). PLANET is the inverse image: the same
- * two-of-five pattern marks the SHORT bars (3 talls).
- */
 const POSTNET_TALL: Record<string, string> = {
   '0': '11000', '1': '00011', '2': '00101', '3': '00110', '4': '01001',
   '5': '01010', '6': '01100', '7': '10001', '8': '10010', '9': '10100',
@@ -567,35 +453,22 @@ function barsForDigit(digit: string, planet: boolean): Bar[] {
 
 function encodeUsps(data: string, planet: boolean): Bar[] {
   const digits = data.replace(/\D/g, '');
-  const payload = digits.length > 0 ? digits : '0';
+  const payload = digits.length ? digits : '0';
   const full = payload + String(checkDigit(payload));
-  // Frame bars at both ends.
   const bars: Bar[] = [{ type: 'tall-bar' }, { type: 'narrow-space' }];
   for (const digit of full) bars.push(...barsForDigit(digit, planet));
   bars.push({ type: 'tall-bar' });
   return bars;
 }
 
-/** `postUS5Zip` / `postUSStandard` (ZIP+4) / `postUSDPBC` (ZIP+4+2). */
 function encodePostnet(data: string): Bar[] {
   return encodeUsps(data, false);
 }
 
-/** `planetCode` — Confirm/Trace barcode; POSTNET's inverse. */
 function encodePlanet(data: string): Bar[] {
   return encodeUsps(data, true);
 }
 
-// ─── Symbology normalization ─────────────────────────────────────────────────
-
-/**
- * Map an XFA / Adobe `.xdc` symbology name onto an encoder key.
- *
- * Names come from `<barcode symbology="...">` and from the
- * `barcodeDefinition type="..."` tables in `reference/Adobe-LiveCycle-Designer-11.0/config_files/*.xdc`.
- * Adobe spells them `code3Of9`, `code2Of5Interleaved`, `code128SSCC`, … —
- * none of which match the naive substring checks previously used here.
- */
 export function normalizeSymbology(symbology: string): string {
   const s = (symbology || '').toLowerCase().replace(/[\s_-]/g, '');
   if (s === '' ) return 'code39';
@@ -628,15 +501,6 @@ export function normalizeSymbology(symbology: string): string {
   return 'code39';
 }
 
-/**
- * Symbologies with a working encoder in this module.
- *
- * `normalizeSymbology` understands the full Adobe `barcodeDefinition` name set
- * (`adobepdf.xdc:212-252`) but anything outside this list currently degrades to
- * Code 39 — the remaining Adobe-software symbologies (`code93`, `code11`,
- * `msi`, `upcE`, `code2Of5Standard`, `pdf417`, postal codes) are tracked as
- * migration gap G15.
- */
 export const SUPPORTED_SYMBOLOGIES = [
   'code39', 'code93', 'msi',
   'code128a', 'code128b', 'code128c', 'code128sscc',
@@ -645,7 +509,6 @@ export const SUPPORTED_SYMBOLOGIES = [
   'pdf417', 'postus5zip', 'postusstandard', 'postusdpbc', 'planet',
 ] as const;
 
-/** Adobe `barcodeDefinition` names that are recognized but not yet encoded. */
 export const PENDING_SYMBOLOGIES = [
   'code11', 'logmars', 'code49',
   'qrcode', 'datamatrix', 'aztec',
@@ -653,11 +516,6 @@ export const PENDING_SYMBOLOGIES = [
   'postUSImb', 'postUKRM4SCC', 'postJapan',
 ] as const;
 
-/**
- * PDF417 is a stacked (2D) symbology: each encoded row is a run-length string
- * of modules. The 1D `Bar[]` painter draws full-height bars, so each PDF417
- * row is carried as one `module-row` Bar and painted by `renderBarcode2D`.
- */
 function encodePdf417ToBars(data: string, options: EncodeBarsOptions): Bar[] {
   const symbol = encodePdf417(data, {
     errorCorrectionLevel: options.errorCorrectionLevel ?? PDF417_DEFAULT_EC_LEVEL,
@@ -671,8 +529,6 @@ function encodePdf417ToBars(data: string, options: EncodeBarsOptions): Bar[] {
     rowWidth: modulesPerRow(symbol.columns),
   }));
 }
-
-// ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 interface EncodeBarsOptions {
   errorCorrectionLevel?: number;
@@ -708,7 +564,6 @@ function encodeBars(symbology: string, data: string, options: EncodeBarsOptions 
 }
 }
 
-/** Public entry point — returns the raw bar/space list for a symbology. */
 export function encodeBarcode(
   symbology: string,
   data: string,
@@ -717,29 +572,10 @@ export function encodeBarcode(
   return encodeBars(symbology, data, options);
 }
 
-// ─── PDF rendering ────────────────────────────────────────────────────────────
-
-/**
- * Render a barcode as PDF vector rectangles.
- *
- * evidence: adobepdf.xdc:213-240 (barcode definitions with moduleWidth ranges),
- *           reference/barcode_data/BarcodeData.xml (geometry parameters).
- *
- * @param pdfPage    Target page
- * @param symbology  Barcode type string (from UiSpec.encodeHint)
- * @param data       Data to encode
- * @param x          Left edge (PDF coords)
- * @param y          Bottom edge (PDF coords)
- * @param w          Available width
- * @param h          Available height
- * @param moduleW    Module width in points (default 2pt)
- */
 export interface RenderBarcodeOptions {
-  /** Symbology-specific encode options (e.g. PDF417 EC level 0-8). */
   errorCorrectionLevel?: number;
   columns?: number;
   rows?: number;
-  /** Target box width/height — drives PDF417's aspect-based dimensioning. */
   aspectRatio?: number;
 }
 
@@ -760,22 +596,19 @@ export function renderBarcode(
 
   const bars = encodeBars(symbology, data, { ...options, aspectRatio: w / h });
   if (bars.length === 0) return;
-  // 2D symbologies stack rows — painted by the module renderer below.
   if (bars[0]?.type === 'module-row') {
     renderBarcode2D(pdfPage, bars, x, y, w, h);
     return;
   }
 
-  // Calculate total width to auto-scale if needed.
   const narrowW = moduleW;
-  const wideW = moduleW * wideNarrowRatio; // adobepdf.xdc wideNarrowRatio="2.2-3.0"
+  const wideW = moduleW * wideNarrowRatio;
 
   let totalW = 0;
   for (const bar of bars) {
     totalW += (bar.type === 'wide-bar' || bar.type === 'wide-space') ? wideW : narrowW;
   }
 
-  // Scale to fit within available width if too wide.
   const scale = totalW > w ? w / totalW : 1;
   const nW = narrowW * scale;
   const wW = wideW * scale;
@@ -801,8 +634,6 @@ export function renderBarcode(
         borderWidth: 0,
       });
     } else if (bar.type === 'tall-bar' || bar.type === 'short-bar') {
-      // USPS 2-height symbologies: tall bars span the full symbol height,
-      // short bars are 40% and sit on the baseline (USPS PUB 25 geometry).
       pdfPage.drawRectangle({
         x: curX,
         y,
@@ -818,11 +649,6 @@ export function renderBarcode(
   pdfPage.pushOperators(popGraphicsState());
 }
 
-/**
- * Stacked (2D) barcode painter: each `module-row` Bar is one encoded row drawn
- * as alternating dark/light runs across the full module width. Rows are fitted
- * into the box; each row's height is the box height divided by the row count.
- */
 function renderBarcode2D(
   pdfPage: PDFPage,
   bars: Bar[],
@@ -837,7 +663,6 @@ function renderBarcode2D(
 
   pdfPage.pushOperators(pushGraphicsState());
 
-  // Rows paint top-down (PDF y grows upward from the box bottom edge).
   bars.forEach((bar, rowIndex) => {
     const pattern = bar.rowPattern ?? '';
     const modules = rowToModulesLocal(pattern, bar.rowWidth ?? 0);
@@ -867,7 +692,6 @@ function renderBarcode2D(
   pdfPage.pushOperators(popGraphicsState());
 }
 
-/** Local wrapper so the 2D painter does not depend on the encoder import order. */
 function rowToModulesLocal(pattern: string, width: number): boolean[] {
   return rowToModules(pattern, width);
 }

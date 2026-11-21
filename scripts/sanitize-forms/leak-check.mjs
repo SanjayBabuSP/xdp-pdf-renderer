@@ -1,6 +1,3 @@
-// Fail-closed privacy checks. Reports only masked samples, never real text.
-//  - leakProblems: compares outputs against what was replaced in the originals.
-//  - auditProblems: needs no originals (used on committed fixtures and in CI).
 
 import { tokenize, parseAttrs, decode, localName } from './xml-tokens.mjs';
 import { isAllowedUrl, hostOf } from './scrambler.mjs';
@@ -23,7 +20,6 @@ export function mask(s) {
   return `${chars[0]}${'*'.repeat(n - 2)}${chars[n - 1]} (${n})`;
 }
 
-/** Text values, words (lower → as written), image payloads and image-free text of one file. */
 export function scan(text) {
   const values = new Set();
   const words = new Map();
@@ -89,7 +85,6 @@ export function scan(text) {
   return { values, words, images, plain: plain.join('\n') };
 }
 
-/** Problems that need the originals: surviving replaced text/words/images and listed terms. */
 export function leakProblems(rel, scanned, known) {
   const problems = [];
   for (const value of known.replacedValues) {
@@ -112,7 +107,6 @@ export function leakProblems(rel, scanned, known) {
   return problems;
 }
 
-/** Problems detectable without originals: contact data, paths, real images. */
 export function auditProblems(rel, scanned) {
   const problems = [];
   for (const email of scanned.plain.match(EMAIL) ?? []) {
@@ -130,14 +124,12 @@ export function auditProblems(rel, scanned) {
   return problems;
 }
 
-/** Renamed originals that survive as a tag, name, id, reference or script identifier. */
 export function nameLeakProblems(file, renamedNames) {
   const found = new Set();
   visitNames(file, { add: (name) => renamedNames.has(name) && found.add(name) });
   return [...found].map((name) => ({ rel: file.rel, kind: 'original name', sample: mask(name) }));
 }
 
-/** Names that are neither generated (Field_0001) nor made of generic words; needs no originals. */
 export function nameAuditProblems(file, genericWords) {
   const found = new Set();
   visitNames(file, {

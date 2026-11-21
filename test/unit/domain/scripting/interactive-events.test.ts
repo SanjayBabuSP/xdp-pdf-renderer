@@ -3,11 +3,6 @@ import { resolveBindings } from '../../../../src/domain/mapping/resolve-bindings
 import { dispatchInteractiveEvent } from '../../../../src/domain/scripting';
 import { LayoutModel, LayoutNode, FieldNode } from '../../../../src/types';
 
-/**
- * G3 — interactive events (`click`/`change`/`enter`/`exit`) are dispatched on
- * demand with XFA propagation, and scripts can read `xfa.event`.
- */
-
 const XDP = `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
@@ -90,7 +85,6 @@ describe('G3 — dispatchInteractiveEvent', () => {
     const layout = setup();
     dispatchInteractiveEvent(layout, {}, { activity: 'validate', ref: 'value.content.target' });
     expect(findField(layout.children, 'target')?.resolvedValue).toBe('validated');
-    // The subform's validate handler is on an ancestor and must not run.
     expect(findField(layout.children, 'note')?.resolvedValue).toBeUndefined();
   });
 

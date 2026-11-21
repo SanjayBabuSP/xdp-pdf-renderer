@@ -1,40 +1,14 @@
 import { Result, LayoutModel, LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, PaginatedLayout, PaginatedPage, PageDefinition, Position, BreakValue, KeepSpec } from '../../types';
 import { success } from '../../lib/result-type';
 
-// ─── Coordinate-based pagination ──────────────────────────────────────────
-// evidence: xfalayout_disasm.c break machinery at FUN_18550a80 (:16822
-// breakAfter/breakBefore, AUTO default) and hasActiveKeep (:66094 — keep
-// has three enum properties, default auto). addInstances (:6028) inserts
-// nodes; the engine then assigns x/y — instances are never pre-offset.
-//
-// Design (plan Phase 2 task 7):
-//  * calculatePositions lays out ALL content contiguously in page-1
-//    content-area space (flow space), ignoring page height.
-//  * This pass walks top level + container children in document order,
-//    applying explicit breaks (dy rebase) and unit shifts (keep/atomic
-//    rows/leaves move whole to the next page top when they would straddle
-//    a page boundary), then buckets every node by coordinate page index.
-//  * Straddling containers are split into per-page fragments: the subtree
-//    is pruned to the fragment's page region with boxes clipped to it.
-//  * Each page's bucket is translated from page-1 space into that page's
-//    local top-down coordinates: t_p = (CA_p.x − CA_1.x, CA_p.y − CA_1.y
-//    − p·flowPageH). Rendered pages anchor children at absolute page-local
-//    coords (renderer flipY uses y directly), so page 0 is identity and a
-//    uniform template shifts page p up by exactly p·flowPageH.
-//  * The old post-hoc y-shift + estimateNodeHeight chunking are gone.
-
 const EPS = 1e-6;
 
 interface WalkState {
-  /** Bottom of all content placed so far (page-1 space), for break targets. */
   cursorBottom: number;
-  /** Content region height per page (options override or content-area h). */
   pageH: number;
-  /** First page content area (origin of flow space). */
   ca1: { x: number; y: number; w: number; h: number };
 }
 
-/** Split content across pages based on coordinates, breaks and keep rules. */
 export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Result<PaginatedLayout> {
   if (layout.pages.length === 0) {
     const pageDef = defaultPageDef();
@@ -59,7 +33,6 @@ export function applyPagination(layout: LayoutModel, pageHeightPts?: number): Re
 
   const { nodes: walked } = walkContainer(layout.children, state, false, true, false);
 
-  // Bucket top-level nodes by page span; straddling containers fragment.
   const buckets: LayoutNode[][] = [];
   const push = (page: number, node: LayoutNode): void => {
     while (buckets.length <= page) buckets.push([]);
@@ -115,16 +88,9 @@ function pageIndexOf(y: number, s: WalkState): number {
   return Math.max(0, Math.floor((y - s.ca1.y) / s.pageH));
 }
 
-/**
- * Top of the next chunk (content area / page) after the page containing
- * `cursorBottom`. evidence: break values contentArea/pageArea/pageEven/
- * pageFront/pageOdd — xfa.dll atom block; auto never reaches here.
- */
 function nextChunkTop(cursorBottom: number, value: BreakValue, s: WalkState): number {
-  // Page (0-based) containing cursorBottom; −1 when nothing has been placed.
   let k = Math.ceil((cursorBottom - s.ca1.y) / s.pageH) - 1;
   if (value === 'pageEven') {
-    // Target page 0-based index k+1; pageEven → 1-based even → 0-based odd.
     if ((k + 1) % 2 === 0) k += 1;
   } else if (value === 'pageOdd') {
     if ((k + 1) % 2 === 1) k += 1;
@@ -141,13 +107,6 @@ function isRowNode(node: LayoutNode): boolean {
   return node.type === 'subform' && (node.layout === 'row' || node.layout === 'rl-row');
 }
 
-/**
- * Walk a container's children in document order: apply breaks (rebase dy),
- * recurse into nested containers, keep straddling units whole (leaves,
- * exclusive groups, table rows, explicit <keep>), and let oversized /
- * non-kept containers straddle (fragmented later by coordinate bucketing).
- * Returns the local content bottom (for the parent's height fix-up).
- */
 function walkContainer(
   nodes: LayoutNode[],
   state: WalkState,
@@ -167,7 +126,6 @@ function walkContainer(
       continue;
     }
 
-    // Break targeting: explicit breakBefore wins, else pending breakAfter.
     const breakValue = child.breakBefore ?? pendingBreak;
     pendingBreak = null;
     if (breakValue) {
@@ -177,23 +135,10 @@ function walkContainer(
       if (delta > EPS) localDy += delta;
     }
 
-    // Apply accumulated dy to this subtree (once — coordinates are final
-    // for everything above; nested walks start from these shifted coords).
     let node = shiftSubtree(child, 0, localDy);
 
-    // Recurse into containers so nested breaks/keeps resolve first.
     if (node.type === 'subform' || node.type === 'exclGroup') {
-      // Only a table's direct children (its rows) may be unit-shifted as whole
-      // units. Inside any other container, shifting a leaf forward grows the
-      // container past its original box, so the parent's next-page fragment
-      // overlaps the following sibling (cover-letter paragraph lines). Let
-      // those containers fragment by coordinate instead.
       const repeatInstance = node.type === 'subform' && (node as SubformNode).repeatIndex != null;
-      // Inside a repeating wrapper (Subform_0082 rows), the table represents
-      // one data row. Do not keep-shift that inner row to a page top: the
-      // outer wrapper is what flows, and shifting only the inner row leaves
-      // the previous page's table empty while subsequent wrappers stay at
-      // their old coordinates (overlapping rows).
       const childMayShift =
         node.type === 'subform' && node.layout === 'table' && !ancestorRepeat && !repeatInstance;
       const inner = walkContainer(
@@ -205,12 +150,8 @@ function walkContainer(
       );
       if (node.type === 'subform') {
         node = { ...node, children: inner.nodes } as SubformNode;
-        // Container box must cover content pushed past it by breaks/keeps.
         const boxBottom = node.position!.y! + (node.position!.h ?? 0);
         const contentBottom = Number.isFinite(inner.bottom) ? Math.max(inner.bottom, boxBottom) : boxBottom;
-        // A table row's height is already decided by its cells; an oversized
-        // empty spacer draw inside a row must not grow the row box (Example-3
-        // row otherwise becomes 18pt instead of the authored 10.63pt grid).
         if (contentBottom > boxBottom && !isRowNode(node)) {
           node = { ...node, position: { ...node.position!, h: contentBottom - node.position!.y! } } as SubformNode;
         }
@@ -219,7 +160,6 @@ function walkContainer(
       }
     }
 
-    // Straddle handling: unit-shift atomic/kept nodes to the next page top.
     const p = node.position;
     if (p && p.y != null) {
       const y0 = p.y;
@@ -244,7 +184,6 @@ function walkContainer(
             localDy += delta;
           }
         }
-        // Otherwise: leave it — the bucket loop fragments it across pages.
       }
     }
 
@@ -263,7 +202,6 @@ function walkContainer(
   return { nodes: out, bottom };
 }
 
-/** Recursively shift every node's position by (dx, dy). */
 function shiftSubtree(node: LayoutNode, dx: number, dy: number): LayoutNode {
   if (node.type === 'subform') {
     const sub = node as SubformNode;
@@ -303,12 +241,6 @@ function shiftPos(pos: Position | undefined, dx: number, dy: number): Position |
   };
 }
 
-/**
- * Prune a subtree to the page region [top, bottom), clipping container and
- * leaf boxes to the region. Returns null when nothing intersects. Nodes
- * straddling an inner region edge appear in both fragments with clipped
- * boxes — matching the visual cut of content flowing across a break.
- */
 function clipSubtree(node: LayoutNode, top: number, bottom: number): LayoutNode | null {
   const pos = node.position;
   if (!pos || pos.y == null) return node;

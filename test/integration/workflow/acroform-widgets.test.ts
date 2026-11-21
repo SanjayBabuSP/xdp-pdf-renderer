@@ -1,11 +1,6 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 
-/**
- * G8 — interactive AcroForm widgets generated from the XFA template, including
- * `<assist>` tooltips and authored `<traversal>` ordering.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">
@@ -90,7 +85,6 @@ function readFields(doc: PDFDocument): FieldInfo[] {
       if (v == null) return undefined;
       const resolved = doc.context.lookup(v);
       if (resolved instanceof PDFString) return resolved.decodeText();
-      // PDFName stringifies as `/Name`; strip the leading slash.
       return String(resolved).replace(/^\//, '');
     };
     return { name: get('T') ?? '', ft: get('FT') ?? '', value: get('V') ?? '', tooltip: get('TU') };

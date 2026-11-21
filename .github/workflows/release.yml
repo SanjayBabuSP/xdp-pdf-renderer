@@ -57,8 +57,12 @@ jobs:
           CANARY_VERSION="${CURRENT_VERSION}-canary.${TIMESTAMP}.${COMMIT_SHORT}"
           echo "version=${CANARY_VERSION}" >> $GITHUB_OUTPUT
           node -e "const p=require('./package.json');p.version='${CANARY_VERSION}';require('fs').writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+      # NOTE: no --provenance flag: Sigstore provenance requires a PUBLIC
+      # source repo and this repo is private. OIDC trusted publishing (auth)
+      # works fine without it. If the repo ever goes public, re-add
+      # --provenance to the publish commands for the green provenance badge.
       - name: Publish canary to npm (OIDC trusted publishing)
-        run: npm publish --tag canary --provenance --access public
+        run: npm publish --tag canary --access public
 
   publish:
     needs: release-please
@@ -88,8 +92,8 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           if echo "$VERSION" | grep -qE "beta|alpha|rc"; then
             echo "Publishing ${VERSION} with --tag beta"
-            npm publish --tag beta --provenance --access public
+            npm publish --tag beta --access public
           else
             echo "Publishing ${VERSION} as latest"
-            npm publish --provenance --access public
+            npm publish --access public
           fi

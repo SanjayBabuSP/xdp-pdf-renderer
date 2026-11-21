@@ -33,7 +33,6 @@ describe('G9 — crypto primitives', () => {
     expect(objectKey(key, 12, 0, false).length).toBe(16);
     expect(objectKey(new Uint8Array(5).fill(3), 12, 0, false).length).toBe(10);
     expect(objectKey(key, 12, 0, true).length).toBe(16);
-    // AES salt makes the key differ from the RC4 key for the same object.
     expect(Array.from(objectKey(key, 12, 0, true))).not.toEqual(
       Array.from(objectKey(key, 12, 0, false))
     );

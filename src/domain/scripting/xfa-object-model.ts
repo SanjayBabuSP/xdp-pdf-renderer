@@ -1,16 +1,103 @@
-// ────────────────────────────────────────────────────────────────────────────
-// XFA Object Model — Bridges the layout tree to the script execution engines
-// ────────────────────────────────────────────────────────────────────────────
 
 import { XfaNode, XfaEventObject, ScriptableNode } from './script-types';
 import { FieldAccessor } from './formcalc/evaluator';
 import { formatValue } from '../../lib/value-format';
+import type { RgbColor } from '../../types';
 
-/**
- * Node-level attributes addressed as `<node>.<attr>` (e.g. `txtWatermark.rotate`,
- * `Field.presence`). They live on the node, not on a child element — resolving
- * them as a child path would silently write into the bound data instead.
- */
+export const STYLE_ATTRS = ['fillColor', 'fontColor', 'borderColor', 'bgColor'] as const;
+export type StyleAttr = (typeof STYLE_ATTRS)[number];
+
+export function isStyleAttr(name: string): name is StyleAttr {
+  return (STYLE_ATTRS as readonly string[]).includes(name);
+}
+
+export function parseStyleColor(raw: unknown): RgbColor | undefined {
+  if (raw == null) return undefined;
+  const s = String(raw).trim();
+  if (s.startsWith('#')) {
+    const hex = s.slice(1);
+    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+    return undefined;
+  }
+  const parts = s.split(',').map((p) => Number(p.trim()));
+  if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+    const [r, g, b] = parts.map((n) => Math.max(0, Math.min(255, Math.round(n))));
+    return { r: r as number, g: g as number, b: b as number };
+  }
+  return undefined;
+}
+
+export function styleColorToString(c: RgbColor | undefined): string | undefined {
+  if (!c) return undefined;
+  return `${c.r},${c.g},${c.b}`;
+}
+
+export function readLayoutColors(layoutNode: unknown): {
+  fillColor?: string;
+  fontColor?: string;
+  borderColor?: string;
+} {
+  const ln = layoutNode as
+    | { font?: { color?: RgbColor }; border?: { fill?: { color?: RgbColor }; edges?: Array<{ color?: RgbColor }> } }
+    | undefined;
+  if (!ln) return {};
+  const out: { fillColor?: string; fontColor?: string; borderColor?: string } = {};
+  const fill = ln.border?.fill?.color ? styleColorToString(ln.border.fill.color) : undefined;
+  if (fill) out.fillColor = fill;
+  const font = ln.font?.color ? styleColorToString(ln.font.color) : undefined;
+  if (font) out.fontColor = font;
+  const edge = ln.border?.edges?.find((e) => e?.color)?.color;
+  const edgeStr = edge ? styleColorToString(edge) : undefined;
+  if (edgeStr) out.borderColor = edgeStr;
+  return out;
+}
+
+export function writeLayoutColor(
+  layoutNode: unknown,
+  attr: StyleAttr,
+  value: unknown
+): void {
+  const color = parseStyleColor(value);
+  if (!color) return;
+  const ln = layoutNode as unknown as Record<string, unknown>;
+  if (!ln || typeof ln !== 'object') return;
+  const key = attr === 'bgColor' ? 'fillColor' : attr;
+  if (key === 'fontColor') {
+    const font = (ln.font as Record<string, unknown> | undefined) ?? {};
+    font.color = color;
+    ln.font = font;
+    return;
+  }
+  if (key === 'fillColor') {
+    const border = (ln.border as Record<string, unknown> | undefined) ?? {};
+    const fill = (border.fill as Record<string, unknown> | undefined) ?? {};
+    fill.color = color;
+    if (fill.presence === 'hidden' || fill.presence === 'invisible') delete fill.presence;
+    border.fill = fill;
+    ln.border = border;
+    return;
+  }
+  const border = (ln.border as Record<string, unknown> | undefined) ?? {};
+  const edges = border.edges as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(edges) && edges.length) {
+    for (const e of edges) {
+      if (e && typeof e === 'object') {
+        e.color = color;
+        if (e.presence === 'hidden' || e.presence === 'invisible') delete e.presence;
+      }
+    }
+  } else {
+    border.edges = [{ color }];
+  }
+  ln.border = border;
+}
+
 const NODE_ATTRS = ['presence', 'access', 'rotate', 'x', 'y', 'w', 'h', 'name'] as const;
 
 function splitNodeAttribute(path: string): { base: string; attribute?: (typeof NODE_ATTRS)[number] } {
@@ -23,11 +110,6 @@ function splitNodeAttribute(path: string): { base: string; attribute?: (typeof N
   return { base: path };
 }
 
-/**
- * Compound sub-object reads Adobe exposes on every XFA object: `$.assist.toolTip`
- * and `$.extras.<key>` (G6 — `<assist>`/`<extras>` were parsed but unreachable).
- * Reads straight off the mirrored layout node so the scriptable never goes stale.
- */
 function readCompoundAttribute(node: ScriptableNode, path: string): unknown | undefined {
   if (!path) return undefined;
   const layout = node.layoutNode as
@@ -48,24 +130,13 @@ function readCompoundAttribute(node: ScriptableNode, path: string): unknown | un
   return undefined;
 }
 
-/** `true` when `path` names a compound sub-object write (`assist.x`, `extras.x`). */
 function isCompoundAttribute(path: string): boolean {
   return path.startsWith('assist') || path.startsWith('extras');
 }
 
-/**
- * Property suffixes FormCalc/XFA expose on nodes rather than child elements.
- * `node.rawValue` / `node.formattedValue` must resolve the *node* first and
- * then format it — never be looked up as a child named "rawValue".
- */
 const VALUE_PROPERTIES = ['rawValue', 'formattedValue'] as const;
 type ValueProperty = (typeof VALUE_PROPERTIES)[number];
 
-/**
- * FormCalc hands the accessor paths like `$.rawValue` / `$$foo.bar`: `$` is
- * lexed as an ordinary identifier, so the prefix survives into `FieldRef.path`.
- * Strip it so everything downstream sees a plain SOM path.
- */
 function normalizeSomPath(path: string): string {
   if (path.startsWith('$$')) return path.slice(2);
   if (path.startsWith('$')) return path.slice(1);
@@ -82,19 +153,6 @@ function splitValueProperty(path: string): { base: string; property?: ValuePrope
   return { base: path };
 }
 
-/**
- * Creates a FieldAccessor that bridges XFA SOM paths to the layout tree.
- * This is how scripts access field values: $field.rawValue, $form.table.col, etc.
- *
- * Resolution order for a read:
- *   1. `$` / `.rest` — the node whose script is currently executing
- *   2. `x.rawValue` / `x.formattedValue` — resolve `x` first, then format
- *   3. exact SOM path in the node map
- *   4. scoped resolution walking up from the current node (FormCalc SOM
- *      scoping: sibling references like `OEM.TechnicalSalesDocumentation_OEM`
- *      are relative to the scripting object's ancestors)
- *   5. the bound data record (empty elements resolve to '' — never a throw)
- */
 export function createFieldAccessor(
   allNodes: Map<string, ScriptableNode>,
   data: Record<string, unknown>
@@ -126,14 +184,6 @@ export function createFieldAccessor(
     return formatValue(v, node.formatPicture);
   };
 
-  /**
-   * Resolve a SOM path against the scripting node's own instance hierarchy.
-   *
-   * Duplicate siblings (repeating rows) share the same `path`, so looking up
-   * `${node.path}.${ref}` in the flat map always returns the FIRST row's
-   * sibling. Walking the live `parent`/`children` links keeps each row's
-   * script bound to that row's fields.
-   */
   const resolveScoped = (ref: string): ScriptableNode | undefined => {
     const segments = ref.split('.');
     let scope: ScriptableNode | undefined = currentNode();
@@ -165,11 +215,6 @@ export function createFieldAccessor(
       const candidate = allNodes.get(ref);
       if (candidate) return candidate;
     }
-    // Adobe SOM resolves a bare/subpath reference that is not a child of any
-    // ancestor by locating the named object anywhere in the form (for example
-    // the total field's initialize script references `Subform_0069.Field_0125`
-    // while the rows live under the table's `Subform_0068` set). Match by path
-    // suffix and prefer the shallowest match so a unique nested name resolves.
     let best: ScriptableNode | undefined;
     let bestLength = Infinity;
     for (const [path, candidate] of allNodes) {
@@ -196,14 +241,17 @@ export function createFieldAccessor(
       }
       return self.path ? allNodes.get(`${self.path}.${rest}`) : undefined;
     }
-    // Scoped lookup first: duplicate sibling names all share the same flat
-    // `allNodes` key for the first instance, so `Subform_0077.presence = …`
-    // from row N must bind to row N's wrapper, not row 1's.
     return resolveScoped(ref) ?? allNodes.get(ref);
   };
 
-  /** Attribute reads on the scripting object itself (`$.presence`, `$.x` …). */
   const readAttribute = (self: ScriptableNode, name: string): unknown => {
+    if (isStyleAttr(name)) {
+      const key = name === 'bgColor' ? 'fillColor' : name;
+      const cached = (self as unknown as Record<string, unknown>)[key];
+      if (typeof cached === 'string') return cached;
+      const fromLayout = readLayoutColors(self.layoutNode)[key as 'fillColor' | 'fontColor' | 'borderColor'];
+      return fromLayout ?? null;
+    }
     switch (name) {
       case 'presence':
         return self.presence ?? 'visible';
@@ -226,7 +274,6 @@ export function createFieldAccessor(
     }
   };
 
-  /** Write a value onto a scripting node *and* its concrete layout node. */
   const assignValue = (node: ScriptableNode | undefined, value: unknown): void => {
     if (!node) return;
     node.resolvedValue = value;
@@ -235,10 +282,7 @@ export function createFieldAccessor(
   };
 
   const writeAttribute = (self: ScriptableNode, name: string, value: unknown): void => {
-    // Mirror onto the concrete layout node as well: the scriptable is the
-    // mutation surface, `layoutNode` is what the renderer reads.
     const layout = self.layoutNode as Record<string, unknown> | undefined;
-    // `assist.toolTip` / `extras.author` — compound sub-object writes (G6).
     if (name.startsWith('assist.') || name.startsWith('extras.')) {
       if (!layout) return;
       const dot = name.indexOf('.');
@@ -250,6 +294,14 @@ export function createFieldAccessor(
       } else if (head === 'assist' || head === 'extras') {
         layout[head] = { [key]: String(value) };
       }
+      return;
+    }
+    if (isStyleAttr(name)) {
+      const key = name === 'bgColor' ? 'fillColor' : name;
+      const str = String(value);
+      (self as unknown as Record<string, unknown>)[key] = str;
+      if (key === 'borderColor') (self as unknown as Record<string, unknown>).borderColor = str;
+      if (layout) writeLayoutColor(layout, name, value);
       return;
     }
     switch (name) {
@@ -292,10 +344,7 @@ export function createFieldAccessor(
     }
   };
 
-  /** Absolute-path compound read: longest node prefix + `assist.*`/`extras.*`. */
   const resolveCompound = (path: string): unknown | undefined => {
-    // FormCalc hands `$ .assist.toolTip` through unqualified (`$.x.y` is not
-    // a node path), so try the scripting object itself first.
     const self = currentNode();
     if (self) {
       const direct = readCompoundAttribute(self, path);
@@ -316,7 +365,6 @@ export function createFieldAccessor(
       const path = normalizeSomPath(rawPath);
       const { base, property } = splitValueProperty(path);
 
-      // `$` alone and relative `.rest` — the scripting object itself
       if (path === '' || path === '$' || path.startsWith('.')) {
         const self = currentNode();
         if (!self) return null;
@@ -328,8 +376,6 @@ export function createFieldAccessor(
         if (prop.base.includes('.')) {
           const child = self.path ? allNodes.get(`${self.path}.${prop.base}`) : undefined;
           if (child) return readValue(child) ?? null;
-          // `$ .assist.toolTip` / `$ .extras.owner` arrive here (the leading
-          // dot keeps them on the relative path) — read the sub-object.
           const compound = readCompoundAttribute(self, prop.base);
           if (compound !== undefined) return compound;
           return resolvePathFromData(rest, data);
@@ -346,10 +392,6 @@ export function createFieldAccessor(
         return readValue(self) ?? null;
       }
 
-      // `.rawValue` / `.formattedValue`: resolve the owner as a template node
-      // first, then fall back to the bound data — designers write both
-      // `SomeField.rawValue` and `record.path.rawValue`, and an unqualified
-      // sibling reference normally addresses the *data* instance.
       if (property === 'rawValue') {
         const owner = resolveNodeRef(base);
         if (owner) return rawOf(owner);
@@ -378,7 +420,6 @@ export function createFieldAccessor(
         const value = readValue(node);
         if (value !== undefined) return value;
       }
-      // `form.field.assist.toolTip` — walk longest node prefix, read the rest.
       const compound = resolveCompound(path);
       if (compound !== undefined) return compound;
       return resolvePathFromData(path, data);
@@ -388,7 +429,6 @@ export function createFieldAccessor(
       const path = normalizeSomPath(rawPath);
       const { base, property } = splitValueProperty(path);
 
-      // `$` alone and relative `.rest` — write to the scripting object itself
       if (path === '' || path === '$' || path.startsWith('.')) {
         const self = currentNode();
         if (!self) return;
@@ -466,10 +506,6 @@ export function createFieldAccessor(
   return accessor;
 }
 
-/**
- * Build a flat map of all scriptable nodes by their SOM path.
- * This allows O(1) lookup during script execution.
- */
 export function buildNodeMap(
   nodes: ScriptableNode[],
   parentPath = ''
@@ -493,29 +529,13 @@ export function buildNodeMap(
   return map;
 }
 
-/**
- * Collect all scripts from the layout tree, organized by event name and element.
- */
 export interface ScriptEntry {
-  /** The SOM path of the element that owns this script */
   elementPath: string;
-  /** The element node */
   element: ScriptableNode;
-  /** The event name */
   eventName: string;
-  /** The script content */
   scriptContent: string;
-  /** The script language */
   language: 'formcalc' | 'javascript';
-  /** When to run */
   runAt?: string;
-  /**
-   * The event's ref target ($form, $layout, $host, $).
-   * evidence: createEventNode(name, activity, parent, ref) writes ref on every
-   * default event node — xfatemplate_disasm.c:32238-32264 ("OnFormReady"/ready/$form,
-   * "OnFormClosing"/docClose/$host). The renderer matches activity=ready +
-   * ref="$layout" (renderer_disasm.c:35574-35578).
-   */
   ref?: string;
 }
 
@@ -529,7 +549,6 @@ export function collectScripts(
     const name = node.name ?? '<unnamed>';
     const somPath = parentPath ? `${parentPath}.${name}` : name;
 
-    // Collect event scripts
     if (node.events) {
       for (const event of node.events) {
         if (event.script) {
@@ -546,7 +565,6 @@ export function collectScripts(
       }
     }
 
-    // Collect calculate scripts
     if (node.calculate?.script) {
       entries.push({
         elementPath: somPath,
@@ -558,7 +576,6 @@ export function collectScripts(
       });
     }
 
-    // Recurse into children
     if (node.children) {
       entries.push(...collectScripts(node.children, somPath));
     }
@@ -568,13 +585,88 @@ export function collectScripts(
 }
 
 function detectLanguage(contentType?: string): 'formcalc' | 'javascript' {
-  if (!contentType) return 'formcalc'; // FormCalc is the default in XFA
+  if (!contentType) return 'formcalc';
   const lower = contentType.toLowerCase();
   if (lower.includes('javascript') || lower.includes('ecmascript')) return 'javascript';
   return 'formcalc';
 }
 
+function stripRecordPrefix(path: string): { isRecord: boolean; rest: string } {
+  const prefixes = ['xfa.datasets.data.', 'xfa.datasets.', 'xfa.record.', 'xfa.form.record.', 'record.', '$record.'];
+  for (const p of prefixes) {
+    if (path === p.slice(0, -1)) return { isRecord: true, rest: '' };
+    if (path.startsWith(p)) return { isRecord: true, rest: path.slice(p.length) };
+  }
+  if (path === 'xfa.record' || path === 'xfa') return { isRecord: true, rest: '' };
+  return { isRecord: false, rest: path };
+}
+
+function parseDataSegment(seg: string): { name: string; index?: number; wildcard?: boolean } {
+  const m = seg.match(/^([^\[]+)\[([^\]]*)\]$/);
+  if (!m) return { name: seg };
+  const name = m[1];
+  const inside = m[2].trim();
+  if (inside === '*') return { name, wildcard: true };
+  const n = Number(inside);
+  if (Number.isInteger(n) && n >= 0) return { name, index: n };
+  return { name };
+}
+
+function childAtData(container: unknown, key: string): unknown {
+  if (container == null) return undefined;
+  if (Array.isArray(container)) {
+    const n = Number(key);
+    if (Number.isInteger(n)) return container[n];
+    for (const item of container) {
+      const found = childAtData(item, key);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (typeof container === 'object') {
+    return (container as Record<string, unknown>)[key];
+  }
+  return undefined;
+}
+
+export function resolveRecordValue(rawPath: string, data: Record<string, unknown>): unknown {
+  const { isRecord, rest: afterPrefix } = stripRecordPrefix(rawPath);
+  let path = isRecord ? afterPrefix : rawPath;
+  if (!path) return data;
+  let wantScalar = false;
+  if (/(^|\.)value$/.test(path)) {
+    wantScalar = true;
+    path = path.replace(/(^|\.)value$/, '');
+    if (!path) return data;
+  }
+  const parts = path.split('.').filter((p) => p.length);
+  let current: unknown = data;
+  for (const seg of parts) {
+    if (current == null) return undefined;
+    const { name, index, wildcard } = parseDataSegment(seg);
+    if (wildcard) {
+      current = childAtData(current, name);
+      continue;
+    }
+    let next = childAtData(current, name);
+    if (next === undefined) return undefined;
+    if (index !== undefined) {
+      if (Array.isArray(next)) next = next[index];
+      else return undefined;
+      if (next === undefined) return undefined;
+    }
+    current = next;
+  }
+  if (wantScalar && current != null && typeof current === 'object') {
+    if (Array.isArray(current)) return current.map((v) => (typeof v === 'object' ? '' : String(v))).join('');
+    return '';
+  }
+  return current;
+}
+
 function resolvePathFromData(path: string, data: Record<string, unknown>): unknown {
+  const viaRecord = resolveRecordValue(path, data);
+  if (viaRecord !== undefined) return viaRecord;
   const parts = path.split('.');
   let current: unknown = data;
   for (const part of parts) {
@@ -585,20 +677,50 @@ function resolvePathFromData(path: string, data: Record<string, unknown>): unkno
 }
 
 function setPathInData(path: string, data: Record<string, unknown>, value: unknown): void {
-  const parts = path.split('.');
-  let current: Record<string, unknown> = data;
+  const { isRecord, rest } = stripRecordPrefix(path);
+  let clean = isRecord ? rest : path;
+  clean = clean.replace(/(^|\.)value$/, '');
+  if (!clean) return;
+  const parts = clean.split('.').filter((p) => p.length);
+  let current: unknown = data;
   for (let i = 0; i < parts.length - 1; i++) {
-    if (current[parts[i]] == null || typeof current[parts[i]] !== 'object') {
-      current[parts[i]] = {};
+    const { name, index } = parseDataSegment(parts[i]);
+    if (typeof current !== 'object' || current == null) return;
+    const container = current as Record<string, unknown>;
+    if (index !== undefined) {
+      let arr = container[name];
+      if (!Array.isArray(arr)) {
+        arr = [];
+        container[name] = arr;
+      }
+      while ((arr as unknown[]).length <= index) (arr as unknown[]).push({});
+      if (typeof (arr as unknown[])[index] !== 'object' || (arr as unknown[])[index] == null) {
+        (arr as unknown[])[index] = {};
+      }
+      current = (arr as unknown[])[index];
+    } else {
+      if (container[name] == null || typeof container[name] !== 'object') {
+        const next = parseDataSegment(parts[i + 1]);
+        container[name] = next.index !== undefined ? [] : {};
+      }
+      current = container[name];
     }
-    current = current[parts[i]] as Record<string, unknown>;
   }
-  current[parts[parts.length - 1]] = value;
+  const last = parseDataSegment(parts[parts.length - 1]);
+  if (typeof current !== 'object' || current == null) return;
+  const container = current as Record<string, unknown>;
+  if (last.index !== undefined) {
+    let arr = container[last.name];
+    if (!Array.isArray(arr)) {
+      arr = [];
+      container[last.name] = arr;
+    }
+    (arr as unknown[])[last.index] = value;
+  } else {
+    container[last.name] = value;
+  }
 }
 
-/**
- * Create an XfaNode from a ScriptableNode for script execution context.
- */
 export function scriptableToXfaNode(node: ScriptableNode, path: string): XfaNode {
   return {
     name: node.name ?? path.split('.').pop() ?? '<unnamed>',

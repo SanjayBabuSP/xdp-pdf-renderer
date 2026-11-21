@@ -36,6 +36,9 @@ const XDP_WITH_BORDER = `<?xml version="1.0" encoding="UTF-8"?>
             <opacity value="0.3"/>
           </fill>
           <corner radius="4pt"/>
+          <corner radius="4pt"/>
+          <corner radius="4pt"/>
+          <corner radius="4pt"/>
           <edge index="0" thickness="2pt" stroke="solid"><color value="0,0,0"/></edge>
           <edge index="3" thickness="1pt" stroke="dashed"><color value="0,0,0"/><opacity value="0.5"/></edge>
           <edge index="1" thickness="3pt" stroke="dotted"><color value="0,0,0"/></edge>
@@ -128,7 +131,7 @@ describe('parse-xdp', () => {
       if (table?.type === 'subform') {
         expect(table.layout).toBe('table');
         expect(table.columnWidths).toHaveLength(3);
-        expect(table.columnWidths![0]).toBeCloseTo(141.73, 0); // 50mm ≈ 141.73pt
+        expect(table.columnWidths![0]).toBeCloseTo(141.73, 0);
       }
     });
 
@@ -162,7 +165,6 @@ describe('parse-xdp', () => {
       const border = draw.border;
       expect(border).toBeDefined();
 
-      // index 0=top, 1=right, 2=bottom, 3=left regardless of document order
       expect(border.edges).toHaveLength(4);
       expect(border.edges[0].thickness).toBeCloseTo(2);
       expect(border.edges[1].thickness).toBeCloseTo(3);
@@ -174,6 +176,65 @@ describe('parse-xdp', () => {
       expect(border.fill.fillType).toBe('toRight');
       expect(border.fill.color).toEqual({ r: 255, g: 0, b: 0 });
       expect(border.cornerRadius).toBeCloseTo(4);
+      expect(border.cornerRadii).toEqual([expect.closeTo(4, 6), expect.closeTo(4, 6), expect.closeTo(4, 6), expect.closeTo(4, 6)]);
+    });
+
+    it('leaves a lone unindexed radius corner square (Designer default stamp)', () => {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="0" y="0" w="200mm" h="260mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <draw name="bar" x="10mm" y="10mm" w="5.28mm" h="40mm">
+        <value><rectangle><border>
+          <edge thickness="1pt"/>
+          <fill><color value="192,192,192"/></fill>
+          <corner radius="5.08mm"/>
+        </border></rectangle></value>
+      </draw>
+    </subform>
+  </template>
+</xdp:xdp>`;
+      const result = parseXdp(xml);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const draw = result.data.children.find((node) => node.name === 'bar') as any;
+      const border = draw.value.shapeBorder;
+      expect(border).toBeDefined();
+      expect(border.cornerRadius).toBeUndefined();
+      expect(border.cornerRadii).toBeUndefined();
+    });
+
+    it('honours an explicitly indexed lone corner', () => {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+    <subform name="value" layout="tb">
+      <pageSet name="MasterPage">
+        <pageArea name="Page1" id="Page1">
+          <contentArea x="0" y="0" w="200mm" h="260mm"/>
+          <medium stock="a4" short="210mm" long="297mm"/>
+        </pageArea>
+      </pageSet>
+      <draw name="bar" x="10mm" y="10mm" w="100mm" h="50mm">
+        <value><rectangle><border>
+          <edge thickness="1pt"/>
+          <corner index="2" radius="8pt"/>
+        </border></rectangle></value>
+      </draw>
+    </subform>
+  </template>
+</xdp:xdp>`;
+      const result = parseXdp(xml);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      const draw = result.data.children.find((node) => node.name === 'bar') as any;
+      expect(draw.value.shapeBorder.cornerRadii?.[2]).toBeCloseTo(8, 6);
     });
 
     it('falls back to document order when index is absent', () => {

@@ -1,9 +1,3 @@
-/**
- * Horizontal scaling (condensed faces) and font-resource de-duplication.
- *
- * Both fixes target measurable defects found by comparing the renderer's PDF
- * output against Adobe LiveCycle Designer 11.0's "Preview as PDF".
- */
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,7 +5,7 @@ import { PDFDocument } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 import { NARROW_SCALE, isCondensedFamily } from '../../../src/rendering/standard-fonts';
-import { measureText } from '../../../src/rendering/text/measure';
+import { measureText, quantizeAdvance } from '../../../src/rendering/text/measure';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
@@ -69,8 +63,6 @@ describe('measureText — horizontalScale', () => {
   it('leaves charSpacing and wordSpacing unscaled (absolute point values)', async () => {
     const font = await (await PDFDocument.create()).embedStandardFont('Helvetica');
     const glyphs = measureText('a b', 10, font);
-    // 'a b' is 3 glyphs -> 2 inter-character gaps; one of them is the space,
-    // which also takes wordSpacing.
     const charTotal = 1 * 2;
     const wordTotal = 2 * 1;
 
@@ -78,7 +70,6 @@ describe('measureText — horizontalScale', () => {
       glyphs + charTotal + wordTotal,
       6
     );
-    // Condensing halves the glyph advances but leaves both spacings alone.
     expect(
       measureText('a b', 10, font, { charSpacing: 1, wordSpacing: 2, horizontalScale: 0.5 })
     ).toBeCloseTo(glyphs * 0.5 + charTotal + wordTotal, 6);
@@ -100,9 +91,7 @@ describe('rendering a condensed face', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // 93% condensed -> Tz 93
     expect(content).toMatch(/(^|\n)93 Tz(\n|$)/);
-    // and it must be reset so the scale does not leak to later content
     expect(content).toMatch(/(^|\n)100 Tz(\n|$)/);
   });
 
@@ -152,7 +141,6 @@ describe('rendering a condensed face', () => {
     const countTj = (buf: Buffer) => (buf.toString('latin1').match(/Td|TD|TJ|Tj/g) ?? []).length;
     const narrowRuns = countTj(narrow.data);
     const fullRuns = countTj(full.data);
-    // Condensing must not produce more text runs than the full-width case.
     expect(narrowRuns).toBeLessThanOrEqual(fullRuns);
   });
 });
@@ -209,13 +197,9 @@ ${els}
     if (!result.success) throw new Error(result.error.message);
 
     const raw = result.data.toString('latin1');
-    // Count /Font resource names. pdf-lib mints a random name per drawText
-    // without the dedup; with it, 40 runs of one face must yield 1 entry.
     const fontNames = new Set(
       [...raw.matchAll(/\/(Helvetica[\w-]*)\s+\d+\s+0\s+R/g)].map((m) => m[1])
     );
-    // Object streams may hide the resources dict, so fall back to counting the
-    // number of distinct font selectors used in the content stream.
     const selectors = new Set(
       [...(await contentStream(result.data)).matchAll(/\/([A-Za-z0-9+.-]+) [\d.]+ Tf/g)].map((m) => m[1])
     );
@@ -239,9 +223,23 @@ ${els}
     const result = await renderFormToPdf(manyLinesXdp(), manyLinesXsd(), manyLinesData(), {});
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
-    // 40 runs previously produced 40 names of ~24 chars each in Resources/Font.
-    // The deduped document must be comfortably under 40 KB.
     expect(result.data.length).toBeLessThan(40 * 1024);
+  });
+});
+
+describe('measureText — Adobe 1/1000-pt advance quantization (jftext:60660 [asm])', () => {
+  it('quantizes each advance to 1/1000 pt with the +1.75 nudge', async () => {
+    expect(quantizeAdvance(10.0004)).toBeCloseTo(10.001, 9);
+    expect(quantizeAdvance(10.0)).toBeCloseTo(10.001, 9);
+    expect(quantizeAdvance(0)).toBeCloseTo(0.001, 9);
+  });
+
+  it('is independent of font size (flat 1/1000-pt quantum, not size/1000)', async () => {
+    const font = await (await PDFDocument.create()).embedStandardFont('Helvetica');
+    const w10 = measureText('Hello World Hello World Hello World Hello World', 10, font);
+    const w20 = measureText('Hello World Hello World Hello World Hello World', 20, font);
+    expect(w20).toBeGreaterThan(w10 * 1.9);
+    expect(w20).toBeLessThan(w10 * 2.1);
   });
 });
 

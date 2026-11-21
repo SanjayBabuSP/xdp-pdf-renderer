@@ -1,11 +1,6 @@
 import { PDFDocument, PDFName, PDFDict } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 
-/**
- * G9 end-to-end: the output PDF actually carries the standard security handler
- * (Encrypt in the trailer + /ID) and the page content is encrypted.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">

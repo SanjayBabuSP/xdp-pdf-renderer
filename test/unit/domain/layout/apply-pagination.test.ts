@@ -47,8 +47,6 @@ describe('applyPagination', () => {
       ],
     };
 
-    // Pagination runs on positioned content (the real pipeline order:
-    // table layout → positions → pagination); rows have no authored y.
     const laidOut = applyTableLayouts(layout, layout.pages[0].contentArea.w);
     expect(laidOut.success).toBe(true);
     if (!laidOut.success) return;
@@ -64,8 +62,6 @@ describe('applyPagination', () => {
     expect(result.data.pages).toHaveLength(2);
     expect(result.data.pages[0].children).toHaveLength(1);
     expect(result.data.pages[1].children).toHaveLength(1);
-    // The table wrapper is fragmented per page; each fragment keeps exactly one
-    // whole row (rows are atomic units, never split across a page boundary).
     const p0 = result.data.pages[0].children[0] as SubformNode;
     const p1 = result.data.pages[1].children[0] as SubformNode;
     expect(p0.type).toBe('subform');

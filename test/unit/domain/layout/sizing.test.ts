@@ -59,8 +59,6 @@ describe('layout/sizing', () => {
   });
 
   describe('resolveSubformHeight', () => {
-    // Adobe sizes growable subforms to content; a lone minH does not reserve
-    // space (Example-1: minH boxes render at content height, not the floor).
     it('ignores a lone minH on a growable subform', () => {
       expect(resolveSubformHeight({ minH: 71.7 }, 34)).toBe(34);
       expect(resolveSubformHeight(undefined, 42)).toBe(42);

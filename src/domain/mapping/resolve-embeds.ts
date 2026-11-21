@@ -1,60 +1,20 @@
-// ────────────────────────────────────────────────────────────────────────────
-// XFA `xfa:embed` resolution — inline embedding of hidden field values
-//
-// Designers commonly declare a unit (`kg/m3`, `°C`, `bar g`) as its own
-// `presence="hidden"` floatingField at x=0,y=0, then pull its text into a
-// visible <draw> through an exData HTML run:
-//
-//   <draw name="T37" ...>
-//     <value><exData contentType="text/html">
-//       <body><p><span xfa:embedType="uri" xfa:embedMode="raw"
-//                      xfa:embed="#floatingField004827"/></p></body>
-//     </exData></value>
-//   </draw>
-//
-// The draw is painted, the hidden field is not — so the unit only appears if
-// the embed reference is substituted before the hidden node is dropped by
-// evaluateConditions(). This pass therefore runs *after* scripts (so hidden
-// fields already carry their script/data values) and *before* condition
-// evaluation (so the referenced nodes still exist in the tree).
-// ────────────────────────────────────────────────────────────────────────────
 
 import { LayoutModel, LayoutNode } from '../../types';
 import { formatValue } from '../../lib/value-format';
 
 interface EmbedTarget {
-  /** Raw (unformatted) value of the referenced node. */
   raw: string;
-  /** Value rendered through the node's `<bind><picture>`, when present. */
   formatted: string;
-  /** Whether the node declared a format picture. */
   hasPicture?: boolean;
-  /** `CurrentPage` is a Preview-PDF page-number placeholder, not a static value. */
   pageNumber?: boolean;
 }
 
-/**
- * Matches the `xfa:embed="#id"` attribute itself. The trailing `=` guard keeps
- * `xfa:embedType=` / `xfa:embedMode=` from being mistaken for the reference.
- */
 const EMBED_ATTR = String.raw`xfa:embed\s*=\s*(["'])(#[^"']+)\1`;
 
 const EMBED_MODE = /xfa:embedMode\s*=\s*(["'])([^"']+)\1/i;
 
-/** Renderer-time placeholder for the CurrentPage footer field. */
 export const PAGE_NUMBER_TOKEN = '\uE000XFA_PAGE_NUMBER\uE001';
 
-/**
- * Substitute every `xfa:embed="#id"` occurrence in an exData HTML fragment.
- *
- * Handles both real markup (`<span …/>`) and entity-escaped markup
- * (`&lt;span …/&gt;`), which is how XDP stores exData content: the reference
- * attribute is found first, then the enclosing tag is expanded outwards, so a
- * neighbouring tag can never be swallowed.
- *
- * `embedMode="raw"` inserts the value as-is; `formatted` (the XFA default)
- * applies the referenced node's format picture.
- */
 export function resolveXfaEmbedsInHtml(
   html: string,
   lookup: (id: string) => EmbedTarget | undefined
@@ -69,10 +29,8 @@ export function resolveXfaEmbedsInHtml(
   while ((match = attr.exec(html)) !== null) {
     const attrStart = match.index;
     const attrEnd = match.index + match[0].length;
-    const id = match[2].slice(1); // strip '#'
+    const id = match[2].slice(1);
 
-    // Expand outwards to the enclosing tag, in real (`<` … `>`) or
-    // entity-escaped (`&lt;` … `&gt;`) form — whichever occurs first.
     const openReal = html.lastIndexOf('<', attrStart);
     const openEsc = html.lastIndexOf('&lt;', attrStart);
     const tagStart = Math.max(Math.max(openReal, openEsc), cursor);
@@ -86,7 +44,6 @@ export function resolveXfaEmbedsInHtml(
     const tag = html.slice(tagStart, tagEnd);
     const mode = EMBED_MODE.exec(tag)?.[2] ?? 'formatted';
 
-    // Consume an immediately following explicit closing tag, if any.
     let end = tagEnd;
     const closing = /^\s*(?:<\/span>|&lt;\/span&gt;)/i.exec(html.slice(end));
     if (closing) end += closing[0].length;
@@ -94,9 +51,6 @@ export function resolveXfaEmbedsInHtml(
     if (cursor < tagStart) out.push(html.slice(cursor, tagStart));
 
     const target = lookup(id);
-    // Adobe Preview applies the field's format picture even for
-    // embedMode="raw" (Example-2 prices render `57,814.00`, not `57814`);
-    // when there is no picture both spellings are identical.
     const asRaw = mode.toLowerCase() === 'raw' && target?.hasPicture !== true;
     if (target?.pageNumber) out.push(PAGE_NUMBER_TOKEN);
     else out.push(target ? (asRaw ? target.raw : target.formatted) : '');
@@ -108,10 +62,6 @@ export function resolveXfaEmbedsInHtml(
   return out.join('');
 }
 
-/**
- * Collect `uid`/`name` → value for every node in the layout, including the
- * `presence="hidden"` ones that never get painted on their own.
- */
 export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
   const index = new Map<string, EmbedTarget>();
 
@@ -141,11 +91,6 @@ export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
   return index;
 }
 
-/**
- * Rewrite every `xfa:embed` in every rich-text draw on the layout tree.
- * Mutates in place (the tree is already a private deep copy at this point in
- * the pipeline) and returns the number of references that were substituted.
- */
 export function resolveXfaEmbeds(layout: LayoutModel): number {
   const index = buildEmbedIndex(layout);
   if (index.size === 0) return 0;

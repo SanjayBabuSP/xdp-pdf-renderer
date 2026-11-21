@@ -1,11 +1,5 @@
 import { formatValue } from '../../../src/lib/value-format';
 
-/**
- * G13 — compound picture engine: `date{…}` / `time{…}`, locale month/day names
- * and AM/PM. Evidence: ConvertWord.exe_disasm.c:92370
- * (`date{M/D/YYYY} time{h:MM:SS A}`), jfutility_disasm.c (`date{D-MMM}`).
- */
-
 describe('G13 — compound date/time pictures', () => {
   const iso = '2024-03-05T14:30:05Z';
 
@@ -32,7 +26,6 @@ describe('G13 — compound date/time pictures', () => {
   it('uses locale month and weekday names', () => {
     expect(formatValue(iso, 'date{MMMM}', 'de-DE')).toBe('März');
     expect(formatValue(iso, 'date{MMMM}', 'fr-FR')).toBe('mars');
-    // 2024-03-05 is a Tuesday.
     expect(formatValue(iso, 'date{EEEE}')).toBe('Tuesday');
     expect(formatValue(iso, 'date{EEE}')).toBe('Tue');
   });
@@ -111,8 +104,6 @@ describe('numeric pictures are minimum width, not maximum', () => {
 });
 
 describe('date pictures are idempotent on display values (ADS parity)', () => {
-  // A script-formatted value must survive its own picture instead of being
-  // reinterpreted as US MM-DD-YYYY and day/month-swapped (Example-1 date).
   it('keeps DD-MM-YYYY display text stable', () => {
     expect(formatValue('06-11-2026', 'date{DD-MM-YYYY}')).toBe('06-11-2026');
     expect(formatValue('06-11-2026', 'DD-MM-YYYY')).toBe('06-11-2026');

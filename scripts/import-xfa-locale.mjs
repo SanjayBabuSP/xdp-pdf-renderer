@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// ────────────────────────────────────────────────────────────────────────────
-// Import the XFA locale catalog / picture presets from Designer 11.0.
-//
-// Source: reference/Adobe-LiveCycle-Designer-11.0/EN/LocalesList.xml
-// Output: src/config/xfa-locales.json
-//
-// Run: npm run locales:import
-// ────────────────────────────────────────────────────────────────────────────
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -54,7 +46,7 @@ for (const language of toArray(rootNode.language)) {
       desc: c['@_desc'] ?? '',
       pattern: c['@_pattern'] ?? '',
     }));
-    if (customs.length > 0) patterns[lcid] = customs;
+    if (customs.length) patterns[lcid] = customs;
   }
 }
 

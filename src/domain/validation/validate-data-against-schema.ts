@@ -7,17 +7,9 @@ const DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/;
 const URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/;
 
 export interface ValidateOptions {
-  /** When true, missing required fields are hard errors. Default true (backward compatible). */
   strict?: boolean;
 }
 
-/**
- * Validate an XML data object against a schema model. Collects ALL errors.
- * In non-strict mode (strict: false), missing required fields are tolerated: real-world XFA data
- * instances (e.g. SAP OData exports) routinely omit optional navigation properties even when the
- * XSD does not declare minOccurs="0". Type mismatches always fail, since they indicate data that
- * cannot be rendered correctly.
- */
 export function validateDataAgainstSchema(
   data: DataObject,
   schema: SchemaModel,
@@ -27,7 +19,7 @@ export function validateDataAgainstSchema(
   const errors: string[] = [];
   walkFields(data, schema.fields, '', errors, strict);
 
-  if (errors.length > 0) {
+  if (errors.length) {
     return failure(ERROR_CODES.VALIDATION_FAILED.code, ERROR_CODES.VALIDATION_FAILED.message, errors);
   }
   return success(data);
@@ -65,7 +57,6 @@ function validateField(
   }
 
   if (Array.isArray(value)) {
-    // Recurse into each item using a non-repeating copy to avoid false "should be array" errors
     const itemDef: SchemaField = { ...fieldDef, repeating: false };
     value.forEach((item, i) => validateField(item, itemDef, `${path}[${i}]`, errors, strict));
     return;
@@ -81,8 +72,6 @@ function validateField(
   }
 
   if (typeof value === 'object') {
-    // The XSD declares a scalar type but the data nests child elements (common for SAP
-    // coded-value objects bound as e.g. $.SealType.name). Not a real type error unless strict.
     if (strict) errors.push(`Field ${path} expected ${fieldDef.type}, got object`);
     return;
   }
@@ -100,20 +89,15 @@ function validateType(value: unknown, type: string, path: string, errors: string
         errors.push(`${path}: expected string, got ${typeof value}`);
       }
       if (type === 'anyURI' && !URI_PATTERN.test(strVal) && !strVal.startsWith('/') && !strVal.startsWith('.')) {
-        // Lenient: only fail if clearly not a URI-like string
       }
       break;
     case 'int':
     case 'integer':
-      // Lenient: SAP data routinely carries non-numeric strings for numbers
-      // (codes, IDs); Adobe renders the raw text, so tolerate instead of fail.
       if (!Number.isInteger(Number(value)) && strict) {
         errors.push(`${path}: expected integer, got "${value}"`);
       }
       break;
     case 'byte': {
-      // SAP/OData XSD exports map Edm.Byte (unsigned 0..255) to xs:byte (standard signed -128..127).
-      // In lenient mode, accept the union of both ranges to avoid false positives on real-world data.
       const byteMax = strict ? 127 : 255;
       if (!Number.isInteger(Number(value)) || Number(value) < -128 || Number(value) > byteMax) {
         errors.push(`${path}: expected byte (-128..${byteMax}), got "${value}"`);
@@ -121,7 +105,6 @@ function validateType(value: unknown, type: string, path: string, errors: string
       break;
     }
     case 'short':
-      // Lenient: skip both the lexical check and the range (see byte above).
       if (
         strict &&
         (!Number.isInteger(Number(value)) || Number(value) < -32768 || Number(value) > 32767)
@@ -131,7 +114,6 @@ function validateType(value: unknown, type: string, path: string, errors: string
       break;
     case 'decimal':
     case 'float':
-      // Lenient: render the raw string as Adobe does.
       if (isNaN(parseFloat(strVal)) && strict) {
         errors.push(`${path}: expected number, got "${value}"`);
       }

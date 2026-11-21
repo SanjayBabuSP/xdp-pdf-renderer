@@ -1,12 +1,6 @@
 import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 
-/**
- * G18 — Adobe metadata parity: the XDP's `x:xmpmeta` / `<desc>` metadata and
- * Adobe's driver block (XMP stream, Info dict, ViewerPreferences/DisplayDocTitle,
- * /NeedsRendering) reach the output PDF.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">

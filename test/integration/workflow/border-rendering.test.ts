@@ -1,16 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream } from '../../helpers/pdf-content';
 
-/**
- * Border parity with Adobe Preview-as-PDF:
- *  - dash patterns from adobepdf.xdc:187-191, scaled by strokeTypeMultiplier=1
- *    (× thickness),
- *  - cap/join from designrenderer:6182,
- *  - rounded rectangles stroke a single path so `join` applies at the corners,
- *  - ellipse/circle borders carry dash + cap,
- *  - an omitted XFA edge thickness uses the specification-default 0.5pt stroke.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
            xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -31,6 +21,9 @@ const ROUNDED = `        <draw name="round" x="20pt" y="20pt" w="120pt" h="60pt"
                   <color value="255,0,0"/>
                 </edge>
               </border>
+              <corner radius="6pt"/>
+              <corner radius="6pt"/>
+              <corner radius="6pt"/>
               <corner radius="6pt"/>
             </rectangle>
           </value>
@@ -92,14 +85,10 @@ describe('border rendering parity', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // dashed [4,2] × thickness 2 → [8 4] 0 d
     expect(content).toMatch(/\[8 4\] 0 d/);
-    // bevel join (0x60002) → `2 j`; round cap (0x50001) → `1 J`
     expect(content).toMatch(/(^|\n)2 j(\n|$)/);
     expect(content).toMatch(/(^|\n)1 J(\n|$)/);
-    // red stroking colour
     expect(content).toContain('1 0 0 RG');
-    // rounded corners are drawn with bezier segments, not four straight lines
     expect(content).toContain(' c\n');
   });
 
@@ -109,12 +98,9 @@ describe('border rendering parity', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // dotted [1,2] × thickness 1 → [1 2] 0 d
     expect(content).toMatch(/\[1 2\] 0 d/);
-    // round cap and round join emitted around the ellipse stroke
     expect(content).toMatch(/(^|\n)1 J(\n|$)/);
     expect(content).toMatch(/(^|\n)1 j(\n|$)/);
-    // blue stroking colour
     expect(content).toContain('0 0 1 RG');
   });
 
@@ -155,10 +141,8 @@ describe('border rendering parity', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // single `re` + S with one width operator …
     expect(content).toMatch(/[\d.]+ [\d.]+ [\d.]+ [\d.]+ re(\n|$)/);
     expect(content).toMatch(/(^|\n)S(\n|$)/);
-    // … and no line-segment path for this border
     expect(content).not.toMatch(/ m(\n|$)/);
   });
 
@@ -203,7 +187,6 @@ describe('border rendering parity', () => {
     const content = await contentStream(result.data);
     expect(content).toMatch(/[\d.]+ [\d.]+ [\d.]+ [\d.]+ re(\n|$)/);
     expect(content).toMatch(/(^|\n)f(\n|$)/);
-    // no inert zero-width stroke from the fill path
     expect(content).not.toMatch(/(^|\n)0 w(\n|$)/);
   });
 });

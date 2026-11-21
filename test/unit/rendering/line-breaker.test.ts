@@ -3,7 +3,6 @@ import {
   LINE_BREAK_TOLERANCE,
 } from '../../../src/rendering/text/line-breaker';
 
-/** width = character count (1 unit per char) */
 const measure = (s: string): number => s.length;
 
 describe('line-breaker', () => {
@@ -30,9 +29,7 @@ describe('line-breaker', () => {
   });
 
   it('allows tolerance overshoot before breaking', () => {
-    // 7 chars > maxWidth 6.5 but ≤ 6.5 + 0.5 tolerance → single line
     expect(breakLines('abcdefg', 6.5, measure)).toEqual(['abcdefg']);
-    // 8 chars > 7 → splits
     expect(breakLines('abcdefgh', 6.5, measure)).toEqual(['abcdefg', 'h']);
   });
 
@@ -45,12 +42,10 @@ describe('line-breaker', () => {
   });
 
   it('does not start a line with closing punctuation (break prohibition)', () => {
-    // naive break would put ',' at the start of line 2
     expect(breakLines('aa.,bb', 4, measure)).toEqual(['aa.,', 'bb']);
   });
 
   it('does not end a line with opening punctuation', () => {
-    // naive break would end line 1 with '('
     expect(breakLines('ab(cd', 3, measure)).toEqual(['ab(c', 'd']);
   });
 

@@ -3,37 +3,12 @@ import { buildScriptIndex } from '../scripting/event-dispatcher';
 import { createFieldAccessor } from '../scripting/xfa-object-model';
 import { FormCalcParser, FormCalcEvaluator, formCalcTruthy } from '../scripting/formcalc';
 
-/**
- * G2 — `@relevant` conditional visibility.
- *
- * XFA `@relevant` is a FormCalc expression evaluated in the context of the
- * node it decorates; when it is false the object is not part of the form
- * (equivalent to `presence="hidden"`).
- *
- * Evidence: the expression is parsed onto `SubformNode.relevant` /
- * `FieldNode.relevant` (`parse-xdp.ts:183`, `:217`) but nothing consumed it —
- * `evaluateConditions` only looked at a literal `presence` string, so every
- * conditional form in a template rendered unconditionally.
- *
- * Design notes:
- * - The expression can reference siblings and ancestors (`$.rawValue`,
- *   `OtherField.formattedValue`), so it is evaluated through the same
- *   `FieldAccessor` the script dispatcher uses — built from the *same*
- *   layout tree, therefore seeing the post-script values.
- * - Evaluation is read-only. A parse/evaluation error never hides a node;
- *   Adobe keeps rendering on a script failure, and silently dropping content
- *   is the more damaging failure mode.
- * - A top-level `|` list (an OR of alternative tests) is tried when the whole
- *   expression does not parse as one FormCalc program.
- */
-
 export interface RelevantNode {
   node: LayoutNode;
   key: string;
   expression: string;
 }
 
-/** Collect every node carrying a non-empty `@relevant`. */
 export function collectRelevantNodes(layout: LayoutModel): RelevantNode[] {
   const out: RelevantNode[] = [];
   const seen = new Map<LayoutNode, string>();
@@ -54,7 +29,6 @@ export function collectRelevantNodes(layout: LayoutModel): RelevantNode[] {
   visit(layout.children);
   for (const page of layout.pages) visit(page.masterPageChildren);
 
-  // Resolve each collected node to its script index key so `$` binds to it.
   const index = buildScriptIndex(layout);
   const byIdentity = new Map<LayoutNode, string>();
   for (const scriptable of index.ordered) {
@@ -68,12 +42,6 @@ export function collectRelevantNodes(layout: LayoutModel): RelevantNode[] {
   return out;
 }
 
-/**
- * Build a predicate that answers "is this node relevant?".
- *
- * Returns `undefined` when there is nothing to evaluate or no data is
- * available, so the caller can skip the work entirely.
- */
 export function createRelevanceTest(
   layout: LayoutModel,
   data: Record<string, unknown> | undefined
@@ -114,7 +82,6 @@ function evaluateRelevance(
   const whole = run(entry.expression);
   if (whole !== undefined) return whole;
 
-  // `@relevant="A | B"` — an OR list of alternative tests.
   const parts = splitTopLevel(entry.expression, '|');
   if (parts.length <= 1) return undefined;
   let anyParseFailure = false;
@@ -127,12 +94,10 @@ function evaluateRelevance(
       anyTrue = true;
     }
   }
-  // Fail open: an unparseable branch means we cannot prove irrelevance.
   if (anyParseFailure) return undefined;
   return anyTrue;
 }
 
-/** Split on `sep` ignoring separators inside quotes or brackets. */
 export function splitTopLevel(input: string, sep: string): string[] {
   const parts: string[] = [];
   let depth = 0;

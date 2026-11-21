@@ -1,6 +1,3 @@
-// Context rules: which text in an XDP packet, XML data file or XSD is human
-// content (scrambled), code (kept), a name (renamed, see names.mjs) or a
-// path/URL/email (neutralised).
 
 import { createHash } from 'node:crypto';
 import { tokenize, decode, encodeText, localName, spliceTag } from './xml-tokens.mjs';
@@ -10,7 +7,6 @@ import { wordsOf, isAllowedUrl } from './scrambler.mjs';
 import { sniffImage, makePlaceholder } from './placeholder-image.mjs';
 import { collectNames, isDataElement, isDataAttr, GENERATED_WORDS } from './names.mjs';
 
-// SOM roots, picture keywords and URL parts that may remain in kept code/URLs.
 const CODE_WORDS = `xfa record data template form layout host event datasets connectionSet dataWindow
   config signature this parent variables resolveNode resolveNodes date time num text zero null datetime
   application javascript formcalc http https ftp file www example mailto`.split(/\s+/);
@@ -44,7 +40,6 @@ function scriptSource(token) {
   return token.type === 'cdata' ? token.raw.slice(9, -3) : decode(token.raw);
 }
 
-/** Pass 1: name map, kept vocabulary, XSD types, and literals scripts compare against. */
 export function collect(files) {
   const names = collectNames(files);
   const vocab = new Set();
@@ -52,15 +47,12 @@ export function collect(files) {
   const typeMap = new Map();
   const scripts = [];
   const addWords = (s) => wordsOf(s).forEach((w) => structuralWords.add(w));
-  // Allow-listed URLs (XML namespaces) are kept, so their words are structural.
   const addKeptUrlWords = (s) => (s.match(URLS) ?? []).filter(isAllowedUrl).forEach(addWords);
-  // Fixture file names are kept, both as files and where a form references them.
   files.forEach((file) => addWords(file.rel));
 
   for (const file of files) {
     walk(file, {
       element(el) {
-        // Structural words come from what stays in the output: renamed names count with their new name.
         const data = isDataElement(file.kind, el);
         addWords(data ? names.renameQName(el.qname) : el.qname);
         for (const attr of el.attrs) {
@@ -80,8 +72,6 @@ export function collect(files) {
       other(token, stack) {
         const top = stack[stack.length - 1];
         addKeptUrlWords(token.raw);
-        // Designer settings PIs are structural (with a path value, just the target and keyword);
-        // renderCache PIs carry form text.
         if (token.type === 'pi' && !/^<\?renderCache\./.test(token.raw)) {
           addWords(SENSITIVE_VALUE.test(token.raw) ? (/^<\?\S+\s+[A-Za-z]+/.exec(token.raw)?.[0] ?? '') : token.raw);
         }
@@ -111,9 +101,7 @@ export function collect(files) {
       }
       if (part.kind !== 'string') return;
       const content = literal(part).content.trim();
-      // Name / SOM-path literals are renamed, never compared against data.
       if (names.renameLiteral(content) !== content || !isCodeLiteral(content, vocab)) return;
-      // Number-only literals matter for comparisons, not for assignments like rotate = "30".
       const assigned = /(?:^|[^=!<>])=\s*$/.test(parts[i - 1]?.text ?? '');
       if (/\p{L}/u.test(content) || !assigned) controlValues.add(content);
       if (NUMBER.test(content) && !assigned) controlNumbers.add(Number(content));
@@ -123,11 +111,9 @@ export function collect(files) {
   return { vocab, typeMap, controlValues, controlNumbers, structuralWords, structuralValues, names };
 }
 
-/** Pass 2: rewritten file text. Records original image hashes in ctx.originalImageHashes. */
 export function transform(file, ctx) {
   const { scrambler: s, typeMap, vocab, stats, names } = ctx;
   const out = [];
-  // A referenced file keeps its name only if it is one of the fixture files.
   const keepFile = (p) => Boolean(ctx.fileNames?.has(p.trim().split(/[\\/]+/).filter(Boolean).pop()));
   const applyTerms = (raw) => {
     let next = raw;
@@ -184,7 +170,6 @@ export function transform(file, ctx) {
 
   function templateText(value, stack) {
     const top = stack[stack.length - 1];
-    // Picture clauses are code, but quoted literals inside them ('Ref: ') are text.
     if (stack.some((el) => el.local === 'picture')) return value.replace(/'([^']+)'/g, (m, inner) => `'${s.text(inner)}'`);
     if (stack.some((el) => KEPT_TEMPLATE_ELEMENTS.has(el.local))) return value;
     const exData = stack.findLastIndex((el) => el.local === 'exData');
@@ -265,7 +250,6 @@ export function transform(file, ctx) {
     if (!m || m[1] === 'xml') return raw;
     const [, target, body] = m;
     if (target === 'renderCache.textRun') {
-      // Designer's cached copy of a draw's text: "<count> <text> <geometry…>".
       const run = /^(\s+\d+\s)([\s\S]*)$/.exec(body);
       if (!run) return `<?${target}${s.text(body)}?>`;
       const chars = [...run[2]];

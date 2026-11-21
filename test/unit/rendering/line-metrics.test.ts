@@ -18,9 +18,9 @@ describe('line-metrics', () => {
     expect(defaultAscent(10)).toBeCloseTo(8, 10);
   });
 
-  it('fontAscent reads AFM Ascender (Helvetica 718/1000)', () => {
+  it('fontAscent applies the Adobe max(A, 1-D) clamp (font:0x14f0fb07 [asm])', () => {
     const fakeFont = { embedder: { font: { Ascender: 718 } } } as never;
-    expect(fontAscent(fakeFont, 10)).toBeCloseTo(7.18, 10);
+    expect(fontAscent(fakeFont, 10)).toBeCloseTo(8.0, 10);
     expect(fontAscent(undefined, 10)).toBeCloseTo(8, 10);
   });
 
@@ -30,7 +30,6 @@ describe('line-metrics', () => {
     it('top: first line is topmost, baselines step down by advance', () => {
       const { baselines, blockHeight } = layoutLines(3, 10, box, 'top');
       expect(blockHeight).toBeCloseTo(36, 10);
-      // first baseline = top − ascent (Helvetica-less fallback: 0.8 × 10)
       expect(baselines[0]).toBeCloseTo(100 - 8, 10);
       expect(baselines[1]).toBeCloseTo(baselines[0] - 12, 10);
       expect(baselines[2]).toBeCloseTo(baselines[1] - 12, 10);
@@ -39,7 +38,6 @@ describe('line-metrics', () => {
     it('bottom: last baseline sits one descent above the box bottom', () => {
       const { baselines, blockHeight } = layoutLines(3, 10, box, 'bottom');
       expect(blockHeight).toBeCloseTo(36, 10);
-      // descent = advance − ascent = 12 − 8 = 4
       expect(baselines[2]).toBeCloseTo(40 + 4, 10);
       expect(baselines[0]).toBeCloseTo(baselines[2] + 24, 10);
     });
@@ -49,14 +47,13 @@ describe('line-metrics', () => {
       expect(blockHeight).toBeCloseTo(24, 10);
       const blockTop = baselines[0] + 8;
       const blockBottom = blockTop - blockHeight;
-      // equal space above and below the block
       expect(box.top - blockTop).toBeCloseTo(blockBottom - box.bottom, 10);
     });
 
-    it('uses font ascent when provided', () => {
+    it('uses clamped font ascent when provided', () => {
       const fakeFont = { embedder: { font: { Ascender: 718 } } } as never;
       const { baselines } = layoutLines(1, 10, box, 'top', fakeFont);
-      expect(baselines[0]).toBeCloseTo(100 - 7.18, 10);
+      expect(baselines[0]).toBeCloseTo(100 - 8.0, 10);
     });
 
     it('zero lines yields an empty block', () => {

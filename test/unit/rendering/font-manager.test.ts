@@ -28,7 +28,6 @@ describe('FontManager', () => {
     const fm = new FontManager(doc);
     const standard = await fm.getFont('Helvetica');
     const arial = await fm.getFont('Arial');
-    // Both resolve to the standard Helvetica metrics after XCI substitution.
     expect(arial).toBeDefined();
     expect(standard).toBeDefined();
   });

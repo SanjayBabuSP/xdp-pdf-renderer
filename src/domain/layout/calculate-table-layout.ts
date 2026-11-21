@@ -6,26 +6,9 @@ interface TableLayout {
   totalWidth: number;
 }
 
-/**
- * Resolve table column widths.
- *
- * evidence (xfalayout_disasm.c):
- * - FUN_1857b5c0 (:97860) parses the `columnWidths` attr (0x1d8)
- *   space-tokenized; `-1`/non-positive tokens are stored as the auto marker.
- * - FUN_18579cd0 (:96505) resolves each auto slot as the MAX over rows of
- *   the covering cell's nominal (authored) width divided by its colSpan
- *   (attr 0x1d7), warning 0x72fb when nothing resolves.
- *
- * ponytail: how leftover width is shared (fixed sum ≠ table width) is not
- * evidenced — unresolved slots split the remainder equally, and a fully
- * unresolved table splits the full width (previous behaviour). Ceiling:
- * Adobe may stretch or leave trailing space differently; upgrade path is a
- * Designer oracle with mixed fixed/auto columns.
- */
 export function calculateTableLayout(node: SubformNode, availableWidth: number): TableLayout {
   const colCount = Math.max(inferColumnCount(node), node.columnWidths?.length ?? 0, 1);
 
-  // Seed from the authored attribute: fixed stay, -1/missing become auto.
   const widths: number[] = [];
   const isAuto: boolean[] = [];
   for (let i = 0; i < colCount; i++) {
@@ -49,7 +32,6 @@ export function calculateTableLayout(node: SubformNode, availableWidth: number):
   return { columnWidths: widths, totalWidth: widths.reduce((a, b) => a + b, 0) };
 }
 
-/** Authored width of a cell (nominal extent), or undefined when unset. */
 function cellWidth(cell: LayoutNode): number | undefined {
   const w =
     cell.type === 'field' || cell.type === 'draw' || cell.type === 'subform'
@@ -63,10 +45,6 @@ function cellSpan(cell: LayoutNode): number {
   return Math.max(1, span ?? 1);
 }
 
-/**
- * Fill auto (-1) slots with the max covering-cell width/span across rows.
- * A spanned cell contributes its width/span to every slot it covers.
- */
 function resolveAutoColumns(node: SubformNode, widths: number[], isAuto: boolean[]): void {
   for (const child of node.children) {
     if (child.type !== 'subform' || (child.layout !== 'row' && child.layout !== 'rl-row')) continue;
@@ -77,7 +55,6 @@ function resolveAutoColumns(node: SubformNode, widths: number[], isAuto: boolean
       const w = cellWidth(cell);
       if (w != null) {
         for (let j = col; j < col + span && j < widths.length; j++) {
-          // Fixed authored widths always win; only auto slots resolve.
           if (isAuto[j] && w / span > widths[j]) widths[j] = w / span;
         }
       }
@@ -86,11 +63,6 @@ function resolveAutoColumns(node: SubformNode, widths: number[], isAuto: boolean
   }
 }
 
-/**
- * Column count = the max sum of colSpans across rows (colSpan-aware
- * occupancy — evidence: occupancy/tracking in xfalayout_disasm.c table
- * layout; a cell with colSpan="2" occupies two column slots).
- */
 function inferColumnCount(node: SubformNode): number {
   let max = 0;
   for (const child of node.children) {
@@ -104,7 +76,6 @@ function inferColumnCount(node: SubformNode): number {
   return max;
 }
 
-/** Apply table layout computation across all table subforms in the layout. */
 export function applyTableLayouts(layout: LayoutModel, availableWidth: number): Result<LayoutModel> {
   const updated = {
     ...layout,

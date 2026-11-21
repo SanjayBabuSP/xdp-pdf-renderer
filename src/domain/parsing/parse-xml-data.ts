@@ -3,7 +3,6 @@ import { success, failure } from '../../lib/result-type';
 import { parseXml, getChild } from '../../lib/xml-utils';
 import { ERROR_CODES } from '../../errors/error-codes';
 
-/** Parse an XML data string into a plain JS object, normalizing repeating fields. */
 export function parseXmlData(xmlString: string, schema?: SchemaModel, maxInputSize?: number): Result<DataObject> {
   let parsed: Record<string, unknown>;
   try {
@@ -61,10 +60,6 @@ function normalizeItem(item: unknown, schemaField?: SchemaField): DataValue {
     return coerceType(item, schemaField);
   }
   if (typeof item === 'object') {
-    // The XSD may declare a leaf as a scalar type while the actual data nests child elements
-    // (e.g. SAP coded-value objects like <SealType><name/><descr/><code/></SealType>, used by
-    // bind refs such as $.SealType.name). Preserve the nested structure so bindings can resolve
-    // into it; the schema's scalar declaration is treated as informational only in that case.
     const complexField = schemaField?.type === 'complex' ? schemaField : undefined;
     return normalizeObject(item as Record<string, unknown>, complexField?.fields ?? {});
   }
@@ -82,11 +77,15 @@ function coerceType(value: string | number | boolean, schemaField?: SchemaField)
     case 'int':
     case 'integer':
     case 'byte':
-    case 'short':
-      return parseInt(strVal, 10);
+    case 'short': {
+      const text = strVal.trim();
+      const n = parseInt(text, 10);
+      if (Number.isFinite(n) && String(n) === text) return n;
+      return text;
+    }
     case 'float':
     case 'decimal':
-      return parseFloat(strVal);
+      return strVal;
     default:
       return strVal;
   }

@@ -2,17 +2,6 @@ import { evaluateConditions } from '../../../../src/domain/mapping/evaluate-cond
 import { calculatePositions } from '../../../../src/domain/layout/calculate-positions';
 import { LayoutModel, LayoutNode, SubformNode, FieldNode } from '../../../../src/types';
 
-/**
- * Adobe presence semantics, verified against xfalayout_disasm.c:
- *  - hidden/inactive are NOT layoutable (no space) — isLayoutableObject
- *    (:66815) returns 0 for 0x2a0002/0x2a0003, and isHiddenObject (:66682)
- *    marks them hidden.
- *  - invisible IS layoutable (occupies space, excluded from the visible list at
- *    :71155 where only 0x2a0000/0x2a0001 are appended) but is not painted
- *    (isRenderable, renderer_disasm.c:35690, consults the XDC hidden/invisible
- *    options — both disabled in adobepdf.xdc).
- */
-
 const CA = { x: 54, y: 54, w: 487, h: 734 };
 
 function model(children: LayoutNode[]): LayoutModel {
@@ -79,7 +68,6 @@ describe('presence semantics (XFA hidden/inactive take no space, invisible does)
 
     const flowNode = positioned.data.children[0] as SubformNode;
     const ys = Object.fromEntries(flowNode.children.map((n) => [n.name, n.position!.y]));
-    // a at 54; b (invisible) at 64; c at 74; d removed; e at 84.
     expect(ys.a).toBe(54);
     expect(ys.b).toBe(64);
     expect(ys.c).toBe(74);

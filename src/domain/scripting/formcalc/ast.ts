@@ -1,6 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// FormCalc AST Node types
-// ────────────────────────────────────────────────────────────────────────────
 
 export type FormCalcNode =
   | Program
@@ -26,6 +23,7 @@ export type FormCalcNode =
   | PowerExpr
   | UnaryExpr
   | CallExpr
+  | PropAccess
   | FieldRef
   | Literal
   | Identifier;
@@ -58,12 +56,6 @@ export interface ForStmt {
   isDownto: boolean;
 }
 
-/**
- * `foreach <var> in <list> ... endfor` — iterate over a node list/wildcard
- * or array value. evidence: keyword table entries foreach/in/endfor at
- * jfformcalc_disasm.c `.data 0x15d2a290`; type-9 (reference) expansion at
- * `:17756`.
- */
 export interface ForEachStmt {
   type: 'ForEachStmt';
   variable: string;
@@ -134,8 +126,6 @@ export interface NotExpr {
 
 export interface CompareExpr {
   type: 'CompareExpr';
-  /** Symbolic or mnemonic (eq/ne/gt/ge/lt/le) — `eq` must stay distinct from
-   *  `=` so statement-level conversion never turns `x eq 5` into an assignment */
   operator: '=' | '==' | '<>' | '<' | '<=' | '>' | '>=' | 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le';
   left: FormCalcNode;
   right: FormCalcNode;
@@ -179,13 +169,16 @@ export interface CallExpr {
   args: FormCalcNode[];
 }
 
+export interface PropAccess {
+  type: 'PropAccess';
+  object: FormCalcNode;
+  property: string;
+}
+
 export interface FieldRef {
   type: 'FieldRef';
-  /** The $ or $$ prefix */
   prefix: '$' | '$$';
-  /** The SOM path after $ or $$ (e.g., "form.table.field1") */
   path: string;
-  /** Whether this is an array index access */
   index?: FormCalcNode;
 }
 

@@ -1,8 +1,3 @@
-// Replaces company-specific names with neutral generated ones (Subform_0001,
-// Field_0012, Element_0345, …): XDP object names and ids, XSD declarations,
-// XML data tags and names declared in scripts, plus every reference to them
-// (bind/SOM refs, #id refs, script identifiers, SOM-path literals). Names
-// made only of generic XFA/JavaScript/Designer words are kept.
 
 import { decode, localName } from './xml-tokens.mjs';
 import { walk, attrValue } from './walk.mjs';
@@ -10,8 +5,6 @@ import { lexScript, literal, scriptLanguage } from './script-literals.mjs';
 import { addGenericWord, isGenericName } from './generic-words.mjs';
 import { wordsOf } from './scrambler.mjs';
 
-// Kind → prefix, highest priority first: a name with several kinds takes the
-// first one's prefix. `ref` = only seen as a script identifier or SOM literal.
 const KINDS = [
   ['subform', 'Subform'],
   ['exclGroup', 'Group'],
@@ -36,9 +29,7 @@ const PRIORITY = new Map(KINDS.map(([kind], i) => [kind, i]));
 const PREFIX = new Map(KINDS);
 const PREFIXES = [...new Set(KINDS.map(([, prefix]) => prefix))];
 
-/** A generated name, also as an instance manager (`_Subform_0001`). */
 export const GENERATED = new RegExp(`^_?(?:${PREFIXES.join('|')})_\\d{4,}$`);
-/** The words generated names are made of. */
 export const GENERATED_WORDS = PREFIXES;
 
 const OBJECT_KINDS = {
@@ -69,7 +60,6 @@ const XSD_QNAME_ATTRS = {
   substitutionGroup: 'element',
   refer: 'name',
 };
-// Template attributes holding SOM expressions; data refs name data elements.
 const SOM_ATTRS = {
   bind: { ref: 'element' },
   connect: { ref: 'element' },
@@ -91,15 +81,12 @@ const SOM_ATTRS = {
     bookendTrailer: 'name',
   },
 };
-// `#id`, `…#som(expr)` or, without `#`, a SOM expression.
 const REF_ATTRS = new Set(['use', 'usehref', 'xfa:embed']);
 const FORM_PACKETS = new Set(['template', 'form']);
 const XFA_PACKETS = new Set(['template', 'form', 'config', 'connectionSet', 'localeSet']);
 
 const IDENT = String.raw`[\p{L}_$][\p{L}\p{N}_$]*`;
-// SOM: optional $ ! # sigil + name (escaped dots allowed), an [index], or any other character.
 const SOM_TOKEN = /([$!#]?)([\p{L}_][\p{L}\p{N}_-]*(?:\\\.[\p{L}\p{N}_-]+)*)|\[([^\]]*)\]|[\s\S]/gu;
-// Script code: a number (skipped) or an identifier with an optional $ ! # sigil.
 const CODE_TOKEN = /\d[\p{L}\p{N}_.]*|([$!#]?)([\p{L}_$][\p{L}\p{N}_$]*)/gu;
 const SINGLE_NAME = /^[\p{L}_][\p{L}\p{N}_-]*$/u;
 const KW_START = String.raw`(?<![\p{L}\p{N}_$.])`;
@@ -115,12 +102,10 @@ const isXsdBuiltin = (qname) => /^xsd?:/.test(qname);
 const isSomish = (s) =>
   /[.[]/.test(s) && /\p{L}/u.test(s) && /^[\p{L}\p{N}_$!#*.\\[\]-]+$/u.test(s.replace(/\[[^\]]*\]/g, '[]'));
 
-/** Data attributes that are names (not namespace, schema-instance or XFA markup). */
 export function isDataAttr(name) {
   return !/^(?:xmlns(?::|$)|xsi:|xml:|xfa:|dd:)/.test(name);
 }
 
-/** Elements whose tag is a data name: XML data files, XDP preview data and data description. */
 export function isDataElement(kind, el) {
   if (el.xhtml) return false;
   if (kind === 'data') return true;
@@ -156,7 +141,6 @@ function refNames(value, add) {
   if (id) add(id[1], 'id');
 }
 
-/** `var a = 1, b = f(x, y);` → a, b. Stops at `;`, an unbalanced bracket or a line end. */
 function declarationList(code, from, add) {
   let depth = 0;
   let expectName = true;
@@ -181,7 +165,6 @@ function declarationList(code, from, add) {
   }
 }
 
-/** Functions, variables and parameters a script declares; strings/comments in `code` are blanked. */
 function declaredNames(code, lang, add) {
   const params = (list) => {
     for (const param of list.split(',')) {
@@ -217,11 +200,6 @@ function scriptNames(src, lang, add, identifier) {
   }
 }
 
-/**
- * Reports every name in a file — declarations and references — through
- * add(name, kind). vocab(word) receives the element/attribute names of the
- * XFA packets; identifier(token) every script identifier.
- */
 export function visitNames(file, { add, vocab, identifier }) {
   walk(file, {
     element(el, token, index, tokens, stack) {
@@ -268,14 +246,12 @@ export function visitNames(file, { add, vocab, identifier }) {
   });
 }
 
-/** Generic words found in the XFA packets of `files` (element and attribute names). */
 export function vocabularyOf(files) {
   const words = new Set();
   for (const file of files) visitNames(file, { add() {}, vocab: (word) => addGenericWord(words, word) });
   return words;
 }
 
-/** Pass 1: the global rename map (built from all files) and helpers that apply it. */
 export function collectNames(files) {
   const kinds = new Map();
   const genericWords = new Set();
@@ -297,7 +273,6 @@ export function collectNames(files) {
   const map = new Map();
   for (const [name, kind] of kinds) {
     if (isGenericName(name, genericWords)) continue;
-    // `_Row` is the instance manager of `Row` and follows Row's new name.
     if (name.startsWith('_') && kinds.has(name.slice(1))) continue;
     const prefix = PREFIX.get(kind);
     let n = counters.get(prefix) ?? 0;
@@ -343,7 +318,6 @@ function createRenamer(map) {
       .replace(/#som\((.*)\)(\s*)$/su, (all, som, tail) => `#som(${renameSom(som)})${tail}`)
       .replace(/#([^#\s()]+)$/u, (all, id) => `#${renameName(id)}`);
   };
-  /** New value of a name-holding attribute; other attributes come back unchanged. */
   const renameAttribute = (el, attr) => {
     if (FORM_PACKETS.has(el.packet)) {
       if (attr.name === 'name' || attr.name === 'id') return renameName(attr.value);
@@ -357,7 +331,6 @@ function createRenamer(map) {
     }
     return attr.value;
   };
-  /** A script string literal that is a renamed name or a SOM path through renamed names. */
   const renameLiteral = (content) => {
     const s = content.trim();
     let next = s;

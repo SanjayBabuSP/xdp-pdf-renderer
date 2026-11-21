@@ -10,7 +10,6 @@ import {
 } from '../../../src/rendering/text/justifier';
 import { breakLines, breakLinesInfo } from '../../../src/rendering/text/line-breaker';
 
-/** width = character count (1 unit per char) */
 const measure = (s: string): number => s.length;
 
 describe('justifier — string → code', () => {
@@ -25,12 +24,10 @@ describe('justifier — string → code', () => {
     expect(mapJustH('comb-left')).toBe(JUST_H.combLeft);
     expect(mapJustH('comb-center')).toBe(JUST_H.combCenter);
     expect(mapJustH('comb-right')).toBe(JUST_H.combRight);
-    // RTF spellings map to the same codes (jftext:90311-90317, :90512-90518)
     expect(mapJustH('ql')).toBe(JUST_H.left);
     expect(mapJustH('qc')).toBe(JUST_H.center);
     expect(mapJustH('qr')).toBe(JUST_H.right);
     expect(mapJustH('qj')).toBe(JUST_H.justify);
-    // RTL pair resolves to the LTR ends (LTR-only scope)
     expect(mapJustH('start')).toBe(JUST_H.left);
     expect(mapJustH('end')).toBe(JUST_H.right);
     expect(mapJustH(undefined)).toBe(0);
@@ -65,7 +62,6 @@ describe('justifier — line offset', () => {
   it('splits the slack for center and gives it all to right/radix', () => {
     expect(horizontalOffsetX(JUST_H.center, 100, 40)).toBe(30);
     expect(horizontalOffsetX(JUST_H.right, 100, 40)).toBe(60);
-    // code 6 remaps to 3 before the offset switch (jftext:73314)
     expect(horizontalOffsetX(JUST_H.radix, 100, 40)).toBe(60);
   });
 
@@ -88,7 +84,6 @@ describe('justifier — justify distribution', () => {
     expect(
       justifyLine('aa bb', avail, 5, measure, { code: JUST_H.justify, paragraphLast: true })
     ).toBeNull();
-    // …but code 5 distributes it (jftext:73394)
     expect(
       justifyLine('aa bb', avail, 5, measure, { code: JUST_H.justifyAll, paragraphLast: true })
     ).not.toBeNull();
@@ -107,7 +102,6 @@ describe('justifier — justify distribution', () => {
   });
 
   it('distributes slack as slack / gapCount across the words', () => {
-    // "aa bb cc" = 8 chars, slack = 22 over 2 gaps → 11 per gap
     const segments = justifyLine('aa bb cc', avail, 8, measure, {
       code: JUST_H.justify,
       paragraphLast: false,
@@ -115,7 +109,6 @@ describe('justifier — justify distribution', () => {
     expect(segments).not.toBeNull();
     expect(segments!.map((s) => s.text)).toEqual(['aa', 'bb', 'cc']);
     expect(segments!.map((s) => s.x)).toEqual([0, 3 + 11, 6 + 22]);
-    // last word ends exactly at the frame edge
     const last = segments![2];
     expect(last.x + 2).toBe(avail);
   });
@@ -130,13 +123,11 @@ describe('justifier — justify distribution', () => {
     expect(first.text).toBe('hello');
     expect(first.x).toBe(0);
     expect(second.text).toBe('world');
-    // natural start (6) + slack (29)
     expect(second.x).toBe(6 + 29);
     expect(second.x + 5).toBe(40);
   });
 
   it('counts every space-class char, so multi-space gaps widen more', () => {
-    // "aa    bb" = 8 chars, slack = 16 - 8 = 8 over 4 spaces → 2 each
     const segments = justifyLine('aa    bb', 16, 8, measure, {
       code: JUST_H.justify,
       paragraphLast: false,
@@ -164,18 +155,17 @@ describe('justifier — comb cells', () => {
 
   it('leaves leading cells for center and right', () => {
     const center = combPlacement(JUST_H.combCenter, 100, 5, 3)!;
-    expect(center.offset).toBe(1); // (5 - 3) >> 1
+    expect(center.offset).toBe(1);
     expect([0, 1, 2].map((i) => center.centre(i))).toEqual([30, 50, 70]);
 
     const right = combPlacement(JUST_H.combRight, 100, 5, 3)!;
-    expect(right.offset).toBe(2); // 5 - 3
+    expect(right.offset).toBe(2);
     expect([0, 1, 2].map((i) => right.centre(i))).toEqual([50, 70, 90]);
   });
 
   it('never pushes a cluster past the frame edge', () => {
     const right = combPlacement(JUST_H.combRight, 100, 3, 1)!;
     expect(right.offset).toBe(2);
-    // centre of the last cell = avail − cell/2 (jftext:73586-73593 caps it)
     expect(right.centre(0)).toBeCloseTo(100 - 100 / 3 / 2, 6);
     expect(right.centre(0)).toBeLessThanOrEqual(100);
   });

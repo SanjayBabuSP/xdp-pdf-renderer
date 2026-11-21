@@ -72,7 +72,6 @@ describe('Preview-as-PDF parity', () => {
       ]),
     ]);
     const row = out[0] as SubformNode;
-    // Second child wraps to the next line instead of overlapping at the origin.
     expect(row.children[0].position!.x).toBe(54);
     expect(row.children[0].position!.y).toBe(54);
     expect(row.children[1].position!.x).toBe(54);
@@ -87,8 +86,8 @@ describe('Preview-as-PDF parity', () => {
       ]),
     ]);
     const g = (out[0] as SubformNode).children[0];
-    expect(g.position!.x).toBe(64); // content-area x (54) + authored 10
-    expect(g.position!.y).toBe(74); // content-area y (54) + authored 20
+    expect(g.position!.x).toBe(64);
+    expect(g.position!.y).toBe(74);
   });
 
   it('lays flow children inside the container margin insets', () => {
@@ -101,7 +100,6 @@ describe('Preview-as-PDF parity', () => {
       ),
     ]);
     const m = out[0] as SubformNode;
-    // No margins: unchanged behaviour (child at container origin).
     expect(m.children[0].position!.x).toBe(54);
 
     const withMargin = run([
@@ -113,13 +111,11 @@ describe('Preview-as-PDF parity', () => {
     const mm = withMargin[0] as SubformNode;
     expect(mm.children[0].position!.x).toBe(64);
     expect(mm.children[0].position!.y).toBe(59);
-    // Growable box includes the insets (20 content + 5 top).
     expect(mm.position!.h).toBe(25);
   });
 
   it('uses the XFA 10pt default font height for growable fields', () => {
     const out = run([field('a', { w: 100 })]);
-    // Single value line at 10pt × 1.2 advance.
     expect(out[0].position!.h).toBeCloseTo(12, 5);
   });
 });

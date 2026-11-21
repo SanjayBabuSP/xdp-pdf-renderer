@@ -1,10 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// FormCalc Evaluator — Walks the AST and executes FormCalc scripts
-// ────────────────────────────────────────────────────────────────────────────
-//
-// Semantics follow the decompiled Adobe engine (jfformcalc_disasm.c) and the
-// FormCalc User Reference (reference/.../FormCalc_fn.ini + extracted doc).
-// Evidence lines are cited inline as `evidence: file:line`.
 
 import {
   Program,
@@ -18,6 +11,7 @@ import {
   AssignExpr,
   ExprStmt,
   CallExpr,
+  PropAccess,
   FieldRef,
   Literal,
   Identifier,
@@ -38,7 +32,6 @@ import {
 import { XfaNode } from '../script-types';
 import { FormCalcParser } from './parser';
 
-/** Error codes (0x7800-0x7813 family, attached by the engine at :24260-24271) */
 export const FORMCALC_ERR = {
   SYNTAX: 0x7810,
   PARAMS: 0x7811,
@@ -65,16 +58,8 @@ class ContinueSignal {}
 class ReturnSignal {
   constructor(public value: unknown) {}
 }
-/**
- * NaN/+Inf/-Inf error exception. Doc: "FormCalc does not support [NaN, +Inf,
- * -Inf], and expressions that evaluate to NaN, +Inf, or -Inf result in an
- * error exception, which passes to the remainder of the expression" — the
- * signal propagates through the whole expression; statement boundaries turn
- * it into the value 0 (e.g. `3/0 + 1` evaluates to 0).
- */
 class ArithmeticSignal {}
 
-/** Environment: a stack of variable scopes */
 class FormCalcEnv {
   private scopes: Map<string, unknown>[] = [new Map()];
 
@@ -99,7 +84,6 @@ class FormCalcEnv {
         return;
       }
     }
-    // Not found — set in current scope
     this.scopes[this.scopes.length - 1].set(name, value);
   }
 
@@ -117,23 +101,12 @@ class FormCalcEnv {
 }
 
 export interface FieldAccessor {
-  /** Resolve a SOM expression to a node value */
   getField(path: string, prefix: '$' | '$$'): unknown;
-  /** Set a field value by SOM path */
   setField(path: string, prefix: '$' | '$$', value: unknown): void;
-  /** Whether an unqualified name refers to an existing form field */
   hasField?(path: string): boolean;
-  /** Get the current node being scripted */
   getCurrentNode(): XfaNode | null;
-  /** Get form-level data */
   getFormData(): unknown;
-  /**
-   * Set the node key that `$` / `this` resolve against for the script about
-   * to run. Called by the dispatcher before each script execution so
-   * `$.rawValue = …` writes to the exact node that owns the script.
-   */
   setCurrentKey?(key: string | null): void;
-  /** Return the current scripting node key (undefined when none). */
   getCurrentKey?(): string | null;
 }
 
@@ -143,16 +116,8 @@ export interface FormCalcResult {
 }
 
 export interface FormCalcEvaluatorOptions {
-  /**
-   * When true, an unqualified identifier that is not a local variable and not
-   * an existing field raises an error — used by Eval(), which "cannot refer
-   * to user-defined variables" (FormCalc User Reference, Eval section;
-   * eval("hello") → error).
-   */
   strictIdentifiers?: boolean;
 }
-
-// ─── Value conversion helpers ──────────────────────────────────────────────
 
 function toNumber(val: unknown): number {
   if (val === null || val === undefined) return 0;
@@ -167,12 +132,6 @@ function toNumber(val: unknown): number {
   return 0;
 }
 
-/**
- * Number → string as Adobe's numstr does (evidence: fixed-point format with
- * trailing zeros stripped, never scientific notation — jfformcalc_disasm.c
- * :14903/:14611). 15 significant digits, then zeros after the decimal point
- * are stripped ("100" stays "100", -0 → "0").
- */
 function numStr(n: number): string {
   if (Number.isNaN(n)) return 'NaN';
   if (!Number.isFinite(n)) return n > 0 ? 'Infinity' : '-Infinity';
@@ -180,7 +139,6 @@ function numStr(n: number): string {
   if (Number.isInteger(n) && Math.abs(n) < 1e15) return String(n);
   let s = n.toPrecision(15);
   if (s.includes('e') || s.includes('E')) {
-    // Expand scientific notation to plain fixed-point decimal
     const [mant, expStr] = s.split(/[eE]/);
     const exp = parseInt(expStr, 10);
     const neg = mant.startsWith('-');
@@ -197,7 +155,6 @@ function numStr(n: number): string {
   return s === '-0' ? '0' : s;
 }
 
-/** Any value → string for concatenation (null → empty, numbers → numstr). */
 function strValue(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'number') return numStr(v);
@@ -205,7 +162,6 @@ function strValue(v: unknown): string {
   return String(v);
 }
 
-/** empty string ≡ null (evidence: comparison rules at :19655) */
 const SELF_PROPERTY_NAMES = new Set([
   'rawValue',
   'formattedValue',
@@ -218,6 +174,10 @@ const SELF_PROPERTY_NAMES = new Set([
   'rotate',
   'name',
   'value',
+  'fillColor',
+  'fontColor',
+  'borderColor',
+  'bgColor',
 ]);
 
 function isSelfProperty(name: string): boolean {
@@ -228,20 +188,11 @@ function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === '';
 }
 
-/**
- * isTruthy ⟺ toNumber(v) !== 0 && !isNaN (evidence: :836 — "abc" → false,
- * NaN → false, null → false, `not null` → true, `not 0` → true).
- */
-/** Truthiness rule used by `if`/`while`/`relevant` (numeric non-zero). */
 export function formCalcTruthy(val: unknown): boolean {
   const n = toNumber(val);
   return n !== 0 && !Number.isNaN(n);
 }
 
-/**
- * Assignment coerces the value to string for script variables
- * (evidence: SetTypeToString, FUN_15d0fc40). null stays null.
- */
 function coerceScriptVar(v: unknown): unknown {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return numStr(v);
@@ -261,18 +212,10 @@ function flattenArgs(args: unknown[]): unknown[] {
   return result;
 }
 
-/** Non-null(-ish) elements of the flattened argument list */
 function nonNullValues(args: unknown[]): unknown[] {
   return flattenArgs(args).filter((v) => !isNullish(v));
 }
 
-// ─── XFA epoch / date helpers ──────────────────────────────────────────────
-
-/**
- * XFA epoch: day 0 = December 31, 1899. Doc anchors: Date() = 37875 →
- * September 12, 2003; Date2Num("Mar 15, 1996") = 35138;
- * Date2Num("1/1/1900","D/M/YYYY") = 1; IsoDate2Num("1900") = 1.
- */
 const XFA_EPOCH_UTC = Date.UTC(1899, 11, 31);
 
 const MONTHS_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -285,7 +228,6 @@ function daysSinceXfaEpoch(y: number, m1: number, d: number): number {
   return Math.round((Date.UTC(y, m1 - 1, d) - XFA_EPOCH_UTC) / 86400000);
 }
 
-/** Days-since-epoch → a local Date at noon (avoids DST boundary shifts) */
 function xfaDateFromDays(n: number): Date {
   const u = new Date(XFA_EPOCH_UTC + Math.trunc(n) * 86400000);
   return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(), 12, 0, 0, 0);
@@ -322,10 +264,6 @@ interface ParsedDateTime {
 
 type PictureKind = { date: boolean; time: boolean; numeric: boolean; text: boolean };
 
-/**
- * Classify a picture: date (Y/D/E/J/G/w/W), time (h/H/s/A/z…), numeric
- * (digit placeholders 9/# or num{…} wrapper), else text.
- */
 function pictureKinds(picture: string): PictureKind {
   const p = picture.replace(/'[^']*'/g, '');
   const numeric = /^num\{/i.test(p) || (/[9#]/.test(p) && !/[YMD]/i.test(p));
@@ -340,7 +278,6 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-/** ISO-8601 week number (for the WW picture symbol) */
 function isoWeek(d: Date): number {
   const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
@@ -348,11 +285,6 @@ function isoWeek(d: Date): number {
   return 1 + Math.round(((t.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
 }
 
-/**
- * Format a date/time per an XFA/FormCalc picture (symbol table: doc
- * "Date and time picture formats", p46-47; quoted 'text' is literal).
- * `ms` supplies millisecond precision for the FFF symbol.
- */
 function formatWithPicture(d: Date, picture: string, ms = 0): string {
   const bare = picture.replace(/'[^']*'/g, '');
   const hasDateSym = /[YDJEGW]/i.test(bare) || /D/.test(bare);
@@ -374,7 +306,7 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
     if (ch === "'") {
       i++;
       while (i < p.length && p[i] !== "'") out += p[i++];
-      if (i < p.length) i++; // closing quote
+      if (i < p.length) i++;
       continue;
     }
     if (/[A-Za-z]/.test(ch)) {
@@ -382,7 +314,6 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
       while (j < p.length && p[j] === ch) j++;
       const run = j - i;
       i = j;
-      // h/H/k/K are case-distinct (12h vs 24h clocks)
       if (ch === 'h' || ch === 'H' || ch === 'k' || ch === 'K') {
         hourSeen = true;
         if (ch === 'h') {
@@ -391,10 +322,10 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
         } else if (ch === 'H') {
           out += run >= 2 ? pad2(H) : String(H);
         } else if (ch === 'k') {
-          const hk = H % 12; // 0-11
+          const hk = H % 12;
           out += run >= 2 ? pad2(hk) : String(hk);
         } else {
-          const hK = H + 1; // 1-24
+          const hK = H + 1;
           out += run >= 2 ? pad2(hK) : String(hK);
         }
         continue;
@@ -410,8 +341,6 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
           out += String(doy).padStart(run, '0');
           break;
         case 'M': {
-          // Minute vs month: time-only → minute; date-only → month;
-          // mixed (datetime) → minute only after an hour symbol was seen.
           const minute = hasTimeSym && (!hasDateSym || hourSeen);
           if (minute) out += run >= 2 ? pad2(Mi) : String(Mi);
           else if (run >= 4) out += MONTHS_FULL[mo - 1];
@@ -447,7 +376,7 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
           out += 'GMT';
           break;
         case 'z':
-          break; // numeric offset not tracked — renders empty
+          break;
         default:
           out += ch;
       }
@@ -475,11 +404,6 @@ function dayFromName(name: string): number | null {
   return null;
 }
 
-/**
- * Parse a date/time string against a picture (mirrors formatWithPicture).
- * Returns null on any mismatch (doc: Date2Num returns 0 when the format
- * does not match).
- */
 function parseDateWithPicture(input: string, picture: string): ParsedDateTime | null {
   const s = input;
   let si = 0;
@@ -513,9 +437,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
     return w;
   };
   const expectLiteral = (lit: string): boolean => {
-    // Whitespace in the picture matches zero or more whitespace chars — the
-    // LcDate parser skips separators loosely (doc: Date2Num("Aug 1,1996",
-    // "MMM D, YYYY") = 35277 — no space after the comma in the input).
     if (lit.trim() === '') {
       while (si < s.length && /\s/.test(s[si])) si++;
       return true;
@@ -525,7 +446,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
       si += lit.length;
       return true;
     }
-    // Non-alphanumeric separators are interchangeable (',' vs ' ' etc.)
     if (
       !/[A-Za-z0-9]/.test(lit) &&
       si < s.length &&
@@ -534,7 +454,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
       si++;
       return true;
     }
-    // case-insensitive single letters (e.g. sep vs Sep handled by word reads)
     if (s.length > si && s[si].toLowerCase() === lit.toLowerCase()) {
       si += lit.length;
       return true;
@@ -591,7 +510,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
             if (v === null) return null;
             res.M = v;
           } else if (run >= 3) {
-            // Month name — accept the longest match (full or abbreviated)
             let saved = si;
             let best: number | null = null;
             let bestLen = -1;
@@ -642,7 +560,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
             meridian = m[1][0].toLowerCase() === 'p' ? 'PM' : 'AM';
             si += m[0].length;
           }
-          // Meridian is optional in the input — pictures may include it
           break;
         }
         case 'Z':
@@ -657,12 +574,11 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
       }
       continue;
     }
-    // Literal character
     if (!expectLiteral(ch)) return null;
     i++;
   }
   skipWs();
-  if (si < s.length) return null; // leftover input → mismatch
+  if (si < s.length) return null;
   if (meridian !== null && res.H !== null) {
     if (meridian === 'PM' && res.H < 12) res.H += 12;
     else if (meridian === 'AM' && res.H === 12) res.H = 0;
@@ -679,10 +595,6 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
   return res;
 }
 
-/**
- * Heuristic date parse used when Date2Num's format argument is omitted:
- * ISO, Y/M/D, M/D/Y, D/M/Y, and JS-parsable names like "Mar 15, 1996".
- */
 function parseDateHeuristic(dateStr: string): Date | null {
   const str = dateStr.trim();
   let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -694,10 +606,8 @@ function parseDateHeuristic(dateStr: string): Date | null {
     const nums = parts.map(Number);
     if (nums[0] > 31) return new Date(nums[0], nums[1] - 1, nums[2], 12);
     if (nums[2] > 31) {
-      // M/D/Y
       return new Date(nums[2], nums[0] - 1, nums[1], 12);
     }
-    // Ambiguous — assume M/D/Y (US ambient locale)
     return new Date(nums[2], nums[0] - 1, nums[1], 12);
   }
   const d = new Date(str);
@@ -705,7 +615,6 @@ function parseDateHeuristic(dateStr: string): Date | null {
   return null;
 }
 
-/** Extract the numeric value from a numeric picture ("$1,234,567.89") */
 function numericFromPicture(picture: string, str: string): number | strFallback {
   const cleaned = str.replace(/,/g, '');
   const m = cleaned.match(/-?\d*\.?\d+/);
@@ -715,7 +624,6 @@ function numericFromPicture(picture: string, str: string): number | strFallback 
 }
 type strFallback = string;
 
-/** Format a number per a numeric picture (9/# digit placeholders, , grouping, $) */
 function formatNumericPicture(picture: string, value: unknown): string {
   const num = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.eE+-]/g, ''));
   if (isNaN(num)) return strValue(value);
@@ -733,12 +641,9 @@ function formatNumericPicture(picture: string, value: unknown): string {
   return negative ? `-${prefix}${out}` : `${prefix}${out}`;
 }
 
-// ─── Picture-based Format / Parse (FormCalc Format & Parse, doc p90/p95) ──
-
 function applyPictureFormat(picture: string, value: unknown): string {
   if (!picture) return strValue(value);
 
-  // XFA-style wrappers: num{…}, date{…}, text{…}
   const numMatch = picture.match(/^num\{(.+)\}$/i);
   if (numMatch) return formatNumericPicture(numMatch[1], value);
   const dateMatch = picture.match(/^date\{(.+)\}$/i);
@@ -773,7 +678,6 @@ function applyDatePicture(picture: string, value: unknown): string {
 }
 
 function applyTimePicture(picture: string, value: unknown): string {
-  // Number → milliseconds since midnight; string → parse then re-format
   if (typeof value === 'number' && Number.isFinite(value)) {
     const ms = value;
     const h = Math.floor(ms / 3600000) % 24;
@@ -790,10 +694,6 @@ function applyTimePicture(picture: string, value: unknown): string {
   return strValue(value);
 }
 
-/**
- * FormCalc Parse (doc p95): date picture → YYYY-MM-DD, time → HH:MM:SS,
- * datetime → YYYY-MM-DDTHH:MM:SS, numeric → number, text → text.
- */
 function parsePictureFormat(picture: string, str: string): unknown {
   if (!picture) return str;
   const kinds = pictureKinds(picture);
@@ -817,9 +717,6 @@ function parsePictureFormat(picture: string, str: string): unknown {
   return str;
 }
 
-// ─── Units (doc: UnitValue/UnitType — in, mm, cm, pt, mp; picas → pt) ─────
-
-/** Points per unit. picas are reported as pt by UnitType (doc example). */
 const UNIT_TO_PT: Record<string, number> = {
   in: 72,
   mm: 72 / 25.4,
@@ -851,15 +748,10 @@ const UNIT_ALIASES: Record<string, string> = {
   millipoint: 'mp',
 };
 
-/**
- * Parse a unitspan ("2in", "2.54centimeters", "36 in", "picas") →
- * { value, unit } or null when invalid ("2.zero cm" → invalid).
- */
 function parseUnitSpan(s: string): { value: number; unit: string } | null {
   const str = String(s).trim();
   const m = str.match(/^(.*?)([a-zA-Z]+)$/);
   if (!m) {
-    // Bare number with no unit letters → inches (UnitValue("6","pt") = 432)
     if (str === '') return null;
     const v = Number(str);
     if (isNaN(v)) return null;
@@ -869,13 +761,11 @@ function parseUnitSpan(s: string): { value: number; unit: string } | null {
   const unitWord = m[2].toLowerCase();
   const unit = UNIT_ALIASES[unitWord];
   if (unit === undefined) return null;
-  if (numPart === '') return { value: 1, unit }; // unit-only: UnitType("picas")
+  if (numPart === '') return { value: 1, unit };
   const v = Number(numPart);
   if (isNaN(v)) return null;
   return { value: v, unit };
 }
-
-// ─── Encode / Decode (doc p88/p89 — url default, html, xml) ───────────────
 
 const HTML_NAMED_DECODE: Record<string, string> = {
   AElig: 'Æ', Aacute: 'Á', Acirc: 'Â', Agrave: 'À', AMP: '&', amp: '&', apos: "'",
@@ -924,12 +814,6 @@ function encodeString(s: string, mode: string): string {
   }
 }
 
-/**
- * Adobe URL encoding (engine FUN_15d04480 + safe-char table at
- * VA 0x15d29fb0): keep [A-Za-z0-9] plus `!$'()*,-.`, percent-encode every
- * other byte of the UTF-8 encoding with LOWERCASE hex. Doc example:
- * Encode("hello, world!", "url") = "hello,%20world!" (comma is safe).
- */
 function encodeUrl(s: string): string {
   const safe = /^[A-Za-z0-9!$'()*,\-.]$/;
   const hex = '0123456789abcdef';
@@ -982,8 +866,6 @@ function decodeString(s: string, mode: string): string {
   }
 }
 
-// ─── WordNum (doc p105) ────────────────────────────────────────────────────
-
 function integerToWords(num: number, useAnd: boolean): string {
   if (num === 0) return 'Zero';
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -995,7 +877,6 @@ function integerToWords(num: number, useAnd: boolean): string {
     if (n < 20) return ones[n];
     if (n < 100) {
       const rest = n % 10;
-      // Doc: "Twenty-three" — the hyphenated unit is lowercase
       return tens[Math.floor(n / 10)] + (rest ? '-' + ones[rest].toLowerCase() : '');
     }
     if (n < 1000) {
@@ -1032,24 +913,19 @@ function wordNum(n: number, fmt: number): string {
     if (cents > 0) out += ` And ${integerToWords(cents, false)} Cents`;
     return out;
   }
-  // fmt 0 (default): doc example WordNum(123.45) → "One Hundred and Twenty-three Dollars"
   return `${base} Dollars`;
 }
-
-// ─── Financial functions (doc Chapter: Financial, p61-71) ─────────────────
 
 function anyNull(args: unknown[]): boolean {
   return args.some((a) => a === null || a === undefined);
 }
 
-/** Payment for a loan: pmt = pv·(1+r)ⁿ·r / ((1+r)ⁿ − 1), positive */
 function pmtFormula(pv: number, r: number, n: number): number {
   if (r === 0) return pv / n;
   const growth = Math.pow(1 + r, n);
   return (pv * growth * r) / (growth - 1);
 }
 
-/** Cumulative interest/principal over a window of payments */
 function loanWindow(
   principal: number,
   annualRate: number,
@@ -1059,12 +935,12 @@ function loanWindow(
   kind: 'interest' | 'principal'
 ): number {
   const r = annualRate / 12;
-  if (monthlyPayment <= principal * r) return 0; // payment < monthly interest → 0
+  if (monthlyPayment <= principal * r) return 0;
   let bal = principal;
   const total = Math.trunc(months);
   const start = Math.max(1, Math.trunc(firstMonth));
   let sum = 0;
-  const last = start + total; // exclusive
+  const last = start + total;
   for (let m = 1; m < last; m++) {
     if (bal <= 0) break;
     const interest = bal * r;
@@ -1077,7 +953,6 @@ function loanWindow(
   return sum;
 }
 
-/** (1+r)ⁿ by repeated multiplication — engine FUN_15d05040 */
 function pow1p(r: number, n: number): number {
   let acc = 1;
   const nn = Math.trunc(n);
@@ -1085,18 +960,11 @@ function pow1p(r: number, n: number): number {
   return acc;
 }
 
-/** Payment for a loan at rate r: pv / ((1 − 1/(1+r)ⁿ) / r) — FUN_15d05490 */
 function paymentAt(pv: number, r: number, n: number): number {
   const fv = pow1p(r, n);
   return pv / ((1 - 1 / fv) / r);
 }
 
-/**
- * APR — exact engine algorithm (FUN_15d04aa0): multiplicative secant with a
- * fixed 0.05 start, anchored at (0, pv/n), stopping when |pmt − g(x)| < 0.005
- * or after 500 iterations, then ×12. Reproduces both doc goldens:
- * Apr(35000, 269.50, 360) = 0.08515404566, Apr(157500, 960, 650) = 0.07161332404.
- */
 function aprFormula(principal: number, payment: number, n: number): number {
   const ni = Math.trunc(n);
   const base = principal / ni;
@@ -1112,10 +980,7 @@ function aprFormula(principal: number, payment: number, n: number): number {
   return x * 12;
 }
 
-// ─── Built-in FormCalc functions ───────────────────────────────────────────
-
 const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => unknown> = {
-  // ─── Math ────────────────────────────────────────────────────────
   abs: (args) => Math.abs(toNumber(args[0])),
   avg: (args) => {
     const nums = nonNullValues(args).map(toNumber);
@@ -1125,17 +990,11 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   ceil: (args) => Math.ceil(toNumber(args[0])),
   floor: (args) => Math.floor(toNumber(args[0])),
   round: (args) => {
-    // Engine FUN_15d08810: places = trunc(n2), clamped to [0,12], NaN→0.
-    // p=0: floor(x+0.5) with sign re-applied (Round(-1.5) → -1). p>0:
-    // MSVC-style "%.Nf" of the exact double — node's toFixed matches both
-    // doc goldens: Round(.125,2)=0.13, Round(0.045,2)=0.04 (0.045's double
-    // is 0.044999999999999998 → closer to 0.04).
     const val = toNumber(args[0]);
     let places = 0;
     if (args.length > 1 && args[1] != null) {
       const p = toNumber(args[1]);
       if (Number.isFinite(p)) places = Math.trunc(p);
-      // invalid ("abc") → 0 (doc: Round(8.9897, "abc") = 9)
     }
     if (places < 0) places = 0;
     if (places > 12) places = 12;
@@ -1168,18 +1027,15 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   atan2: (args) => Math.atan2(toNumber(args[0]), toNumber(args[1])),
   exp: (args) => Math.exp(toNumber(args[0])),
   ln: (args) => Math.log(toNumber(args[0])),
-  // FormCalc `log` is the NATURAL logarithm (engine registry shares the impl)
   log: (args) => Math.log(toNumber(args[0])),
   log10: (args) => Math.log10(toNumber(args[0])),
   sign: (args) => Math.sign(toNumber(args[0])),
   random: () => Math.random(),
   mod: (args) => toNumber(args[0]) % toNumber(args[1]),
 
-  // ─── Aggregates over non-null elements (doc p32-37) ──────────────
   sum: (args) => nonNullValues(args).reduce<number>((s, v) => s + toNumber(v), 0),
   count: (args) => nonNullValues(args).length,
 
-  // ─── String ──────────────────────────────────────────────────────
   'string.left': (args) => {
     const s = strValue(args[0]);
     const n = toNumber(args[1]);
@@ -1193,7 +1049,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   },
   'string.mid': (args) => {
     const s = strValue(args[0]);
-    const start = toNumber(args[1]) - 1; // 1-based in FormCalc
+    const start = toNumber(args[1]) - 1;
     const len = args.length > 2 ? toNumber(args[2]) : s.length;
     return s.substring(Math.max(0, start), Math.max(0, start) + Math.max(0, len));
   },
@@ -1224,7 +1080,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const s = strValue(args[0]);
     const substr = strValue(args[1]);
     const pos = s.indexOf(substr);
-    return pos === -1 ? 0 : pos + 1; // 1-based in FormCalc
+    return pos === -1 ? 0 : pos + 1;
   },
   'string.nameat': (args) => {
     const s = strValue(args[0]);
@@ -1250,7 +1106,6 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return pos === -1 ? 0 : pos + 1;
   },
 
-  // ─── Date/Time (FormCalc Date returns DAYS SINCE THE EPOCH) ──────
   'date': (args) => {
     if (args.length === 0) {
       const now = new Date();
@@ -1273,7 +1128,6 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (!parsed || parsed.y === null || parsed.mo === null || parsed.d === null) return 0;
     return daysSinceXfaEpoch(parsed.y, parsed.mo, parsed.d);
   },
-  // Time() = milliseconds since midnight GMT (doc example: 71533235)
   'time': () => {
     const now = new Date();
     return ((now.getUTCHours() * 60 + now.getUTCMinutes()) * 60 + now.getUTCSeconds()) * 1000
@@ -1321,7 +1175,6 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - start.getTime()) / 86400000) + 1;
   },
 
-  // ─── Type conversion ─────────────────────────────────────────────
   'frac': (args) => {
     const n = toNumber(args[0]);
     return n - Math.floor(n);
@@ -1329,34 +1182,29 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   'integer': (args) => Math.floor(toNumber(args[0])),
   'float': (args) => toNumber(args[0]),
 
-  // ─── Is functions (doc returns true (1) / false (0)) ─────────────
   'hasvalue': (args) => {
     const v = args[0];
     return v !== null && v !== undefined && strValue(v).trim() !== '' ? 1 : 0;
   },
-  'hasfinish': () => 0, // Not applicable in PDF generation
+  'hasfinish': () => 0,
   'isempty': (args) => (isNullish(args[0]) ? 1 : 0),
   'isnan': (args) => (Number.isNaN(toNumber(args[0])) && typeof args[0] === 'number' ? 1 : 0),
   'isnull': (args) => (args[0] === null || args[0] === undefined ? 1 : 0),
-  'issigned': () => 0, // No digital signatures in PDF generation
+  'issigned': () => 0,
 
-  // ─── Null handling / logical (doc p74-78) ────────────────────────
   'null': () => null,
   'appear': (args) => args[0] ?? args[1],
-  // Oneof returns 1/0 (doc: "Returns true (1) … false (0)")
   'oneof': (args) => {
     const flat = flattenArgs(args);
     const val = flat[0];
     for (let i = 1; i < flat.length; i++) {
       if (val === flat[i]) return 1;
-      // mixed-type equality goes numeric (FormCalc comparisons)
       if (!isNullish(val) && !isNullish(flat[i])
         && typeof val !== 'string' && typeof flat[i] !== 'string'
         && toNumber(val) === toNumber(flat[i]) && !isNullish(flat[i])) return 1;
     }
     return 0;
   },
-  // Choose(n, …): floor n; n<1 or n>itemCount → ''; n null → null (doc p74)
   'choose': (args) => {
     if (args[0] === null || args[0] === undefined) return null;
     const n = Math.floor(toNumber(args[0]));
@@ -1364,11 +1212,10 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return args[n];
   },
 
-  // ─── String functions (additional) ────────────────────────────
   'concat': (args) => args.map((a) => strValue(a)).join(''),
   'substr': (args) => {
     const s = strValue(args[0]);
-    let start = toNumber(args[1]); // 1-based
+    let start = toNumber(args[1]);
     if (start < 1) start = 1;
     const len = args.length > 2 ? toNumber(args[2]) : s.length;
     if (len <= 0) return '';
@@ -1383,7 +1230,6 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return s.split(old).join(newStr);
   },
   'space': (args) => ' '.repeat(Math.max(0, Math.trunc(toNumber(args[0])))),
-  // Str(n[,w[,d]]): default width 10, precision 0; overflow → asterisks
   'str': (args) => {
     const num = toNumber(args[0]);
     const width = args.length > 1 && args[1] != null ? toNumber(args[1]) : 10;
@@ -1394,7 +1240,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   },
   'stuff': (args) => {
     const source = strValue(args[0]);
-    let start = toNumber(args[1]); // 1-based
+    let start = toNumber(args[1]);
     if (start < 1) start = 1;
     if (start > source.length) start = Math.max(1, source.length);
     const count = Math.max(0, toNumber(args[2]));
@@ -1402,9 +1248,8 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const idx = start - 1;
     return source.substring(0, idx) + insert + source.substring(idx + count);
   },
-  // Uuid(n): default (0) = hex only; 1 = dashed groups (doc p103)
   'uuid': (args) => {
-    const dashed = args.length > 0 && args[0] != null && toNumber(args[0]) === 1;
+    const dashed = args.length && args[0] != null && toNumber(args[0]) === 1;
     const hex = '0123456789abcdef';
     let out = '';
     for (let i = 0; i < 32; i++) {
@@ -1418,7 +1263,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   },
   'len': (args) => {
     const v = args[0];
-    if (Array.isArray(v)) return strValue(v[0] ?? '').length; // first occurrence
+    if (Array.isArray(v)) return strValue(v[0] ?? '').length;
     return strValue(v).length;
   },
   'left': (args) => {
@@ -1443,24 +1288,23 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return pos === -1 ? 0 : pos + 1;
   },
 
-  // ─── Unit conversion (doc p84-85) ────────────────────────────────
   'unitvalue': (args) => {
     const raw = args[0];
     let value: number;
     let fromUnit: string;
     if (typeof raw === 'number') {
       value = raw;
-      fromUnit = 'in'; // bare numbers are inches (UnitValue("6","pt") = 432)
+      fromUnit = 'in';
     } else {
       const span = parseUnitSpan(strValue(raw));
-      if (!span) return 0; // invalid unitspan → 0 ("A" → 0)
+      if (!span) return 0;
       value = span.value;
       fromUnit = span.unit;
     }
-    let toUnit = fromUnit; // default: keep the unitspan's unit
+    let toUnit = fromUnit;
     if (args.length > 1 && args[1] !== undefined && args[1] !== null) {
       const target = UNIT_ALIASES[strValue(args[1]).trim().toLowerCase()];
-      toUnit = target === undefined ? 'in' : target; // invalid target → inches
+      toUnit = target === undefined ? 'in' : target;
     }
     const fromPt = UNIT_TO_PT[fromUnit] ?? 72;
     const toPt = UNIT_TO_PT[toUnit] ?? 72;
@@ -1468,10 +1312,9 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   },
   'unittype': (args) => {
     const span = parseUnitSpan(strValue(args[0]));
-    return span ? span.unit : 'in'; // invalid → "in" (doc)
+    return span ? span.unit : 'in';
   },
 
-  // ─── Existence / Navigation functions ─────────────────────────────
   'exists': (args) => (args[0] !== null && args[0] !== undefined ? 1 : 0),
   'within': (args) => {
     const val = toNumber(args[0]);
@@ -1480,12 +1323,10 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return val >= low && val <= high ? 1 : 0;
   },
 
-  // ─── HTTP stubs (no-op in PDF generation) ─────────────────────────
   'get': () => '',
   'put': () => '',
   'post': () => '',
 
-  // ─── Date/Time conversion (doc p48-60) ───────────────────────────
   'num2date': (args) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
@@ -1495,13 +1336,10 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   'date2num': (args) => {
     const dateStr = strValue(args[0]);
     if (args.length > 1 && args[1] != null) {
-      // Format-directed parse (Date2Num(d, f) — doc p49)
       const parsed = parseDateWithPicture(dateStr, strValue(args[1]));
       if (!parsed || parsed.y === null || parsed.mo === null || parsed.d === null) return 0;
       return daysSinceXfaEpoch(parsed.y, parsed.mo, parsed.d);
     }
-    // Default: doc says format "MMM D, YYYY"; fall back to heuristics for
-    // other unambiguous shapes (ISO etc.) as a friendly superset.
     const direct = parseDateWithPicture(dateStr, 'MMM D, YYYY');
     if (direct && direct.y !== null && direct.mo !== null && direct.d !== null) {
       return daysSinceXfaEpoch(direct.y, direct.mo, direct.d);
@@ -1547,7 +1385,6 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
-    // ms since the XFA epoch → GMT wall time
     const total = Math.floor(num);
     const epochMs = XFA_EPOCH_UTC + total;
     const u = new Date(epochMs);
@@ -1557,77 +1394,66 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return out;
   },
   'localdatefmt': (args) => {
-    const locale = args.length > 0 && args[0] != null ? strValue(args[0]) : 'en_US';
+    const locale = args.length && args[0] != null ? strValue(args[0]) : 'en_US';
     if (locale.startsWith('de')) return 'DD.MM.YYYY';
     if (locale.startsWith('fr')) return 'DD/MM/YYYY';
     if (locale.startsWith('ja') || locale.startsWith('zh')) return 'YYYY/MM/DD';
     return 'MM/DD/YYYY';
   },
   'localtimefmt': (args) => {
-    const locale = args.length > 0 && args[0] != null ? strValue(args[0]) : 'en_US';
+    const locale = args.length && args[0] != null ? strValue(args[0]) : 'en_US';
     if (locale.startsWith('de') || locale.startsWith('fr')) return 'HH:MM:SS';
     return 'h:MM:SS A';
   },
-  // DateFmt([n[,k]]) — en styles (doc p50): default "MMM D, YYYY", short "M/D/YY"
   'datefmt': (args) => {
-    const n = args.length > 0 && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
+    const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['MMM D, YYYY', 'M/D/YY', 'MMM D, YYYY', 'MMMM D, YYYY', 'EEEE, MMMM D, YYYY'];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  // TimeFmt([n[,k]]) — en styles (doc p54 examples via LocalTimeFmt)
   'timefmt': (args) => {
-    const n = args.length > 0 && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
+    const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['h:mm:ss a', 'h:mm a', 'HH:mm:ss', 'HH:mm:ss z', "HH' h 'mm z"];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  // NumFmt/DateTimeFmt are engine extensions (not in the doc) — style pictures
   'numfmt': (args) => {
-    const n = args.length > 0 && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
+    const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const styles = ['999,999.99', '9999', '999,999.999', '999999', '999,999.99'];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
   'datetimefmt': (args) => {
-    const n = args.length > 0 && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
+    const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
     const d = BUILTIN_FUNCTIONS['datefmt']!([n], new FormCalcEnv());
     const t = BUILTIN_FUNCTIONS['timefmt']!([n], new FormCalcEnv());
     return `${d} ${t}`;
   },
 
-  // ─── Formatting / Parsing with picture clauses ────────────────────
   'format': (args) => applyPictureFormat(strValue(args[0]), args[1]),
   'parse': (args) => parsePictureFormat(strValue(args[0]), strValue(args[1])),
 
-  // ─── Encode / Decode (doc p88/p89) ───────────────────────────────
   'encode': (args) => encodeString(strValue(args[0]), args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'),
   'decode': (args) => decodeString(strValue(args[0]), args.length > 1 && args[1] != null ? strValue(args[1]).toLowerCase() : 'url'),
 
-  // ─── Miscellaneous (doc p80-83) ──────────────────────────────────
   'throw': (args) => {
     throw new FormCalcError(strValue(args[0]), 0x7800);
   },
-  'messagebox': () => null, // host dialog — no-op in static PDF generation
-  'ref': (args) => args[0] ?? null, // Ref(v) passes the accessor through
+  'messagebox': () => null,
+  'ref': (args) => args[0] ?? null,
   'pi': () => Math.PI,
   'deg2rad': (args) => (toNumber(args[0]) * Math.PI) / 180,
   'rad2deg': (args) => (toNumber(args[0]) * 180) / Math.PI,
 
-  // ─── PDF-specific ────────────────────────────────────────────────
-  'page': () => 1, // Current page number (simplified)
+  'page': () => 1,
   'presence': () => 'visible',
 
-  // ─── Ternary if() function ────────────────────────────────────────
   'if': (args) => (formCalcTruthy(args[0]) ? args[1] : args.length > 2 ? args[2] : null),
 
-  // ─── WordNum (doc p105) ──────────────────────────────────────────
   'wordnum': (args) => wordNum(toNumber(args[0]), args.length > 1 && args[1] != null ? toNumber(args[1]) : 0),
 
-  // ─── Financial functions (doc p61-71) ────────────────────────────
   'apr': (args) => {
     if (anyNull(args)) return null;
     const principal = toNumber(args[0]);
     const payment = toNumber(args[1]);
     const nper = toNumber(args[2]);
-    // Engine guard: pv<=0 || pmt<=0 || (int)nper<1 → error (:3922)
     if (principal <= 0 || payment <= 0 || !(Math.trunc(nper) >= 1)) return NaN;
     return aprFormula(principal, payment, nper);
   },
@@ -1728,7 +1554,6 @@ export class FormCalcEvaluator {
       this.execBlock(program.body);
     } catch (e) {
       if (e instanceof ReturnSignal) {
-        // Return from top-level is fine
         this.lastValue = sanitizeValue(e.value);
       } else if (e instanceof BreakSignal || e instanceof ContinueSignal) {
         throw new FormCalcError('Break/Continue outside of loop', FORMCALC_ERR.NOT_IN_LOOP);
@@ -1754,9 +1579,6 @@ export class FormCalcEvaluator {
   private exec(node: FormCalcNode): void {
     switch (node.type) {
       case 'ExprStmt':
-        // The value of the last top-level expression is the program result
-        // (executeSingleScript applies it as the field value for <calculate>).
-        // A NaN/Inf error exception anywhere in the expression → 0.
         this.lastValue = this.evalSafe((node as ExprStmt).expr);
         break;
       case 'IfStmt':
@@ -1782,7 +1604,6 @@ export class FormCalcEvaluator {
           this.evalAssign(node as AssignExpr);
         } catch (e) {
           if (!(e instanceof ArithmeticSignal)) throw e;
-          // NaN/Inf in the assigned expression → statement error, no write
         }
         break;
       case 'BreakStmt':
@@ -1794,7 +1615,6 @@ export class FormCalcEvaluator {
         throw new ReturnSignal(rv.value ? this.evalSafe(rv.value) : undefined);
       }
       default:
-        // Expression statement
         this.evalSafe(node);
         break;
     }
@@ -1854,7 +1674,6 @@ export class FormCalcEvaluator {
     this.env.popScope();
   }
 
-  /** `foreach x in <list> … endfor` — iterate a node list / array value */
   private execForEach(node: ForEachStmt): void {
     const iterable = this.evalSafe(node.iterable);
     const items = Array.isArray(iterable)
@@ -1910,7 +1729,6 @@ export class FormCalcEvaluator {
 
   private execVarDecl(node: VarDecl): void {
     const value = node.initializer ? this.evalSafe(node.initializer) : null;
-    // Assignment coerces to string (SetTypeToString, FUN_15d0fc40)
     this.env.define(node.name, coerceScriptVar(value));
   }
 
@@ -1920,14 +1738,12 @@ export class FormCalcEvaluator {
       const fr = node.target as FieldRef;
       let current = this.fieldAccessor.getField(fr.path, fr.prefix);
       if (fr.index !== undefined) {
-        // Array element access — simplified
         current = undefined;
       }
       const newVal = this.computeAssignedValue(node.operator, current, value);
       if (typeof newVal === 'number' && !Number.isFinite(newVal)) {
         throw new ArithmeticSignal();
       }
-      // Field rawValue is a string in XFA (SetTypeToString), like variables
       this.fieldAccessor.setField(fr.path, fr.prefix, coerceScriptVar(newVal));
       this.modifiedFields.push(fr.path);
     } else if (node.target.type === 'Identifier') {
@@ -1939,9 +1755,6 @@ export class FormCalcEvaluator {
         this.modifiedFields.push(`.${id.name}`);
         return;
       }
-      // Unqualified assignment targets an existing form field (XFA SOM
-      // scoping resolves bare names to fields) unless the name was declared
-      // as a local variable via Dim/var.
       if (!this.env.has(id.name) && this.fieldAccessor.hasField?.(id.name)) {
         const current = this.fieldAccessor.getField(id.name, '$');
         const newVal = this.computeAssignedValue(node.operator, current, value);
@@ -1956,8 +1769,19 @@ export class FormCalcEvaluator {
         if (typeof newVal === 'number' && !Number.isFinite(newVal)) {
           throw new ArithmeticSignal();
         }
-        // Script variables are strings (SetTypeToString)
         this.env.set(id.name, coerceScriptVar(newVal));
+      }
+    } else if (node.target.type === 'PropAccess') {
+      const pa = node.target as PropAccess;
+      const base = this.eval(pa.object);
+      if (this.isXfaNodeHandle(base) && (pa.property === 'value' || pa.property === 'rawValue')) {
+        const current = this.evalPropAccess(pa.object, pa.property);
+        const newVal = this.computeAssignedValue(node.operator, current, value);
+        if (typeof newVal === 'number' && !Number.isFinite(newVal)) {
+          throw new ArithmeticSignal();
+        }
+        this.fieldAccessor.setField(base.som, '$', coerceScriptVar(newVal));
+        this.modifiedFields.push(base.som);
       }
     }
   }
@@ -1979,7 +1803,6 @@ export class FormCalcEvaluator {
     }
   }
 
-  /** Evaluate an expression; a NaN/Inf error exception yields 0. */
   private evalSafe(node: FormCalcNode): unknown {
     try {
       return sanitizeValue(this.eval(node));
@@ -1996,9 +1819,6 @@ export class FormCalcEvaluator {
       case 'Identifier': {
         const name = (node as Identifier).name;
         if (this.env.has(name)) return this.env.get(name);
-        // Inside a field script, bare `rawValue` / `presence` / geometry names
-        // address the scripting object itself (Example-2 counters read
-        // `if (rawValue == Variable_0002)`).
         if (isSelfProperty(name) && this.fieldAccessor.getCurrentKey?.()) {
           return this.fieldAccessor.getField(`.${name}`, '$');
         }
@@ -2006,14 +1826,11 @@ export class FormCalcEvaluator {
           if (this.fieldAccessor.hasField?.(name)) return this.fieldAccessor.getField(name, '$');
           throw new FormCalcError(`Unknown identifier: ${name}`, FORMCALC_ERR.SYNTAX);
         }
-        // Unqualified names resolve to form fields (XFA SOM scoping)
         return this.fieldAccessor.getField(name, '$');
       }
       case 'FieldRef':
         return this.evalFieldRef(node as FieldRef);
       case 'OrExpr': {
-        // AND/OR never short-circuit (evidence :16171); null or null → null;
-        // results are FormCalc booleans: 1 / 0
         const l = this.eval((node as OrExpr).left);
         const r = this.eval((node as OrExpr).right);
         if (isNullish(l) && isNullish(r)) return null;
@@ -2077,6 +1894,10 @@ export class FormCalcEvaluator {
       }
       case 'CallExpr':
         return this.evalCall(node as CallExpr);
+      case 'PropAccess': {
+        const pa = node as PropAccess;
+        return this.evalPropAccess(pa.object, pa.property);
+      }
       case 'AssignExpr':
         this.evalAssign(node as AssignExpr);
         return undefined;
@@ -2092,14 +1913,39 @@ export class FormCalcEvaluator {
     return this.fieldAccessor.getField(node.path, node.prefix);
   }
 
-  /**
-   * Comparison semantics (evidence :19655): empty string ≡ null; null vs
-   * null → =/<=/>= true, <>/<|> false; null vs non-null → =/<=/>= false,
-   * <> true, </> false; both strings → collation; mixed → numeric;
-   * NaN==NaN → TRUE; </> with NaN → false. Mnemonic eq/ne/gt/ge/lt/le
-   * and `==` map onto the symbolic operators. Results are FormCalc
-   * booleans: 1 / 0 (doc: Oneof/HasValue "true (1) … false (0)").
-   */
+  private isXfaNodeHandle(v: unknown): v is { __xfaNode: true; som: string; value: unknown } {
+    return (
+      typeof v === 'object' &&
+      v !== null &&
+      (v as Record<string, unknown>).__xfaNode === true
+    );
+  }
+
+  private evalPropAccess(object: FormCalcNode, property: string): unknown {
+    const base = this.eval(object);
+    if (base == null) return null;
+    if (this.isXfaNodeHandle(base)) {
+      switch (property) {
+        case 'value':
+        case 'rawValue':
+          return base.value == null ? null : base.value;
+        case 'name': {
+          const leaf = base.som.split('.').pop() ?? '';
+          return leaf.replace(/\[.*\]$/, '');
+        }
+        case 'presence':
+          return 'visible';
+        default:
+          return null;
+      }
+    }
+    if (typeof base === 'object') {
+      const v = (base as Record<string, unknown>)[property];
+      return v === undefined ? null : v;
+    }
+    return null;
+  }
+
   private evalCompare(node: CompareExpr): number {
     let op = node.operator;
     switch (op) {
@@ -2132,9 +1978,6 @@ export class FormCalcEvaluator {
     }
 
     if (typeof left === 'string' && typeof right === 'string') {
-      // Adobe's collation compares numeric-looking strings by value: the
-      // list-number script writes `Concat(Variable_0002, ".")` ("1.") and then
-      // tests `rawValue == Variable_0002` ("1"), which is true in Preview PDF.
       const numeric = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
       if (
         (op === '=' || op === '<>') &&
@@ -2186,9 +2029,10 @@ export class FormCalcEvaluator {
       const funcName = node.name.toLowerCase();
       const args = node.args.map((a) => this.eval(a));
 
-      // Eval(s) parses & evaluates inline in a fresh scope that cannot see
-      // user-defined variables (doc p80: eval("10*3+5*4") = 50,
-      // eval("hello") → error)
+      if (funcName === 'xfa.resolvenode') {
+        return this.evalXfaResolveNode(args[0]);
+      }
+
       if (funcName === 'eval') {
         const src = strValue(args[0]);
         const program = new FormCalcParser(src).parse();
@@ -2197,16 +2041,12 @@ export class FormCalcEvaluator {
         return sanitizeValue(result.value);
       }
 
-      // Check built-in functions: full name → dotted-stripped → last segment
-      // (method paths like xfa.host.messageBox resolve to `messagebox`)
       let builtin = BUILTIN_FUNCTIONS[funcName];
       if (!builtin && funcName.includes('.')) {
         builtin = BUILTIN_FUNCTIONS[funcName.replace(/\./g, '')]
           ?? BUILTIN_FUNCTIONS[funcName.slice(funcName.lastIndexOf('.') + 1)];
       }
       if (builtin) {
-        // NaN/Inf from a function flows to the caller (IsNaN(x), comparisons);
-        // the statement/expression boundary converts non-finite → 0.
         return builtin(args, this.env);
       }
 
@@ -2216,23 +2056,29 @@ export class FormCalcEvaluator {
     }
   }
 
+  private evalXfaResolveNode(somArg: unknown): unknown {
+    const som = strValue(somArg).trim();
+    if (!som) return null;
+    let value: unknown;
+    try {
+      value = this.fieldAccessor.getField(som, '$');
+    } catch {
+      return null;
+    }
+    if (value === undefined) return null;
+    return { __xfaNode: true as const, som, value };
+  }
+
   private isTruthy(val: unknown): boolean {
     return formCalcTruthy(val);
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
-/** Boundary sanitizer: NaN/Inf pass as the expression value 0 */
 function sanitizeValue(v: unknown): unknown {
   if (typeof v === 'number' && !Number.isFinite(v)) return 0;
   return v;
 }
 
-/**
- * FormCalc '+' semantics: numeric operands add, anything else concatenates
- * (e.g. `msg = msg + "x"` with a non-numeric msg must append, not coerce).
- */
 function addValues(l: unknown, r: unknown): unknown {
   const numLike = (v: unknown): boolean => !isNullish(v) && !Number.isNaN(Number(v));
   if (typeof l === 'number' && typeof r === 'number') return l + r;

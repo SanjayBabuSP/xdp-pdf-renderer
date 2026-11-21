@@ -92,7 +92,7 @@ describe('pdf-lowlevel — transparency', () => {
     const alpha = doc.addPage([200, 200]);
     beginOpacityScope(alpha, { fill: 0.4 });
     applyPageTransparencyGroup(alpha);
-    applyPageTransparencyGroup(alpha); // idempotent
+    applyPageTransparencyGroup(alpha);
     const group = alpha.node.get(PDFName.of('Group')) as any;
     expect(group).toBeDefined();
     expect(group.get(PDFName.of('S')).toString()).toBe('/Transparency');

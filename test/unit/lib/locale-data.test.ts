@@ -1,9 +1,5 @@
 import { getLocaleInfo, listLocales, getCustomPatterns } from '../../../src/lib/locale-data';
 
-/**
- * Recreated from Designer 11.0 `EN/LocalesList.xml` (now present in
- * reference/Adobe-LiveCycle-Designer-11.0/EN/). Regenerate: npm run locales:import.
- */
 describe('XFA locale catalog', () => {
   it('resolves a locale to its language and region', () => {
     expect(getLocaleInfo('en_US')).toEqual({ language: 'English', region: 'USA' });

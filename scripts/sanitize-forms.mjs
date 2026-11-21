@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Turns private XFA forms (XDP + XSD + XML data) into privacy-safe test fixtures:
-// all human-readable text, images and metadata are replaced, and names become
-// generated ones (Field_0001, …) unless they are generic XFA/Designer words,
-// while layout, bindings and script logic are kept. Nothing is written unless
-// the leak check passes. See test/fixtures/sample-forms/README.md.
 
 import fs from 'node:fs';
 import path from 'node:path';

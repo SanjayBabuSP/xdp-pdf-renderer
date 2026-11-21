@@ -70,8 +70,6 @@ describe('XFA script lifecycle order (Phase 1)', () => {
     expect(preLayout.success).toBe(true);
     if (!preLayout.success) return;
     expect(preLayout.data.scriptErrors).toBe(0);
-    // initialize(B) + calculate(C, executed exactly once despite reading its
-    // own output) + validate(D) + overlay(E) + ready($form)(A) + ready($layout)(F)
     expect(preLayout.data.scriptsExecuted).toBe(6);
     expect(stageField(preLayout.data.layout)?.resolvedValue).toBe('SBCDEAF');
 

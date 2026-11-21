@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/**
- * compare-local.mjs — render a company XDP locally and diff it against the
- * Designer "Preview as PDF" output, printing STRUCTURAL NUMBERS ONLY.
- *
- * Privacy: this script never prints text content, metadata values (other than
- * Producer/Creator, which identify the PDF toolchain), or file paths. All
- * intermediates (rendered PDF, facts JSON) go to a temp dir that is deleted
- * on exit. Paste only the printed summary back — never the PDFs, XDP/XSD/XML,
- * or facts files for company forms.
- *
- * Usage:
- *   node scripts/oracle-kit/compare-local.mjs --xdp F --xsd F --data F --expected PDF
- *     [--lenient] [--python python3]
- *
- * Requires: npm install && npm run build, plus python3 with pypdf for the
- * sibling extract-facts.py.
- */
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -93,7 +76,6 @@ const topOps = (facts, n = 8) => {
 };
 const tools = (facts) => ({ producer: facts.info?.Producer ?? '?', creator: facts.info?.Creator ?? '?' });
 
-// Numbers and font/toolchain names only — no text content, no paths.
 console.log(JSON.stringify({
   pages: { ours: ours.num_pages, expected: exp.num_pages },
   mediabox: { ours: ours.pages[0]?.media_box ?? null, expected: exp.pages[0]?.media_box ?? null },

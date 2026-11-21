@@ -1,15 +1,5 @@
 import { FontEquateRule } from '../types';
 
-/**
- * Default font equate rules matching Adobe LiveCycle Designer's Designer.xci.
- * These map standard PostScript font names to their Windows equivalents,
- * which are the names that commonly appear in XDP templates.
- *
- * The full rule set (including the CJK/Adobe Kozuka/Mincho/Myriad families) is
- * replicated from reference/config_files/Designer.xci. Rules with
- * `force="1"` are applied unconditionally; the rest only substitute when the
- * requested font is unavailable (handled by the font manager).
- */
 const DEFAULT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Helvetica Black_*_*', to: 'Arial Black_*_*', force: false },
   { from: 'HelveticaBlack_*_*', to: 'Arial Black_*_*', force: false },
@@ -20,7 +10,6 @@ const DEFAULT_EQUATE_RULES: FontEquateRule[] = [
   { from: 'Courier_*_*', to: 'Courier New_*_*', force: false },
   { from: 'Times_*_*', to: 'Times New Roman_*_*', force: false },
   { from: 'TimesNewRoman_*_*', to: 'Times New Roman_*_*', force: false },
-  // CJK and Adobe font families from Designer.xci (both <agent> and <present> blocks)
   { from: 'Kozuka Gothic Pro-VI B_*_*', to: 'Kozuka Gothic Pro-VI B_bold_normal', force: true },
   { from: 'Kozuka Gothic Pro-VI H_*_*', to: 'Kozuka Gothic Pro-VI H_bold_normal', force: true },
   { from: 'Kozuka Gothic Pro-VI M_*_*', to: 'Kozuka Gothic Pro-VI M_*_*', force: false },
@@ -49,34 +38,16 @@ interface FontDescriptor {
   family: string;
   weight: string;
   posture: string;
-  /**
-   * True when the matching XCI `<equate>` carries `force="1"` — the rule must be
-   * applied unconditionally. `force="0"` rules apply only when the requested font
-   * is unavailable, which FontManager decides via `force` (font:26867).
-   */
   force: boolean;
 }
 
-/**
- * Resolve font substitution using XCI equate rules.
- *
- * The XCI equate pattern format is: `FontFamily_Weight_Posture`
- *   - `*` means "match any value" (wildcard)
- *   - `force="1"` means always apply (even if the original font is available)
- *   - `force="0"` means apply only when the requested font is unavailable
- */
 export class FontSubstitution {
   private rules: FontEquateRule[];
 
   constructor(customRules?: FontEquateRule[]) {
-    // Custom rules take precedence over defaults
     this.rules = [...(customRules ?? []), ...DEFAULT_EQUATE_RULES];
   }
 
-  /**
-   * Resolve a font family/weight/posture through the equate rules.
-   * Returns the substituted font descriptor, or the original if no rule matches.
-   */
   resolve(family: string, weight?: string, posture?: string): FontDescriptor {
     const w = weight ?? '*';
     const p = posture ?? '*';
@@ -91,19 +62,11 @@ export class FontSubstitution {
     return { family, weight: w, posture: p, force: false };
   }
 
-  /**
-   * Resolve only the family name (convenience for the FontManager which
-   * primarily needs the family string).
-   */
   resolveFamily(family: string, weight?: string): string {
     return this.resolve(family, weight).family;
   }
 }
 
-/**
- * Check if a font descriptor (family, weight, posture) matches an XCI pattern.
- * Pattern format: `Family_Weight_Posture` where `*` matches anything.
- */
 function matchesPattern(family: string, weight: string, posture: string, pattern: string): boolean {
   const parts = splitPattern(pattern);
   if (parts.length !== 3) return false;
@@ -116,7 +79,6 @@ function matchesPattern(family: string, weight: string, posture: string, pattern
   );
 }
 
-/** Apply substitution pattern to produce the resolved font descriptor. */
 function applySubstitution(
   _family: string,
   weight: string,
@@ -135,10 +97,7 @@ function applySubstitution(
   };
 }
 
-/** Split a pattern string on `_`, respecting that family names may contain spaces. */
 function splitPattern(pattern: string): string[] {
-  // Pattern is "Family_Weight_Posture" — split from the RIGHT on underscores
-  // since family names can contain spaces but weight/posture are single tokens.
   const lastUnderscore = pattern.lastIndexOf('_');
   if (lastUnderscore === -1) return [pattern];
 
@@ -152,7 +111,6 @@ function splitPattern(pattern: string): string[] {
   ];
 }
 
-/** Match a value against a pattern part (exact match or wildcard). */
 function matchesPart(value: string, pattern: string): boolean {
   if (pattern === '*') return true;
   return value.toLowerCase() === pattern.toLowerCase();

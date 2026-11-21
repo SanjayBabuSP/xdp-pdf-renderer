@@ -1,11 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
-/**
- * G7 end-to-end: `<choiceList>`, `<ui><button>` and `<ui><signature>` must
- * render their widget semantics — not the raw bound value.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">

@@ -9,20 +9,14 @@ import { parseRichText } from '../../../src/rendering/rich-text-parser';
 import { defaultLineAdvance } from '../../../src/rendering/text/line-metrics';
 import { JUST_H } from '../../../src/rendering/text/justifier';
 
-/** No metrics → ascent falls back to 0.8 × size. */
 const fakeFont = {} as PDFFont;
 
-/** width = character count (1 unit per char), per run index. */
 const measure = (text: string): number => text.length;
 
 function styled(text: string, size = 10): StyledRun[] {
   return [{ text, size, font: fakeFont }];
 }
 
-/**
- * Rebuild a line's visible text: segments are drawn separately, so the
- * spaces between them survive only as x gaps (measure is 1 unit/char here).
- */
 function lineText(line: { segments: { text: string; x: number }[] }): string {
   let out = '';
   let x = 0;
@@ -220,7 +214,6 @@ describe('run-flow — vertical stacking', () => {
   it('top-aligns the first baseline one ascent below the box top', () => {
     const baselines = layoutRunBaselines(lines, { top: 100, bottom: 0 }, 'top');
     expect(baselines[0]).toBeCloseTo(100 - 8, 6);
-    // each line steps by the previous line's advance
     expect(baselines[1]).toBeCloseTo(baselines[0] - defaultLineAdvance(10), 6);
   });
 

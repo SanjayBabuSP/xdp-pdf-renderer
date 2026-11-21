@@ -1,12 +1,6 @@
 import { dispatchPostLayoutScripts } from '../../../../src/domain/scripting';
 import { FieldNode, SubformNode, PaginatedLayout, LayoutNode } from '../../../../src/types';
 
-/**
- * G4 — `xfa.layout.*`: page-number/page-count queries used by Designer's
- * auto-generated page-number scripts (`xfa.layout.page(this)`,
- * `xfa.layout.pageCount()` — reference/decompiled ConvertIP.exe_disasm.c:73871).
- */
-
 function scriptedField(name: string, script: string): FieldNode {
   return {
     type: 'field',

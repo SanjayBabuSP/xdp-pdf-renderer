@@ -1,12 +1,3 @@
-/**
- * FormCalc golden-semantics tests.
- *
- * Goldens are transcribed from the Adobe FormCalc User Reference (doc
- * extracted to /tmp/opencode/fc/extracted.txt) and from the decompiled
- * jfformcalc.dll engine. One or more examples per function in
- * FormCalc_fn.ini, plus lexer/parser/operator behavior that differs from
- * JavaScript.
- */
 import {
   FormCalcParser,
   FormCalcEvaluator,
@@ -22,8 +13,6 @@ function makeAccessor(fields: Record<string, unknown>): FieldAccessor {
     setField: (path: string, _prefix: string, value: unknown) => {
       fields[path] = value;
     },
-    // Unknown names resolve as (null) fields instead of raising
-    // strict-identifier errors — goldens exercise values, not scoping.
     hasField: () => true,
     getCurrentNode: () => null,
     getFormData: () => fields,
@@ -48,8 +37,6 @@ function tokens(src: string): string[] {
     .filter((tk) => tk.type !== TokenType.EOF)
     .map((tk) => `${tk.type}:${tk.value}`);
 }
-
-// ─── Lexer ────────────────────────────────────────────────────────────────
 
 describe('FormCalc lexer', () => {
   it('treats ; as a line comment', () => {
@@ -93,8 +80,6 @@ describe('FormCalc lexer', () => {
   });
 });
 
-// ─── Parser ───────────────────────────────────────────────────────────────
-
 describe('FormCalc parser', () => {
   it('accepts foreach/endfor loops', () => {
     expect(() => new FormCalcParser('foreach x in items\nendfor').parse()).not.toThrow();
@@ -113,16 +98,23 @@ describe('FormCalc parser', () => {
   });
 
   it('does not treat == as an assignment statement', () => {
-    // `a == b` must parse as a comparison, not `a = (= b)` → error
     expect(() => new FormCalcParser('a == b').parse()).not.toThrow();
   });
 
   it('rejects unterminated strings', () => {
     expect(() => new FormCalcParser('"abc').parse()).toThrow(FormCalcParseError);
   });
-});
 
-// ─── Comparisons and logical operators ────────────────────────────────────
+  it('accepts property reads on call results (`xfa.resolveNode("…").value`)', () => {
+    const program = new FormCalcParser(
+      'if (xfa.resolveNode("xfa.record.Flag").value == "true") then 1 endif'
+    ).parse();
+    const cond = program.body[0].condition;
+    expect(cond.left.type).toBe('PropAccess');
+    expect(cond.left.property).toBe('value');
+    expect(cond.left.object.type).toBe('CallExpr');
+  });
+});
 
 describe('comparison and logical semantics', () => {
   it('returns 1/0 for comparisons (True (1) / False (0))', () => {
@@ -157,9 +149,9 @@ describe('comparison and logical semantics', () => {
   });
 
   it('NaN comparison rules (NaN == NaN is TRUE, NaN < x is false)', () => {
-    expect(ev('Sqrt(-1) = Sqrt(-1)')).toBe(1); // NaN == NaN is TRUE
+    expect(ev('Sqrt(-1) = Sqrt(-1)')).toBe(1);
     expect(ev('Sqrt(-1) <> Sqrt(-1)')).toBe(0);
-    expect(ev('Sqrt(-1) < 5')).toBe(0); // </> with NaN → false
+    expect(ev('Sqrt(-1) < 5')).toBe(0);
     expect(ev('Sqrt(-1) >= Sqrt(-1)')).toBe(1);
   });
 
@@ -187,13 +179,10 @@ describe('comparison and logical semantics', () => {
   });
 
   it('does not short-circuit and/or', () => {
-    // both operands are always evaluated; result still matches truth table
     expect(ev('1 and (2 > 1)')).toBe(1);
     expect(ev('0 or (1 > 2)')).toBe(0);
   });
 });
-
-// ─── Financial functions ──────────────────────────────────────────────────
 
 describe('financial functions (doc goldens)', () => {
   it('Apr matches both doc examples to 9 decimals', () => {
@@ -239,13 +228,13 @@ describe('financial functions (doc goldens)', () => {
   it('Round goldens (away-from-zero + IEEE double behavior)', () => {
     expect(ev('Round(12.389764537, 4)')).toBe(12.3898);
     expect(ev('Round(20/3, 2)')).toBe(6.67);
-    expect(ev('Round(8.9897, "abc")')).toBe(9); // invalid places → 0
+    expect(ev('Round(8.9897, "abc")')).toBe(9);
     expect(ev('Round(FV(400, 0.10/12, 30*12), 2)')).toBe(904195.17);
     expect(ev('Round(0.124, 2)')).toBe(0.12);
-    expect(ev('Round(.125, 2)')).toBe(0.13); // .125 exactly representable → up
-    expect(ev('Round(0.045, 2)')).toBe(0.04); // 0.045 double is 0.04499…
-    expect(ev('Round(1.005, 2)')).toBe(1); // 1.005 double is 1.004999…
-    expect(ev('Round(-1.5)')).toBe(-1); // p=0: floor(x+0.5), ties toward +∞
+    expect(ev('Round(.125, 2)')).toBe(0.13);
+    expect(ev('Round(0.045, 2)')).toBe(0.04);
+    expect(ev('Round(1.005, 2)')).toBe(1);
+    expect(ev('Round(-1.5)')).toBe(-1);
     expect(ev('Round(-2.5)')).toBe(-2);
     expect(ev('Round(4.456)')).toBe(4);
     expect(ev('Round(-1.03, 2)')).toBe(-1.03);
@@ -254,14 +243,12 @@ describe('financial functions (doc goldens)', () => {
   it('Mod uses fmod sign-of-dividend and throws on divisor 0 (→ 0 at statement)', () => {
     expect(ev('Mod(64, -3)')).toBe(1);
     expect(ev('Mod(-13, 3)')).toBe(-1);
-    expect(ev('Mod("abc", 2)')).toBe(0); // non-numeric → 0
+    expect(ev('Mod("abc", 2)')).toBe(0);
     expect(ev('7 mod 3')).toBe(1);
     expect(ev('-7 mod 3')).toBe(-1);
-    expect(ev('Mod(7, 0)')).toBe(0); // error → 0
+    expect(ev('Mod(7, 0)')).toBe(0);
   });
 });
-
-// ─── Date / Time functions ────────────────────────────────────────────────
 
 describe('date and time functions (doc goldens)', () => {
   it('Date2Num uses the XFA epoch (Dec 31 1899 = day 0)', () => {
@@ -308,15 +295,13 @@ describe('date and time functions (doc goldens)', () => {
   });
 });
 
-// ─── Unit functions ───────────────────────────────────────────────────────
-
 describe('unit functions (doc goldens)', () => {
   it('UnitValue converts between units', () => {
     expect(ev('UnitValue("2in")')).toBe(2);
     expect(ev('UnitValue("2in", "cm")')).toBeCloseTo(5.08, 10);
-    expect(ev('UnitValue("6", "pt")')).toBe(432); // bare number → inches
+    expect(ev('UnitValue("6", "pt")')).toBe(432);
     expect(ev('UnitValue("A", "cm")')).toBe(0);
-    expect(ev('UnitValue("5.08cm", "kilograms")')).toBeCloseTo(2, 10); // invalid unit → inches
+    expect(ev('UnitValue("5.08cm", "kilograms")')).toBeCloseTo(2, 10);
     expect(ev('UnitValue("36 in", "mm")')).toBeCloseTo(914.4, 10);
   });
 
@@ -330,14 +315,12 @@ describe('unit functions (doc goldens)', () => {
   });
 });
 
-// ─── String / encoding functions ──────────────────────────────────────────
-
 describe('string and encoding functions (doc goldens)', () => {
   it('Encode url keeps ! $ * + , - . / : @ = ? and space→%20 (lowercase hex)', () => {
     expect(ev('Encode("hello, world!", "url")')).toBe('hello,%20world!');
     expect(ev('Encode("""hello, world!""", "url")')).toBe('%22hello,%20world!%22');
     expect(ev('Encode("a/b:c@d=e?f+g&h", "url")')).toBe('a%2fb%3ac%40d%3de%3ff%2bg%26h');
-    expect(ev('Encode("héllo", "url")')).toBe('h%c3%a9llo'); // lowercase hex
+    expect(ev('Encode("héllo", "url")')).toBe('h%c3%a9llo');
   });
 
   it('Encode html/xml escape entities', () => {
@@ -356,7 +339,7 @@ describe('string and encoding functions (doc goldens)', () => {
     expect(ev('WordNum(1154.67, 2)')).toBe('One Thousand One Hundred Fifty-four Dollars And Sixty-seven Cents');
     expect(ev('WordNum(23)')).toBe('Twenty-three Dollars');
     expect(ev('WordNum(54, 0)')).toBe('Fifty-four Dollars');
-    expect(ev('WordNum(67, 2)')).toBe('Sixty-seven Dollars'); // no fraction → no cents
+    expect(ev('WordNum(67, 2)')).toBe('Sixty-seven Dollars');
     expect(ev('WordNum(1)')).toBe('One Dollars');
   });
 
@@ -384,15 +367,13 @@ describe('string and encoding functions (doc goldens)', () => {
   });
 });
 
-// ─── Choose / Oneof / predicates ──────────────────────────────────────────
-
 describe('Choose / Oneof / predicates (doc goldens)', () => {
   it('Choose returns the nth argument', () => {
     expect(ev('Choose(3, "Taxes", "Price", "Person", "Teller")')).toBe('Person');
     expect(ev('Choose(2, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)')).toBe(9);
     expect(ev('Choose(20/3, "A", "B", "C", "D", "E", "F", "G", "H")')).toBe('F');
     expect(ev('Choose(Null(), 1, 2)')).toBe(null);
-    expect(ev('Choose(0, 1, 2)')).toBe(''); // out of range → ''
+    expect(ev('Choose(0, 1, 2)')).toBe('');
   });
 
   it('Oneof returns 1-based match index or 0', () => {
@@ -418,8 +399,6 @@ describe('Choose / Oneof / predicates (doc goldens)', () => {
     expect(ev('IsNaN(1)')).toBe(0);
   });
 });
-
-// ─── Aggregates / numeric ─────────────────────────────────────────────────
 
 describe('aggregate and numeric functions (doc goldens)', () => {
   it('Count / Sum / Avg / Max / Min skip nulls', () => {
@@ -468,8 +447,6 @@ describe('aggregate and numeric functions (doc goldens)', () => {
   });
 });
 
-// ─── Eval / Ref / Null / Throw ────────────────────────────────────────────
-
 describe('Eval / Ref / Null', () => {
   it('Eval evaluates an expression string', () => {
     expect(ev('Eval("10*3+5*4")')).toBe(50);
@@ -490,14 +467,12 @@ describe('Eval / Ref / Null', () => {
   });
 });
 
-// ─── Language semantics ───────────────────────────────────────────────────
-
 describe('language semantics', () => {
   it('string concatenation happens through + with non-numeric operands', () => {
     expect(ev('"hello" + " world"')).toBe('hello world');
     expect(ev('"A" + 1')).toBe('A1');
     expect(ev('1 + "A"')).toBe('1A');
-    expect(ev('"12" + "3"')).toBe(15); // both numeric-like → numeric add
+    expect(ev('"12" + "3"')).toBe(15);
   });
 
   it('assignment coerces to string for string-typed variables', () => {
@@ -508,9 +483,7 @@ describe('language semantics', () => {
   it('variable assignment is not a comparison', () => {
     const f = evFields('count = 5', {});
     expect(f['count']).toBe('5');
-    // Inside a larger expression `=` stays a comparison (no assignment)
     expect(ev('count = 5 and count = 5', f)).toBe(1);
-    // As a statement it is an assignment
     expect(ev('count = 6', f)).toBe(undefined);
     expect(f['count']).toBe('6');
   });
@@ -536,8 +509,8 @@ describe('language semantics', () => {
 
   it('string comparison uses collation, mixed uses numeric', () => {
     expect(ev('"apple" < "banana"')).toBe(1);
-    expect(ev('"Apple" = "apple"')).toBe(0); // case-sensitive
-    expect(ev('"10" < "9"')).toBe(1); // two strings → collation, not numeric
+    expect(ev('"Apple" = "apple"')).toBe(0);
+    expect(ev('"10" < "9"')).toBe(1);
   });
 
   it('empty string compares equal to null', () => {
@@ -545,8 +518,6 @@ describe('language semantics', () => {
     expect(ev('"" <> null')).toBe(0);
   });
 });
-
-// ─── Control flow ─────────────────────────────────────────────────────────
 
 describe('control flow', () => {
   it('if/then/else with two-word end if', () => {
@@ -579,10 +550,45 @@ describe('control flow', () => {
 
   it('exit terminates the script immediately', () => {
     const f = evFields('x = 1\nexit\nx = 2', {});
-    expect(f['x']).toBe('1'); // `x = 2` never ran
+    expect(f['x']).toBe('1');
   });
 
   it('return with a value', () => {
     expect(ev('return 7\nx = 1\nx')).toBe(7);
+  });
+});
+
+describe('xfa.resolveNode host method', () => {
+  it('reads .value from a resolved record node', () => {
+    expect(
+      ev('if (xfa.resolveNode("xfa.record.Flag").value == "true") then 1 else 0 endif', {
+        'xfa.record.Flag': 'true',
+      })
+    ).toBe(1);
+    expect(
+      ev('if (xfa.resolveNode("xfa.record.Flag").value == "true") then 1 else 0 endif', {
+        'xfa.record.Flag': 'false',
+      })
+    ).toBe(0);
+  });
+
+  it('resolves indexed record paths', () => {
+    const fields = { 'xfa.record.Rows[0].Flag': 'true' };
+    expect(ev('xfa.resolveNode("xfa.record.Rows[0].Flag").value', fields)).toBe('true');
+  });
+
+  it('treats unresolvable nodes as null instead of aborting the script', () => {
+    expect(ev('if (xfa.resolveNode("xfa.record.Nope").value == "true") then 1 else 0 endif', {})).toBe(
+      0
+    );
+  });
+
+  it('writes back through .value assignment targets', () => {
+    const f = evFields('xfa.resolveNode("xfa.record.Flag").value = "hi"', {});
+    expect(f['xfa.record.Flag']).toBe('hi');
+  });
+
+  it('still rejects genuinely unknown functions', () => {
+    expect(() => ev('NopeFn("x")')).toThrow(/Unknown function/);
   });
 });

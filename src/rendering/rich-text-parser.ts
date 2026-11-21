@@ -1,63 +1,44 @@
 import { RgbColor } from '../types';
 
-/**
- * A single run of text with consistent formatting.
- * Rich text is broken into multiple runs, each with its own style.
- */
 export interface TextRun {
   text: string;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
   fontSize?: number;
   color?: RgbColor;
 }
 
-/**
- * Parse simple XHTML/HTML rich text content into structured text runs.
- *
- * Handles the basic formatting that XFA exData content commonly uses:
- *   - <b>, <strong> → bold
- *   - <i>, <em> → italic
- *   - <br/>, <br> → newline
- *   - <span style="..."> → inline styles (font-size, color)
- *   - <p> → paragraph break
- *
- * This is intentionally limited — it covers the subset of HTML that
- * LiveCycle Designer's rich text editor actually produces. Full HTML
- * rendering is out of scope.
- */
 export function parseRichText(html: string): TextRun[] {
   if (!html || !html.trim()) return [];
 
   const runs: TextRun[] = [];
-  // exData stores the markup escaped (&lt;b&gt;…) because the XDP parser keeps
-  // XML entities intact — decode once before scanning for tags.
   let remaining = decodeEntities(html);
   let currentBold = false;
   let currentItalic = false;
+  let currentUnderline = false;
   let currentFontSize: number | undefined;
   let currentColor: RgbColor | undefined;
 
-  // State stack for nested tags
   const stateStack: Array<{
     bold: boolean;
     italic: boolean;
+    underline: boolean;
     fontSize?: number;
     color?: RgbColor;
   }> = [];
 
-  while (remaining.length > 0) {
-    // Find next tag
+  while (remaining.length) {
     const tagMatch = remaining.match(/^([^<]*)<(\/?)(\w+)([^>]*)>/);
 
     if (!tagMatch) {
-      // No more tags — capture remaining text
-      const text = remaining.trim();
+      const text = remaining;
       if (text) {
         runs.push({
           text,
           bold: currentBold || undefined,
           italic: currentItalic || undefined,
+          underline: currentUnderline || undefined,
           fontSize: currentFontSize,
           color: currentColor,
         });
@@ -65,7 +46,6 @@ export function parseRichText(html: string): TextRun[] {
       break;
     }
 
-    // Capture text before the tag
     const textBefore = tagMatch[1];
     if (textBefore) {
       const decoded = textBefore;
@@ -74,6 +54,7 @@ export function parseRichText(html: string): TextRun[] {
           text: decoded,
           bold: currentBold || undefined,
           italic: currentItalic || undefined,
+          underline: currentUnderline || undefined,
           fontSize: currentFontSize,
           color: currentColor,
         });
@@ -86,19 +67,19 @@ export function parseRichText(html: string): TextRun[] {
     remaining = remaining.slice(tagMatch[0].length);
 
     if (isClosing) {
-      // Pop state
-      if (stateStack.length > 0) {
+      if (stateStack.length) {
         const prev = stateStack.pop()!;
         currentBold = prev.bold;
         currentItalic = prev.italic;
+        currentUnderline = prev.underline;
         currentFontSize = prev.fontSize;
         currentColor = prev.color;
       }
     } else {
-      // Push state before applying new formatting
       stateStack.push({
         bold: currentBold,
         italic: currentItalic,
+        underline: currentUnderline,
         fontSize: currentFontSize,
         color: currentColor,
       });
@@ -114,22 +95,21 @@ export function parseRichText(html: string): TextRun[] {
           break;
         case 'br':
           runs.push({ text: '\n' });
-          // Self-closing: pop state immediately
           stateStack.pop();
           break;
         case 'p':
-          if (runs.length > 0) {
+          if (runs.length) {
             runs.push({ text: '\n' });
           }
           break;
         case 'span': {
-          // Parse inline style attributes
           const style = extractStyleAttr(attrs);
           if (style) {
             const fontSize = parseFontSizeFromStyle(style);
             if (fontSize) currentFontSize = fontSize;
             const color = parseColorFromStyle(style);
             if (color) currentColor = color;
+            if (/text-decoration\s*:[^;]*underline/i.test(style)) currentUnderline = true;
           }
           break;
         }
@@ -140,14 +120,9 @@ export function parseRichText(html: string): TextRun[] {
   return mergeAdjacentRuns(runs);
 }
 
-/**
- * Convert text runs back to a plain string (for simple rendering fallback).
- */
 export function textRunsToPlainText(runs: TextRun[]): string {
   return runs.map((r) => r.text).join('');
 }
-
-// ── Internal Helpers ──────────────────────────────────────────────────────────
 
 function decodeEntities(text: string): string {
   return text
@@ -156,8 +131,8 @@ function decodeEntities(text: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/[ \t\n\r\f\v]+/g, ' ');
 }
 
 function extractStyleAttr(attrs: string): string | undefined {
@@ -170,17 +145,15 @@ function parseFontSizeFromStyle(style: string): number | undefined {
   if (!match) return undefined;
   const value = parseFloat(match[1]);
   const unit = match[2]?.toLowerCase();
-  if (unit === 'px') return value * 0.75; // px → pt
+  if (unit === 'px') return value * 0.75;
   return value;
 }
 
 function parseColorFromStyle(style: string): RgbColor | undefined {
-  // rgb(R, G, B)
   const rgbMatch = style.match(/color\s*:\s*rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i);
   if (rgbMatch) {
     return { r: parseInt(rgbMatch[1]), g: parseInt(rgbMatch[2]), b: parseInt(rgbMatch[3]) };
   }
-  // #RRGGBB or #RGB
   const hexMatch = style.match(/color\s*:\s*#([0-9a-f]{3,6})/i);
   if (hexMatch) {
     const hex = hexMatch[1];
@@ -202,7 +175,6 @@ function parseColorFromStyle(style: string): RgbColor | undefined {
   return undefined;
 }
 
-/** Merge adjacent runs with identical formatting to reduce draw calls. */
 function mergeAdjacentRuns(runs: TextRun[]): TextRun[] {
   if (runs.length <= 1) return runs;
   const merged: TextRun[] = [runs[0]];
@@ -212,6 +184,7 @@ function mergeAdjacentRuns(runs: TextRun[]): TextRun[] {
     if (
       prev.bold === curr.bold &&
       prev.italic === curr.italic &&
+      prev.underline === curr.underline &&
       prev.fontSize === curr.fontSize &&
       colorsEqual(prev.color, curr.color)
     ) {

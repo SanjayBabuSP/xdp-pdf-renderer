@@ -32,12 +32,6 @@ function xdp(multiLine: boolean): string {
 
 const DATA = `<?xml version="1.0" encoding="UTF-8"?><value><v>${LONG}</v></value>`;
 
-/**
- * ADS parity: single-line fields never soft-wrap (Example-1 table value
- * `29815.6/95850.4` shattered into overlapping fragments when wrapped in a
- * 38pt cell; Adobe draws it whole on one line). Multi-line fields keep
- * wrapping.
- */
 describe('single-line fields do not wrap', () => {
   it('draws a long single-line value as one run', async () => {
     const result = await renderFormToPdf(xdp(false), XSD, DATA, {});
@@ -45,9 +39,7 @@ describe('single-line fields do not wrap', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // The whole value is drawn (subset-encoded, so compare decoded text)…
     expect(extractText(content).join('')).toContain(LONG);
-    // …with a single text-showing operator, not one per wrapped fragment.
     const tjCount = (content.match(/\bT[jJ]\b/g) ?? []).length;
     expect(tjCount).toBe(1);
   });

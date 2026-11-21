@@ -7,14 +7,8 @@ import { resolveChoiceText } from '../../rendering/ui-values';
 import { parseRichText, textRunsToPlainText } from '../../rendering/rich-text-parser';
 import { formatValue } from '../../lib/value-format';
 import { measureLayoutText } from './text-measure';
+import { normalizeRotation } from '../../rendering/text/rotation';
 
-// ─── Position engine ──────────────────────────────────────────────────────
-// evidence: XFAPositionLayout is the fallback engine for nodes whose layout
-// enum resolves to 0x1b0003 (position), and for fields/draws in any context
-// — xfalayout_disasm.c:15853-15926 (dispatcher default branch) and :49800-49900
-// (coercion: invalid layout value → position, warn 0x72a6).
-
-/** Default line advance for a font size — evidence: font_disasm.c:10517 (1.2×). */
 const LINE_ADVANCE = 1.2;
 const DEFAULT_FONT_SIZE = 10;
 
@@ -27,7 +21,9 @@ function getChildX(node: LayoutNode): number {
 
 function getChildY(node: LayoutNode): number {
   if (node.type === 'subform' || node.type === 'field' || node.type === 'draw' || node.type === 'exclGroup') {
-    return node.position?.y ?? 0;
+    const y = node.position?.y ?? 0;
+    if (normalizeRotation(node.position?.rotate ?? 0) === 90) return y - (node.position?.w ?? 0);
+    return y;
   }
   return 0;
 }
@@ -38,7 +34,6 @@ function nodeWidth(node: LayoutNode): number | undefined {
   return undefined;
 }
 
-/** Margin insets of a container (0 when absent) — content origin + width. */
 function containerInsets(node: { margin?: { topInset?: number; rightInset?: number; bottomInset?: number; leftInset?: number } }): {
   left: number; right: number; top: number; bottom: number;
 } {
@@ -60,29 +55,12 @@ function repeatKey(node: LayoutNode): string | null {
   return `${node.type}:${node.name}`;
 }
 
-/**
- * Absolute ("position") subform: children at their authored x/y relative to
- * this subform's origin.
- *
- * Repeat-instance stacking: expand-repeats no longer pre-offsets instances
- * (plan Phase 2 task 2 — evidence: addInstances xfalayout_disasm.c:6028
- * inserts nodes and the engine assigns x/y); consecutive occurrence instances
- * of the same name stack vertically in flow order here, because a
- * position-layout parent has no flow cursor of its own.
- *
- * Height: explicit h fixed, else content-driven
- * max(child.y+child.h) — evidence/fix for issue #4 — clamped by
- * minH/maxH (xfatemplate_disasm.c:8510-8700).
- */
 export function layoutPositionSubform(
   node: SubformNode,
   ctx: LayoutContext,
   layoutChild: ChildLayouter
 ): LayoutResult {
   const width = resolveExtent(node.position, 'width', ctx.availableWidth);
-  // Preview PDF places positioned children relative to the content origin
-  // (inside the container's margin insets), not the border-box origin
-  // (XFABoxModelLayout content-box geometry, xfalayout_disasm.c:23440-23560).
   const insets = containerInsets(node);
   const contentW = Math.max(width - insets.left - insets.right, 0);
   const baseX = ctx.x + insets.left;
@@ -109,7 +87,6 @@ export function layoutPositionSubform(
       x: baseX + getChildX(child),
       y: childY,
       availableWidth: nodeWidth(child) ?? contentW,
-      // Positioned leaves with only minW must not stretch to the container.
       widthFromContent: true,
     };
     const result = layoutChild(child, childCtx);
@@ -134,12 +111,6 @@ export function layoutPositionSubform(
   };
 }
 
-/**
- * Caption geometry feeds growable field height: caption placement top/bottom
- * reserves `reserve` points of height (left/right/inline reserve width only).
- * evidence: XFABoxModelLayout caption extent wrappers, xfalayout_disasm.c:30620-31040
- * (getCaptionModelHeight + hasOverflowingCaptionText gate).
- */
 function captionHeight(node: FieldNode): number {
   const caption = node.caption;
   if (!caption || !caption.text) return 0;
@@ -150,17 +121,11 @@ function captionHeight(node: FieldNode): number {
   return 0;
 }
 
-/**
- * Height of a field's value block: the paragraph line advance plus any
- * `spaceAbove`/`spaceBelow` (`<para>` metrics). evidence: jfTextAttr
- * Spacing/SpaceBefore/SpaceAfter (jftext_disasm.c:3920/3852/3782).
- */
 function valueLineHeight(node: FieldNode): number {
   const pm = paraMetrics(node.para, node.font?.size ?? DEFAULT_FONT_SIZE);
   return pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
-/** Leaf field: resolve x/y/w/h with min/max clamping (plan Phase 2 task 4). */
 export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResult {
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
@@ -186,7 +151,6 @@ export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResu
   };
 }
 
-/** Content width for an auto-width field in a flow line (lr-tb/rl-tb). */
 function fieldContentWidth(node: FieldNode): number {
   const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
   const pm = paraMetrics(node.para, fontSize);
@@ -213,12 +177,6 @@ function fieldContentWidth(node: FieldNode): number {
   );
 }
 
-/**
- * Height of a field's value block including box margins. Multi-line textEdit
- * fields grow to their wrapped line count; XFA/Adobe does not clip a
- * growable row to its `minH` (`Subform_0077` list rows in Example-2 are 1–3
- * lines tall even though the field declares `minH="7mm"`).
- */
 function nodeValueHeight(node: FieldNode, width: number): number {
   const top = node.margin?.topInset ?? 0;
   const bottom = node.margin?.bottomInset ?? 0;
@@ -249,7 +207,6 @@ function nodeValueHeight(node: FieldNode, width: number): number {
   );
 }
 
-/** Leaf draw: explicit h else content-driven rich text, else legacy 18 default. */
 export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult {
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
@@ -272,12 +229,6 @@ export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult
   };
 }
 
-/**
- * Height of a draw's text block. Rich-text draws such as Example-2 Draw_0036
- * have `minH` only and a multi-paragraph `<exData>` with `lineHeight="30pt"`;
- * Preview PDF grows the draw to all three lines instead of clipping after the
- * first (the Ytivos/Offqt sojjpitx block).
- */
 export function drawValueHeight(node: DrawNode, width: number): number {
   const value = node.value;
   if (!value) return 0;
@@ -302,13 +253,9 @@ export function drawValueHeight(node: DrawNode, width: number): number {
     measureLayoutText(s, fontSize, node.font), {
     firstLineIndent: pm.textIndent,
   });
-  // Margins are internal padding inside the authored/minH box; they must not
-  // be added to the draw's outer height (Example-3 table rows are minH
-  // 3.596mm and Adobe keeps them there instead of growing to 3.75mm).
   return lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
-/** ExclGroup: fields stacked vertically (tb), box sized to content. */
 export function layoutExclGroup(
   node: ExclGroupNode,
   ctx: LayoutContext,

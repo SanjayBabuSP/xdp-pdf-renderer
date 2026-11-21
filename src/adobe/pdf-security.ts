@@ -1,15 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// PDF Security — Standard Security Handler (Revision 2/3/4, RC4 + AESV2)
-//
-// Implements the PDF 1.7 standard security handler end-to-end:
-//   • Algorithm 2/3/4/5 key entries (`/O`, `/U`) and the file encryption key
-//   • Algorithm 1 per-object keys
-//   • RC4 (V1/V2) and AES-128-CBC (V4, AESV2) stream/string encryption
-//   • Encrypt dictionary placed in the TRAILER, plus a random `/ID`
-//
-// Note: object streams must be disabled when saving (`useObjectStreams:false`)
-// because pdf-lib generates them during serialization, after this pass.
-// ────────────────────────────────────────────────────────────────────────────
 
 import {
   PDFArray,
@@ -38,36 +26,22 @@ import {
 } from './crypto-utils';
 import { randomBytes } from 'crypto';
 
-/** Permission flags (PDF Standard, Table 3.20) */
 export interface PDFPermissions {
-  /** Allow printing (low resolution) */
   print?: boolean;
-  /** Allow modifying content */
   modify?: boolean;
-  /** Allow copying/extracting text */
   copy?: boolean;
-  /** Allow adding/modifying annotations */
   annotate?: boolean;
-  /** Allow form field filling */
   fillForms?: boolean;
-  /** Allow text extraction for accessibility */
   extract?: boolean;
-  /** Allow assembling (insert/delete/rotate pages) */
   assemble?: boolean;
-  /** Allow high-quality printing */
   printHighQuality?: boolean;
-  /** Alias for `printHighQuality`. */
   highPrint?: boolean;
 }
 
 export interface PDFSecurityOptions {
-  /** User password (required to open the PDF) */
   userPassword?: string;
-  /** Owner password (required to change permissions) */
   ownerPassword?: string;
-  /** Permission flags */
   permissions?: PDFPermissions;
-  /** Encryption method: 'rc4_40' (40-bit), 'rc4_128' (128-bit), 'aes_128' */
   encryptionMethod?: 'rc4_40' | 'rc4_128' | 'aes_128';
 }
 
@@ -83,20 +57,19 @@ const DEFAULT_PERMISSIONS: PDFPermissions = {
   printHighQuality: true,
 };
 
-/** Convert permissions to the signed 32-bit `/P` value (Table 3.20). */
 function permissionsToInt(perms: PDFPermissions): number {
   let p = 0;
-  if (perms.print) p |= 1 << 2; // bit 3
-  if (perms.modify) p |= 1 << 3; // bit 4
-  if (perms.copy) p |= 1 << 4; // bit 5
-  if (perms.annotate) p |= 1 << 5; // bit 6
-  p |= 1 << 6; // bit 7 reserved = 1
-  p |= 1 << 7; // bit 8 reserved = 1
-  if (perms.fillForms) p |= 1 << 8; // bit 9
-  if (perms.extract) p |= 1 << 9; // bit 10
-  if (perms.assemble) p |= 1 << 10; // bit 11
-  if (perms.printHighQuality || perms.highPrint) p |= 1 << 11; // bit 12
-  return p | 0; // to signed
+  if (perms.print) p |= 1 << 2;
+  if (perms.modify) p |= 1 << 3;
+  if (perms.copy) p |= 1 << 4;
+  if (perms.annotate) p |= 1 << 5;
+  p |= 1 << 6;
+  p |= 1 << 7;
+  if (perms.fillForms) p |= 1 << 8;
+  if (perms.extract) p |= 1 << 9;
+  if (perms.assemble) p |= 1 << 10;
+  if (perms.printHighQuality || perms.highPrint) p |= 1 << 11;
+  return p | 0;
 }
 
 interface MethodParams {
@@ -118,9 +91,6 @@ function methodParams(method: PDFSecurityOptions['encryptionMethod']): MethodPar
   }
 }
 
-/**
- * Apply security settings to a PDFDocument.
- */
 export function applyPdfSecurity(doc: PDFDocument, options: PDFSecurityOptions): void {
   const context = doc.context;
   const { v, r, keyLength, useAES } = methodParams(options.encryptionMethod);
@@ -130,7 +100,6 @@ export function applyPdfSecurity(doc: PDFDocument, options: PDFSecurityOptions):
   const perms = { ...DEFAULT_PERMISSIONS, ...options.permissions };
   const permissionBits = permissionsToInt(perms);
 
-  // Random document identifier: ID[0] seeds the encryption key, ID[1] is opaque.
   const id0 = new Uint8Array(randomBytes(16));
   const id1 = new Uint8Array(randomBytes(16));
 
@@ -161,7 +130,6 @@ export function applyPdfSecurity(doc: PDFDocument, options: PDFSecurityOptions):
 
   const encryptRef = context.register(encryptDict);
 
-  // Encrypt every other indirect object with its own key (Algorithm 1).
   for (const [ref, object] of context.enumerateIndirectObjects()) {
     if (ref.objectNumber === encryptRef.objectNumber) continue;
     const key = objectKey(encryptionKey, ref.objectNumber, ref.generationNumber, useAES);
@@ -169,7 +137,6 @@ export function applyPdfSecurity(doc: PDFDocument, options: PDFSecurityOptions):
     if (encrypted !== object) context.assign(ref, encrypted);
   }
 
-  // The Encrypt dict and /ID live in the trailer, never encrypted.
   context.trailerInfo.Encrypt = encryptRef;
   context.trailerInfo.ID = context.obj([
     PDFHexString.of(bytesToHex(id0)),
@@ -237,16 +204,10 @@ function encryptString(value: PDFString | PDFHexString, key: Uint8Array, useAES:
   return PDFHexString.of(bytesToHex(encrypted));
 }
 
-/**
- * Whether a document must be serialized without object streams (security is
- * applied before serialization, and pdf-lib builds object/xref streams during
- * serialization — after encryption — so they must be disabled).
- */
 export function securityDisablesObjectStreams(
   security: PDFSecurityOptions | undefined,
 ): boolean {
   return security != null;
 }
 
-// Re-export so callers/tests can validate credentials without importing crypto-utils.
 export { authenticateUserPassword };

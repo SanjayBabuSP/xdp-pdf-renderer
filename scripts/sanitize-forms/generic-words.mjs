@@ -1,6 +1,3 @@
-// Vocabulary that never carries company information: XFA, JavaScript,
-// FormCalc, Acrobat, Designer and XHTML words. A name made only of these words
-// (plus digits, `_`, `-`, `.` and single letters) is kept; see names.mjs.
 
 import { BUILTIN } from './script-literals.mjs';
 
@@ -79,12 +76,10 @@ const DESIGNER = `body page pages content area master floating field embedded hr
 
 const XHTML = `html head body p span div br b i u em strong sup sub ul ol li a font table tr td th`;
 
-/** Letter chunks split at case changes: "EBQuotationNo2" → ["EB", "Quotation", "No"]. */
 export function chunksOf(name) {
   return name.match(/\p{Lu}+(?!\p{Ll})|\p{Lu}?\p{Ll}+|\p{L}+/gu) ?? [];
 }
 
-/** Adds a word and its chunks, lower-cased: "rawValue" → rawvalue, raw, value. */
 export function addGenericWord(words, word) {
   if (!word) return;
   words.add(word.toLowerCase());
@@ -97,7 +92,6 @@ for (const list of [XFA_ELEMENTS, XFA_ATTRIBUTES, XFA_SCRIPTING, JAVASCRIPT, ACR
 }
 for (const word of BUILTIN) addGenericWord(GENERIC_WORDS, word);
 
-/** True when every letter chunk of `name` is a single letter or a generic word. */
 export function isGenericName(name, extraWords) {
   return chunksOf(name).every((chunk) => {
     const word = chunk.toLowerCase();

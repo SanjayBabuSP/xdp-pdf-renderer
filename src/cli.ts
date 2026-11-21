@@ -52,7 +52,6 @@ program
     const xsd = readFile(opts.xsd, '--xsd');
     const data = readFile(opts.data, '--data');
 
-    // Use a minimal render that stops before PDF generation
     const result = await render({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
 
     if (!result.success) {

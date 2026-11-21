@@ -1,11 +1,6 @@
 import { PDFDocument, PDFName, PDFDict } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 
-/**
- * G16 end-to-end: `<config><present><pdf>` version / extension level reach the
- * output catalog, and `maxInputSize` is enforced before parsing.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">

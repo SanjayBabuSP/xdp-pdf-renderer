@@ -1,14 +1,3 @@
-/**
- * Baseline consistency and caption/value collision safety.
- *
- * The comparison against Designer 11.0's "Preview as PDF" showed captions
- * painting over the adjacent value ("Pos." over "Machine location") and text
- * sitting at inconsistent heights within one field. Both had a single cause:
- * several independent, inconsistent guesses at where a baseline goes.
- *
- * Every text path now derives its baseline from `layoutLines()`, which uses the
- * font's real ascent. These tests pin that single model.
- */
 
 import { PDFDocument } from 'pdf-lib';
 import {
@@ -31,7 +20,6 @@ const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 
 const DATA = `<?xml version="1.0" encoding="UTF-8"?><value><v>Value</v></value>`;
 
-/** Field with a caption, a reserve strip, and a fixed box. */
 function xdp(opts: { placement?: string; reserve?: string; valueW?: string } = {}): string {
   const placement = opts.placement ?? 'left';
   const reserve = opts.reserve ?? '40pt';
@@ -79,13 +67,12 @@ describe('line metrics — one ascent-based model', () => {
   it('centres and bottom-aligns within the box', async () => {
     const font = await (await PDFDocument.create()).embedStandardFont('Helvetica');
     const size = 10;
-    const box = { top: 200, bottom: 180 }; // 20pt tall
+    const box = { top: 200, bottom: 180 };
     const top = layoutLines(1, size, box, 'top', font).baselines[0];
     const bottom = layoutLines(1, size, box, 'bottom', font).baselines[0];
     const middle = layoutLines(1, size, box, 'middle', font).baselines[0];
     expect(top).toBeGreaterThan(middle);
     expect(middle).toBeGreaterThan(bottom);
-    // symmetric
     expect(top - middle).toBeCloseTo(middle - bottom, 6);
   });
 
@@ -94,14 +81,12 @@ describe('line metrics — one ascent-based model', () => {
     expect(fontAscent(undefined, 10)).toBeCloseTo(8, 9);
   });
 
-  it('derives descent from the font total height, not a hard-coded 0.2em', async () => {
+  it('applies the Adobe max(A, 1-D) clamp (Helvetica sums to 1.0 em, not AFM 0.925)', async () => {
     const font = await (await PDFDocument.create()).embedStandardFont('Helvetica');
     const size = 10;
     const ascent = fontAscent(font, size);
     const descent = fontDescent(font, size);
-    // Helvetica's AFM total height is 718+207 per 1000.
-    expect(ascent + descent).toBeCloseTo(9.25, 1);
-    // and it must not be the old flat 0.2 * size
+    expect(ascent + descent).toBeCloseTo(10.0, 1);
     expect(descent).not.toBeCloseTo(2, 3);
   });
 });
@@ -116,8 +101,6 @@ describe('caption/value collision safety', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // A clip must be active around the caption: the long caption is far wider
-    // than its 40pt reserve, so without a clip it would run into the value.
     expect(content).toMatch(/(^|\n)q(\n|$)/);
     expect(content).toMatch(/ re\s+W\s+n/);
     expect(content).toMatch(/(^|\n)Q(\n|$)/);
@@ -127,7 +110,6 @@ describe('caption/value collision safety', () => {
     const { renderFormToPdf } = await import('../../../src/workflows/render-pdf');
     const { contentStream } = await import('../../helpers/pdf-content');
 
-    // "Pos." at 10pt is ~20pt, comfortably inside a 60pt reserve.
     const wide = `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
@@ -154,7 +136,6 @@ describe('caption/value collision safety', () => {
     if (!result.success) throw new Error(result.error.message);
 
     const content = await contentStream(result.data);
-    // No clip scope for the caption (only BT/ET text blocks).
     expect(content).not.toMatch(/ re\s+W\s+n/);
   });
 
@@ -171,9 +152,6 @@ describe('caption/value collision safety', () => {
       Number(m[2])
     );
     expect(ys.length).toBeGreaterThanOrEqual(2);
-    // Both runs are single-line, top-aligned, same size -> one shared baseline.
-    // Previously the caption used `(h - size)/2` while the value used
-    // `boxTop - ascent`, putting them ~6pt apart at 10pt in a 20pt box.
     expect(new Set(ys.map((y) => y.toFixed(3))).size).toBe(1);
   });
 });

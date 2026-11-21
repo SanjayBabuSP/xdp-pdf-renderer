@@ -1,4 +1,4 @@
-import { resolveXPath } from '../../../src/lib/xpath-resolver';
+import { resolveXPath, resolveXPathRelative } from '../../../src/lib/xpath-resolver';
 import { DataObject } from '../../../src/types';
 
 describe('xpath-resolver', () => {
@@ -59,5 +59,22 @@ describe('xpath-resolver', () => {
 
   it('returns undefined when intermediate is null', () => {
     expect(resolveXPath('$.Quotation.Missing.Deep', data)).toBeUndefined();
+  });
+
+  describe('repeat-occurrence scope (Adobe LiveCycle row binding)', () => {
+    it('resolves $.Records.Amount from a Records[i] scope (same occurrence)', () => {
+      const scope = { Amount: '300.000', Unit: 'wlp' } as DataObject;
+      expect(resolveXPathRelative('$.Records.Amount', scope)).toBe('300.000');
+    });
+
+    it('still prefers the full scoped path when present (no stripping)', () => {
+      const scope = { Records: { Amount: 'nested' } } as unknown as DataObject;
+      expect(resolveXPathRelative('$.Records.Amount', scope)).toBe('nested');
+    });
+
+    it('falls back to undefined (caller tries root) when neither matches', () => {
+      const scope = { Other: 'x' } as DataObject;
+      expect(resolveXPathRelative('$.Records.Amount', scope)).toBeUndefined();
+    });
   });
 });

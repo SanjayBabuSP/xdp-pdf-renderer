@@ -8,11 +8,6 @@ import { PDFDocument } from 'pdf-lib';
 import { render } from '../../../src';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
-/**
- * Black-box tests for scripts/sanitize-forms.mjs. The input is a fictional
- * "company" form built in a temp dir, so no real form data is needed.
- */
-
 const REPO = path.join(__dirname, '..', '..', '..');
 const SCRIPT = path.join(REPO, 'scripts', 'sanitize-forms.mjs');
 const SAMPLE_FORMS = path.join(REPO, 'test', 'fixtures', 'sample-forms');
@@ -186,7 +181,6 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
 function makeInput(root: string, extraScript = ''): string {
   const dir = path.join(root, 'in');
   fs.mkdirSync(path.join(dir, 'form'), { recursive: true });
-  // Designer saves XDPs with CRLF line endings.
   fs.writeFileSync(path.join(dir, 'form', 'Form.xdp'), xdp(extraScript).replace(/\n/g, '\r\n'));
   fs.writeFileSync(path.join(dir, 'form', 'Form.xsd'), XSD);
   fs.writeFileSync(path.join(dir, 'form', 'Form.xml'), XML);
@@ -213,7 +207,6 @@ function readAll(dir: string): string {
     .join('\n');
 }
 
-/** Original data tag → the tag at the same position in the sanitized data file. */
 function pairTags(original: string, sanitized: string): Map<string, string> {
   const tagsOf = (xml: string): string[] => [...xml.matchAll(/<([A-Za-z_][\w.-]*)[\s/>]/g)].map((m) => m[1]!);
   const before = tagsOf(original);
@@ -228,7 +221,6 @@ function pairTags(original: string, sanitized: string): Map<string, string> {
   return pairs;
 }
 
-/** Text runs per page of a form folder rendered through the public API. */
 async function renderedText(dir: string): Promise<string[][]> {
   const read = (file: string): string => fs.readFileSync(path.join(dir, 'form', file), 'utf8');
   const result = await render({ xdp: read('Form.xdp'), xsd: read('Form.xsd'), data: read('Form.xml') });
@@ -352,7 +344,6 @@ describe('sanitize-forms script', () => {
     const sanitized = await renderedText(output);
     expect(sanitized.map((page) => page.length)).toEqual(original.map((page) => page.length));
     const text = sanitized.flat().join('\n');
-    // WidgetCount (renamed bind ref) and WidgetTotal (renamed FormCalc names) both show 250.
     expect(text.split('250').length - 1).toBeGreaterThanOrEqual(2);
     expect(text).not.toContain(value(outXml, tag('JaneNote')));
   }, 30000);
@@ -377,7 +368,6 @@ describe('sanitize-forms script', () => {
     expect(value(outXml, tag('Speed'))).toMatch(/^[1-9][1-9]00\.[1-9]$/);
     expect(value(outXml, tag('Email'))).toMatch(/^user-[0-9a-f]{6}@example\.com$/);
 
-    // Already out of xs:short range in the original: same shape, new digits.
     expect(value(outXml, tag('Ref'))).toMatch(/^[1-9]{7}$/);
     expect(value(outXml, tag('Ref'))).not.toBe('1234567');
   });
@@ -386,7 +376,6 @@ describe('sanitize-forms script', () => {
     expect(/this\.rawValue == "([^"]*)"/.exec(outXdp)?.[1]).toBe(value(outXml, tag('Customer')));
     expect(new RegExp(`\\$record\\.${tag('Flag')} == "([^"]*)"`).exec(outXdp)?.[1]).toBe(value(outXml, tag('Flag')));
     expect(value(outXml, tag('Mode'))).toBe('hidden');
-    // Numerically equal to a number the script compares against.
     expect(value(outXml, tag('Code'))).toBe('02');
     expect(value(outXml, tag('WidgetCount'))).toBe('250');
   });
@@ -424,7 +413,6 @@ describe('sanitize-forms script', () => {
 
   it('neutralises file paths, ids and metadata', () => {
     expect(outXdp).toContain('<uri>Form.xsd</uri>');
-    // Not one of the fixture files, so only the extension survives.
     expect(outXdp).toMatch(/DefaultPreviewDataFileName [a-z]{7}\.xml\?>/);
     expect(outXdp).not.toContain('C:\\');
     expect(outXdp).toMatch(/uuid="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/);

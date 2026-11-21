@@ -40,8 +40,8 @@ describe('parse-xdp breaks / keep / max extents', () => {
       keep: { contentArea: 'contentArea', pageArea: 'auto' },
     });
     if (s1?.type !== 'subform') throw new Error('expected subform');
-    expect(s1.position!.maxH).toBeCloseTo(283.46, 1); // 100mm
-    expect(s1.position!.maxW).toBeCloseTo(226.77, 1); // 80mm
+    expect(s1.position!.maxH).toBeCloseTo(283.46, 1);
+    expect(s1.position!.maxW).toBeCloseTo(226.77, 1);
   });
 
   it('parses breakBefore on fields', () => {

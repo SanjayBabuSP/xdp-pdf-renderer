@@ -8,12 +8,6 @@ import {
   PENDING_SYMBOLOGIES,
 } from '../../../src/rendering/barcode-renderer';
 
-/**
- * Adobe's symbology spellings come from `barcodeDefinition type="..."` in
- * `reference/Adobe-LiveCycle-Designer-11.0/config_files/adobepdf.xdc:212-252`.
- * The pre-G1 dispatcher used naive `includes()` checks that never matched
- * `code3Of9` / `code2Of5Interleaved` / `code128SSCC`.
- */
 describe('normalizeSymbology — Adobe .xdc name mapping', () => {
   const cases: Array<[string, string]> = [
     ['code3Of9', 'code39'],
@@ -74,7 +68,6 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
   it.each([...SUPPORTED_SYMBOLOGIES])('%s emits a substantial bar run', (sym) => {
     const bars = encodeBarcode(sym, '1234567890');
     expect(bars.length).toBeGreaterThan(10);
-    // 2D symbologies (pdf417) emit stacked rows, not 1D bars.
     if (sym === 'pdf417') {
       expect(bars[0].type).toBe('module-row');
       expect(bars[0].rowPattern).toMatch(/^81111113/);
@@ -91,12 +84,12 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
 
   it('EAN-13 always encodes 13 digits (12 + check)', () => {
     const bars = encodeBarcode('ean13', '4006381333931');
-    expect(bars.length).toBe(95); // 3 + 42 + 5 + 42 + 3
+    expect(bars.length).toBe(95);
   });
 
   it('EAN-8 always encodes 8 digits', () => {
     const bars = encodeBarcode('ean8', '9638507');
-    expect(bars.length).toBe(67); // 3 + 28 + 5 + 28 + 3
+    expect(bars.length).toBe(67);
   });
 
   it('interleaved 2-of-5 pads an odd digit count', () => {
@@ -113,7 +106,6 @@ describe('encodeBarcode — encoders produce well-formed runs', () => {
     const matrix = encodeBarcode('code2Of5Matrix', '1234');
     expect(interleaved.length).not.toBe(industrial.length);
     expect(matrix.length).not.toBe(industrial.length);
-    // Matrix alternates bar/space elements; Industrial emits bars only.
     expect(matrix.every((b) => b.type.endsWith('-bar'))).toBe(false);
   });
 
@@ -195,7 +187,6 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
 
   it('encodes subset B as one module per element, start→data→check→stop', () => {
     const bars = encodeBarcode('code128B', 'HI');
-    // start(11) + H(11) + I(11) + check(11) + stop(13) = 57 modules
     expect(bars).toHaveLength(57);
     expect(bars[0].type).toBe('narrow-bar');
     expect(bars[bars.length - 1].type).toBe('narrow-bar');
@@ -205,7 +196,6 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
   it('encodes subset A for control-heavy payloads and B for printable ones', () => {
     const a = encodeBarcode('code128A', 'ABC');
     const b = encodeBarcode('code128B', 'ABC');
-    // start(11) + 3×11 + check(11) + stop(13)
     expect(a).toHaveLength(68);
     expect(b).toHaveLength(68);
     expect(types(a)).not.toBe(types(b));
@@ -217,7 +207,6 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
 
   it('encodes subset C as one symbol per digit pair', () => {
     const bars = encodeBarcode('code128C', '123456');
-    // start(11) + 3 pairs(3×11) + check(11) + stop(13)
     expect(bars).toHaveLength(68);
   });
 
@@ -227,7 +216,6 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
 
   it('pads SSCC to 18 digits and encodes it in subset C', () => {
     const bars = encodeBarcode('code128SSCC', '123456789012345678');
-    // start(11) + 9 pairs(9×11) + check(11) + stop(13)
     expect(bars).toHaveLength(134);
     expect(types(bars)).toBe(types(encodeBarcode('code128SSCC', '9123456789012345678')));
   });
@@ -235,7 +223,6 @@ describe('Code 128 (G1 — wired into encodeBars)', () => {
   it('alternates bar/space runs and never merges across symbols', () => {
     const bars = encodeBarcode('code128B', 'HELLO WORLD');
     expect(bars[0].type).toBe('narrow-bar');
-    // Every run boundary flips bar↔space; runs themselves stay constant.
     let runType = isBar(bars[0]);
     for (let i = 1; i < bars.length; i++) {
       const nowBar = isBar(bars[i]);
@@ -265,7 +252,6 @@ describe('G15 — additional symbologies', () => {
 
   it('encodes Code 93 with start/stop, data and two check chars', () => {
     const bars = encodeBarcode('code93', 'ABC');
-    // start(9) + 3×9 data + 2×9 check + stop(9) + termination(1)
     expect(bars).toHaveLength(64);
     expect(bars[0].type).toBe('narrow-bar');
     expect(bars[bars.length - 1].type).toBe('narrow-bar');
@@ -279,7 +265,6 @@ describe('G15 — additional symbologies', () => {
   it('encodes UPC-E independently of the optional check digit', () => {
     const withCheck = encodeBarcode('upcE', '01234565');
     const withoutCheck = encodeBarcode('upcE', '0123456');
-    // start(3) + 6×7 + end(6)
     expect(withCheck).toHaveLength(51);
     expect(types(withCheck)).toBe(types(withoutCheck));
   });
@@ -292,7 +277,6 @@ describe('G15 — additional symbologies', () => {
 
   it('encodes MSI with a mod-10 check digit', () => {
     const bars = encodeBarcode('msi', '123');
-    // start(3) + 4 digits (3 + check)×12 + stop(4)
     expect(bars).toHaveLength(3 + 4 * 12 + 4);
   });
 
@@ -322,7 +306,6 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
   const isTall = (b: { type: string }) => b.type === 'tall-bar';
   const isBar = (b: { type: string }) => b.type.endsWith('-bar');
 
-  /** Digit = sum of tall-bar weights (7,4,2,1,0) mod 11 (11 → 0). */
   const digitOf = (bars: { type: string }[]): number => {
     const talls = bars.map((b) => (isTall(b) ? 1 : 0));
     const sum = POSTNET_WEIGHTS.reduce((n, w, i) => n + (talls[i] ? w : 0), 0);
@@ -331,7 +314,6 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
 
   it('POSTNET encodes each digit with exactly two tall bars', () => {
     const bars = encodeBarcode('postUS5Zip', '95051');
-    // frame bars + 5 digits + check digit = 6 × 5 bars
     expect(bars.filter(isBar)).toHaveLength(6 * 5 + 2);
     const digitBars = bars.filter(isBar).slice(1, -1);
     for (let i = 0; i < digitBars.length; i += 5) {
@@ -346,7 +328,6 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
     const groups: { type: string }[][] = [];
     const digitBars = bars.filter(isBar).slice(1, -1);
     for (let i = 0; i < digitBars.length; i += 5) groups.push(digitBars.slice(i, i + 5));
-    // 95051 + check (0) → digits 9,5,0,5,1,0
     expect(groups.map(digitOf)).toEqual([9, 5, 0, 5, 1, 0]);
   });
 
@@ -354,7 +335,6 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
     const bars = encodeBarcode('postUSStandard', '950511234');
     expect(bars[0].type).toBe('tall-bar');
     expect(bars[bars.length - 1].type).toBe('tall-bar');
-    // 9 payload + check digit
     const digitBars = bars.filter(isBar).slice(1, -1);
     expect(digitBars).toHaveLength(10 * 5);
   });
@@ -371,9 +351,7 @@ describe('G15b — POSTNET / PLANET (USPS 2-height)', () => {
     for (let i = 0; i < digitBars.length; i += 5) {
       expect(digitBars.slice(i, i + 5).filter((b) => b.type === 'short-bar')).toHaveLength(2);
     }
-    // Inverse image: planet tall pattern == postnet short pattern.
     const postnet = encodeBarcode('postUS5Zip', '12345');
-    // Digit bars only — frame bars are tall in both symbologies.
     const planetOnes = planet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '1' : '0')).join('');
     const postnetZeros = postnet.filter(isBar).slice(1, -1).map((b) => (isTall(b) ? '0' : '1')).join('');
     expect(planetOnes).toBe(postnetZeros);

@@ -8,13 +8,6 @@ import { resolveBindings } from '../../../../src/domain/mapping/resolve-bindings
 import { expandRepeats } from '../../../../src/domain/mapping/expand-repeats';
 import { dispatchScripts } from '../../../../src/domain/scripting';
 
-/**
- * Issue 1 regression: reconciliation must be identity-based.
- *
- * Duplicate names and duplicate SOM paths are normal in real XDP (repeated
- * rows, `-Black`/`-White` twins). Matching on terminal name or path suffix
- * makes the first sibling absorb every write.
- */
 describe('identity-based reconciliation', () => {
   const makeField = (extra: Partial<FieldNode> = {}): FieldNode => ({
     type: 'field',
@@ -37,7 +30,7 @@ describe('identity-based reconciliation', () => {
   });
 
   it('writes presence onto the exact node the script changed', () => {
-    const a = makeField(); // no `presence` key at all — the common case
+    const a = makeField();
     const b = makeField();
     const sa = makeScriptable('A.cell', 'A.cell', a);
     const sb = makeScriptable('B.cell', 'B.cell', b);
@@ -60,7 +53,6 @@ describe('identity-based reconciliation', () => {
   it('keeps two nodes with an identical SOM path apart', () => {
     const first = makeField();
     const second = makeField();
-    // buildScriptIndex keys the first claimer `path` and the next `path#2`.
     const s1 = makeScriptable('row.cell', 'row.cell', first);
     const s2 = makeScriptable('row.cell#2', 'row.cell', second);
 
@@ -191,9 +183,7 @@ describe('duplicate-named siblings through the real dispatcher', () => {
     for (const s of subforms) walk(s.children, s.name ?? '');
 
     expect(flags).toHaveLength(2);
-    // The script owner hides…
     expect(flags[0]).toEqual({ owner: 'left', presence: 'hidden' });
-    // …and the same-named sibling it never touched must not inherit that.
     expect(flags[1].owner).toBe('right');
     expect(flags[1].presence).not.toBe('hidden');
   });

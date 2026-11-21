@@ -1,12 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream, extractText } from '../../helpers/pdf-content';
 
-/**
- * G2 end-to-end: `@relevant` must actually keep content out of the PDF.
- * Before this, `relevant` was parsed (`parse-xdp.ts:183`, `:217`) but nothing
- * consumed it, so conditional forms rendered unconditionally.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">

@@ -3,25 +3,15 @@ import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 import { calculateTableLayout } from './calculate-table-layout';
 
-// ─── Table engine (table / row / rl-row) ──────────────────────────────────
-// evidence: layout enums 0x1b0004 (table) select XFATableLayout, row/rl-row
-// (0x1b0005/0x1b0006) are table children — legal inside a table, warn+position
-// outside (xfalayout_disasm.c:49800-49900 coercion, warn 0x72a6).
-// Row height = tallest cell (plan Phase 2 task 6: remove the hard floor of 18).
-
 function isRow(node: LayoutNode): boolean {
   return node.type === 'subform' && (node.layout === 'row' || node.layout === 'rl-row');
 }
 
 function cellColSpan(node: LayoutNode): number {
-  // evidence: Example-1 rows put colSpan on draws (draw colSpan 9 + field
-  // colSpan 2 + 8× field colSpan 3); ignoring non-field spans shifts every
-  // later cell left of Adobe's position.
   const span = (node as { colSpan?: number }).colSpan;
   return Math.max(1, span ?? 1);
 }
 
-/** Width of `span` columns starting at `col` given declared column widths. */
 function spanWidth(colWidths: number[], col: number, span: number, availableWidth: number, colCount: number): number {
   let w = 0;
   for (let j = col; j < col + span && j < colWidths.length; j++) {
@@ -75,8 +65,6 @@ function layoutRow(
     }
   }
 
-  // Adobe ignores empty spacer draws when sizing a table row (Example-3 has
-  // 18pt empty draws beside 10.63pt text rows; those must not inflate the row).
   const rowHeight = hasContentCell ? contentHeight : maxHeight;
   const width = resolveExtent(row.position, 'width', xOffset);
   return {
@@ -89,11 +77,6 @@ function layoutRow(
   };
 }
 
-/**
- * Height a table cell contributes to its row. Adobe clamps a single-line
- * `minH` field to minH instead of growing it by its top/bottom margins
- * (Example-3 rows: minH 3.596mm = 10.19pt, but content+margins = 10.63pt).
- */
 function tableCellRowHeight(cell: LayoutNode, resultHeight: number): number {
   if (cell.type !== 'field') return resultHeight;
   const pos = cell.position;
@@ -113,12 +96,6 @@ function rowCellHasContent(cell: LayoutNode): boolean {
   return true;
 }
 
-/**
- * `<subformSet relation="ordered">` used as a table child: its subforms are
- * rows of the enclosing table, not a nested table. Lay them against the
- * parent's columns and wrap the positioned rows in the set node so script /
- * SOM addresses such as `Subform_0068.Subform_0069` stay valid.
- */
 function layoutSubformSetRows(
   set: SubformNode,
   ctx: LayoutContext,
@@ -139,9 +116,6 @@ function layoutSubformSetRows(
           layoutChild
         )
       : layoutChild(child, { x: ctx.x, y, availableWidth: ctx.availableWidth });
-    // Adobe Preview lays the Example-2 ordered-set rows on the table's 7mm
-    // row grid even though the authored cell draws are only ~5.6mm high;
-    // using the raw cell height clips embedded numeric text at row borders.
     const rowHeight = Math.max(result.height, 7 * 72 / 25.4);
     children.push({
       ...result.node,
@@ -162,10 +136,6 @@ function layoutSubformSetRows(
   };
 }
 
-/**
- * Table: non-row children stack vertically (tb), row children become rows of
- * cells laid out left-to-right with colSpan occupancy.
- */
 export function layoutTableSubform(
   node: SubformNode,
   ctx: LayoutContext,
@@ -179,9 +149,6 @@ export function layoutTableSubform(
   const contentW = Math.max(width - mLeft - mRight, 0);
   const baseX = ctx.x + mLeft;
   const baseY = ctx.y + mTop;
-  // Single source of truth for column widths (attr + cell-driven auto slots);
-  // applyTableLayouts stamps the same values earlier, recomputing here is
-  // idempotent and covers direct engine use.
   const colWidths = calculateTableLayout(node, contentW).columnWidths;
   const children: LayoutNode[] = [];
   let yOffset = 0;

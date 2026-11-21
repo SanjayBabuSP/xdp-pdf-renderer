@@ -79,8 +79,13 @@ import {
 import {
   DEFAULT_EDGE_THICKNESS_PT,
   clampCornerRadius,
+  cornerRadiiOf,
   dashArrayForStyle,
+  hasRoundedCorners,
+  isBottomUnderlineOnly,
   quantizeStrokeWidth,
+  rotateCornersForAngle,
+  rotateEdgesForAngle,
   xfaCapToPdf,
   xfaJoinToPdf,
 } from './border-style';
@@ -89,7 +94,6 @@ import { renderBarcode } from './barcode-renderer';
 import { toPointsOrZero } from '../lib/unit-converter';
 import { ERROR_CODES } from '../errors/error-codes';
 
-/** Render the paginated layout to a PDF buffer. This is the only I/O boundary. */
 export async function renderPdf(
   layout: PaginatedLayout,
   options: RenderOptions = {},
@@ -99,10 +103,6 @@ export async function renderPdf(
   return result.buffer;
 }
 
-/**
- * Render the paginated layout to a PDF buffer AND return the PDFDocument.
- * Used when post-processing (security, bookmarks, etc.) is needed.
- */
 export async function renderPdfWithDoc(
   layout: PaginatedLayout,
   options: RenderOptions = {},
@@ -121,7 +121,6 @@ export async function renderPdfWithDoc(
   for (let pageIndex = 0; pageIndex < layout.pages.length; pageIndex++) {
     const page = layout.pages[pageIndex];
     const pdfPage = doc.addPage([page.medium.short, page.medium.long]);
-    // Reuse one /Font resource entry per distinct font (pdf-lowlevel).
     dedupePageFontResources(pdfPage);
     await renderPage(pdfPage, page, fontManager, options, pageIndex, totalPages);
   }
@@ -140,18 +139,14 @@ async function renderPage(
 ): Promise<void> {
   const pageH = page.medium.long;
 
-  // Render master page elements (headers, footers, logos) first
   for (const node of page.masterPageChildren) {
     await renderNode(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
   }
 
-  // Render content
   for (const node of page.children) {
     await renderNode(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
   }
 
-  // Pages containing alpha are marked as transparency groups
-  // (pdfldriver:61272 FUN_19750570 sets /Group << /S /Transparency /CS /DeviceRGB >>).
   applyPageTransparencyGroup(pdfPage);
 }
 
@@ -164,9 +159,6 @@ async function renderNode(
   pageIndex = 0,
   totalPages = 1,
 ): Promise<void> {
-  // "invisible"/"hidden" nodes still occupy layout space but must not be drawn. "inactive"/"hidden"
-  // nodes are normally already filtered out earlier (evaluateConditions); this is a defensive check.
-  // In previewMode, force invisible watermark subforms to be visible.
   if (!options.previewMode) {
     if (node.presence === 'invisible' || node.presence === 'hidden' || node.presence === 'inactive') return;
   }
@@ -185,11 +177,100 @@ async function renderSubform(
   pageIndex = 0,
   totalPages = 1,
 ): Promise<void> {
-  // drawBorderBox handles fill (incl. gradients) then edges, in one pass.
-  if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
+  if (node.border) {
+    const collapsed = collapseTinyGapEdges(node);
+    if (collapsed) drawBorderBox(pdfPage, collapsed, node.position, pageH);
+  }
   for (const child of node.children) {
     await renderNode(pdfPage, child, pageH, fontManager, options, pageIndex, totalPages);
   }
+}
+
+function collapseTinyGapEdges(node: SubformNode): BorderSpec | undefined {
+  const border = node.border;
+  if (!border || !node.position) return border;
+  const pos = node.position;
+  if (pos.x === undefined || pos.y === undefined || pos.w === undefined || pos.h === undefined) return border;
+  const edges = border.edges;
+  if (!edges || edges.length === 0) return border;
+  const norm: Array<EdgeSpec | undefined> =
+    edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
+  const visible = (e: EdgeSpec | undefined): boolean =>
+    !!e && e.presence !== 'hidden' && e.presence !== 'invisible' && e.style !== 'none';
+  const subBottomVisible = visible(norm[2]);
+  const subTopVisible = visible(norm[0]);
+  if (!subBottomVisible && !subTopVisible) return border;
+
+  const TOL = 3;
+  let suppressBottom = false;
+  let suppressTop = false;
+  if (subBottomVisible) {
+    const subBottom = (pos.y ?? 0) + (pos.h ?? 0);
+    for (const child of node.children) {
+      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } }).position;
+      if (!cp || cp.x === undefined || cp.y === undefined || cp.w === undefined || cp.h === undefined) continue;
+      const childBottom = cp.y + cp.h;
+      const gap = subBottom - childBottom;
+      if (gap < -0.5 || gap > TOL) continue;
+      if (!childBottomEdgeVisible(child, norm[2]?.thickness)) continue;
+      if (!xOverlap(pos.x ?? 0, pos.w ?? 0, cp.x, cp.w, 8)) continue;
+      suppressBottom = true;
+      break;
+    }
+  }
+  if (subTopVisible) {
+    const subTop = pos.y ?? 0;
+    for (const child of node.children) {
+      const cp = (child as { position?: { x?: number; y?: number; w?: number; h?: number } }).position;
+      if (!cp || cp.x === undefined || cp.y === undefined) continue;
+      const childTop = cp.y;
+      const gap = childTop - subTop;
+      if (gap < -0.5 || gap > TOL) continue;
+      if (!childTopEdgeVisible(child, norm[0]?.thickness)) continue;
+      if (!xOverlap(pos.x ?? 0, pos.w ?? 0, cp.x ?? 0, cp.w ?? 0, 8)) continue;
+      suppressTop = true;
+      break;
+    }
+  }
+  if (!suppressBottom && !suppressTop) return border;
+  const pruned: Array<EdgeSpec | undefined> = [...norm];
+  if (suppressBottom) pruned[2] = { ...(pruned[2] as object), presence: 'hidden' } as EdgeSpec;
+  if (suppressTop) pruned[0] = { ...(pruned[0] as object), presence: 'hidden' } as EdgeSpec;
+  const anyVisible = pruned.some(visible);
+  const fillVisible =
+    !!border.fill?.color &&
+    border.fill.presence !== 'hidden' &&
+    border.fill.presence !== 'invisible';
+  if (!anyVisible && !fillVisible && !border.cornerRadius && !border.cornerRadii) return undefined;
+  return { ...border, edges: pruned as EdgeSpec[] };
+}
+
+function edgeThickness(edge: EdgeSpec | undefined): number {
+  return edge?.thickness ?? 0.5;
+}
+
+function childEdgeVisible(child: LayoutNode, index: number, parentThickness: number | undefined): boolean {
+  const border = (child as { border?: BorderSpec }).border;
+  if (!border || border.presence === 'hidden' || border.presence === 'invisible') return false;
+  const edges = border.edges;
+  if (!edges || edges.length === 0) return false;
+  const edge: EdgeSpec | undefined = edges.length === 1 ? edges[0] : edges[index];
+  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return false;
+  return edgeThickness(edge) >= (parentThickness ?? 0.5);
+}
+
+function childBottomEdgeVisible(child: LayoutNode, parentThickness: number | undefined): boolean {
+  return childEdgeVisible(child, 2, parentThickness);
+}
+
+function childTopEdgeVisible(child: LayoutNode, parentThickness: number | undefined): boolean {
+  return childEdgeVisible(child, 0, parentThickness);
+}
+
+function xOverlap(ax: number, aw: number, bx: number, bw: number, minOverlap: number): boolean {
+  const left = Math.max(ax, bx);
+  const right = Math.min(ax + aw, bx + bw);
+  return right - left >= minOverlap;
 }
 
 async function renderExclGroup(
@@ -199,29 +280,22 @@ async function renderExclGroup(
   fontManager: FontManager,
   _options: RenderOptions
 ): Promise<void> {
-  // drawBorderBox handles fill (incl. gradients) then edges, in one pass.
   if (node.border) drawBorderBox(pdfPage, node.border, node.position, pageH);
   for (const child of node.children) {
     await renderNode(pdfPage, child, pageH, fontManager, _options, 1, 1);
   }
 }
 
-/** Convert an XFA 0-255 RGB triple to pdf-lib's 0-1 color space.
- *
- * Gray collapse (pdfldriver:10496): when r == g == b emit DeviceGray instead
- * of DeviceRGB — saves ~5 bytes per colour operator and matches Adobe output.
- */
 function toPdfColor(color?: RgbColor): RGB {
   if (!color) return rgb(0, 0, 0);
   if (isGray(color)) return grayscale(grayLevel(color)) as unknown as RGB;
   return rgb(color.r / 255, color.g / 255, color.b / 255);
 }
 
-/** Draw a border's fill and/or stroked edges around a node's absolute position box. */
 function drawBorderBox(
   pdfPage: PDFPage,
   border: BorderSpec,
-  pos: { x?: number; y?: number; w?: number; h?: number } | undefined,
+  pos: { x?: number; y?: number; w?: number; h?: number; rotate?: number } | undefined,
   pageH: number
 ): void {
   if (border.presence === 'hidden' || border.presence === 'invisible' || border.presence === 'inactive') return;
@@ -231,43 +305,51 @@ function drawBorderBox(
   const h = pos.h ?? 0;
   if (w <= 0 || h <= 0) return;
   const y = flipY(pos.y, h, pageH);
+  const rotate = normalizeRotation(pos.rotate ?? 0);
+  const isRotated = rotate === 90 || rotate === 270;
+
+  let edges: Array<EdgeSpec | undefined> | undefined = border.edges;
+  let radii = cornerRadiiOf(border);
+  if (isRotated && edges && edges.length) {
+    const quad: [EdgeSpec | undefined, EdgeSpec | undefined, EdgeSpec | undefined, EdgeSpec | undefined] =
+      edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
+    const rotated = rotateEdgesForAngle<EdgeSpec | undefined>(quad, rotate);
+    edges = [rotated[0], rotated[1], rotated[2], rotated[3]];
+  }
+  if (isRotated) {
+    const quad: [number | undefined, number | undefined, number | undefined, number | undefined] = [
+      radii[0],
+      radii[1],
+      radii[2],
+      radii[3],
+    ];
+    const rotated = rotateCornersForAngle(quad, rotate);
+    radii = [rotated[0], rotated[1], rotated[2], rotated[3]];
+  }
+  const rounded = hasRoundedCorners(radii, w, h);
 
   const fill = border.fill;
   if (fill?.color && fill.presence !== 'hidden' && fill.presence !== 'invisible') {
     const started = beginOpacityScope(pdfPage, { fill: fill.opacity });
     if (fill.fillType && isGradientFill(fill.fillType)) {
-      // Gradient fill: axial/radial shading dict.
-      // evidence: renderer:35845 (axial), renderer:36519 (radial), pdfldriver:40203.
-      // Default c1 to white when no color2 is specified.
       const c1: RgbColor = fill.color2 ?? { r: 255, g: 255, b: 255 };
       drawGradientFill(pdfPage, fill.fillType, fill.color, c1, pos.x, y, w, h);
-    } else if (border.cornerRadius && border.cornerRadius > 0) {
-      const r = clampCornerRadius(border.cornerRadius, w, h);
-      fillRoundedRectangle(pdfPage, pos.x, y, w, h, r, fill.color);
+    } else if (rounded) {
+      fillRoundedRectPerCorner(pdfPage, pos.x, y, w, h, radii, fill.color);
     } else {
-      // Solid fill as one `re` + `f` (no stroke operator at all — the old
-      // drawRectangle path emitted an inert `0 w` per fill).
       fillUniformRect(pdfPage, fill.color, pos.x, y, w, h);
     }
     endOpacityScope(pdfPage, started);
   }
 
-  // Rounded borders stroke a single continuous path so `join` applies at the
-  // corners; Adobe's `cornerRadius` produces a rounded rectangle stroke, not
-  // four independent straight edges. Per-edge differences force the legacy
-  // edge-by-edge path (designrenderer:6283+ draws 0,2,1,3).
-  const uniformEdge = uniformEdgeOf(border.edges);
-  if (border.cornerRadius && border.cornerRadius > 0 && uniformEdge) {
-    strokeRoundedRectangle(pdfPage, pos.x, y, w, h, border.cornerRadius, uniformEdge);
+  const uniformEdge = uniformEdgeOf(edges as EdgeSpec[] | undefined);
+  if (rounded && uniformEdge) {
+    strokeRoundedRectPerCorner(pdfPage, pos.x, y, w, h, radii, uniformEdge);
   } else {
-    drawBorderEdges(pdfPage, border, pos, pageH);
+    drawBorderEdges(pdfPage, { ...border, edges: edges as EdgeSpec[] | undefined }, { x: pos.x, y: pos.y, w, h }, pageH);
   }
 }
 
-/**
- * Return the single edge when all edges are identical (or there is one edge),
- * otherwise undefined. Rounded borders must be uniform to stroke as one path.
- */
 function uniformEdgeOf(edges: EdgeSpec[] | undefined): EdgeSpec | undefined {
   if (!edges || edges.length === 0) return undefined;
   if (edges.length === 1) return edges[0];
@@ -292,56 +374,6 @@ function edgeEquals(a: EdgeSpec | undefined, b: EdgeSpec | undefined): boolean {
   );
 }
 
-/**
- * Stroke a rounded rectangle with the edge's dash/cap/join settings.
- * Corner radius is clamped to `min(w, h) / 2` (renderer:24402).
- */
-function strokeRoundedRectangle(
-  pdfPage: PDFPage,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  radius: number,
-  edge: EdgeSpec
-): void {
-  if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
-  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
-  if (thickness <= 0) return;
-
-  const r = clampCornerRadius(radius, w, h);
-  const k = 0.5523 * r;
-  // Default border colour is black, matching toPdfColor(undefined).
-  const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
-  const dashArray = dashArrayForStyle(edge.style, thickness);
-
-  const operators = [
-    pushGraphicsState(),
-    setStrokingRgbColor(red / 255, green / 255, blue / 255),
-    setLineWidth(thickness),
-    setLineCap(xfaCapToPdf(edge.cap)),
-    setLineJoin(xfaJoinToPdf(edge.join)),
-    setDashPattern(dashArray ?? [], 0),
-    moveTo(x + r, y),
-    lineTo(x + w - r, y),
-    appendBezierCurve(x + w - r + k, y, x + w, y + r - k, x + w, y + r),
-    lineTo(x + w, y + h - r),
-    appendBezierCurve(x + w, y + h - r + k, x + w - r + k, y + h, x + w - r, y + h),
-    lineTo(x + r, y + h),
-    appendBezierCurve(x + r - k, y + h, x, y + h - r + k, x, y + h - r),
-    lineTo(x, y + r),
-    appendBezierCurve(x, y + r - k, x + r - k, y, x + r, y),
-    closePath(),
-    strokePath(),
-    popGraphicsState(),
-  ];
-
-  const started = beginOpacityScope(pdfPage, { stroke: edge.opacity });
-  pdfPage.pushOperators(...operators);
-  endOpacityScope(pdfPage, started);
-}
-
-/** Fill an axis-aligned box as one `re` + `f`, preserving gray collapse. */
 function fillUniformRect(
   pdfPage: PDFPage,
   color: RgbColor,
@@ -362,7 +394,6 @@ function fillUniformRect(
   );
 }
 
-/** Draw only the border edges (not fill). Used when fill is drawn separately before children. */
 function drawBorderEdges(
   pdfPage: PDFPage,
   border: BorderSpec,
@@ -380,21 +411,17 @@ function drawBorderEdges(
   const edges = border.edges ?? [];
   if (edges.length === 0) return;
 
-  // Uniform axis-aligned borders stroke a single `re` rect (ADS emits re/S,
-  // not four m/l segments). Rounded corners are handled upstream by
-  // strokeRoundedRectangle; genuinely per-edge borders keep the legacy path.
   const uniform = uniformEdgeOf(edges);
-  if (uniform && !(border.cornerRadius && border.cornerRadius > 0)) {
+  const anyRounding =
+    (border.cornerRadius ?? 0) > 0 ||
+    (border.cornerRadii ?? []).some((r) => (r ?? 0) > 0);
+  if (uniform && !anyRounding) {
     strokeUniformRect(pdfPage, uniform, pos.x, y, w, h);
     return;
   }
   const [top, right, bottom, left] =
     edges.length === 1 ? [edges[0], edges[0], edges[0], edges[0]] : [edges[0], edges[1], edges[2], edges[3]];
 
-  // Edges are stroked in XFA order 0,2,1,3 (top, bottom, right, left) — Adobe
-  // walks the edge list in exactly that sequence when stroking a rectangle
-  // (designrenderer:6283 edge 0, :6348 edge 2, :6415 edge 1, then edge 3), so
-  // thicker edges overlap thinner ones at the corners the same way.
   drawEdge(pdfPage, top, pos.x, y + h, pos.x + w, y + h);
   drawEdge(pdfPage, bottom, pos.x, y, pos.x + w, y);
   drawEdge(pdfPage, right, pos.x + w, y + h, pos.x + w, y);
@@ -413,11 +440,8 @@ function drawEdge(
   const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
   if (thickness <= 0) return;
 
-  // Dash: from config-driven table (border-style.ts / adobepdf.xdc:187-191).
-  // strokeTypeMultiplier = 1 (adobepdf.xdc option). evidence: pdfldriver:60525.
   const dashArray = dashArrayForStyle(edge.style, thickness);
 
-  // Cap/join: designrenderer:6182 enum 0x50000/1/2 → PDF J 0/1/2.
   const lineCap = xfaCapToPdf(edge.cap);
 
   const lineOptions: Parameters<PDFPage['drawLine']>[0] = {
@@ -437,11 +461,6 @@ function drawEdge(
   endOpacityScope(pdfPage, started);
 }
 
-/**
- * Stroke an axis-aligned uniform border as one `re` rect in a single
- * graphics-state block (instead of four m/l segments with four state
- * blocks). Dash, cap and join ride on the same operators ADS emits.
- */
 function strokeUniformRect(
   pdfPage: PDFPage,
   edge: EdgeSpec,
@@ -470,45 +489,134 @@ function strokeUniformRect(
   endOpacityScope(pdfPage, started);
 }
 
-/**
- * Dash ratios from adobepdf.xdc:187-191 (`solid 1 0`, `dotted 1 2`,
- * `dashed 4 2`, `dashDot 3 2 1 2`, `dashDotDot 3 2 1 2 1 2`).
- * Moved to border-style.ts; this const is kept for reference only.
- * @deprecated Use dashArrayForStyle() from border-style.ts.
- */
-// DASH_PATTERNS removed — now driven by border-style.ts (Phase 5).
-
-/** Fill a rounded rectangle with the current fill colour (corner radius clamped to half the box). */
-function fillRoundedRectangle(
+function fillRoundedRectPerCorner(
   pdfPage: PDFPage,
   x: number,
   y: number,
   w: number,
   h: number,
-  radius: number,
+  radii: Array<number | undefined>,
   color: RgbColor
 ): void {
-  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
-  const k = 0.5523 * r;
-  const { r: red, g: green, b: blue } = color;
-  const operators = [setFillingRgbColor(red / 255, green / 255, blue / 255), moveTo(x + r, y)];
-  if (r === 0) {
-    operators.push(lineTo(x + w, y), lineTo(x + w, y + h), lineTo(x, y + h), closePath(), fillPath());
-  } else {
-    operators.push(
-      lineTo(x + w - r, y),
-      appendBezierCurve(x + w - r + k, y, x + w, y + r - k, x + w, y + r),
-      lineTo(x + w, y + h - r),
-      appendBezierCurve(x + w, y + h - r + k, x + w - r + k, y + h, x + w - r, y + h),
-      lineTo(x + r, y + h),
-      appendBezierCurve(x + r - k, y + h, x, y + h - r + k, x, y + h - r),
-      lineTo(x, y + r),
-      appendBezierCurve(x, y + r - k, x + r - k, y, x + r, y),
-      closePath(),
-      fillPath()
-    );
+  const [tl0, tr0, br0, bl0] = radii;
+  const tl = clampCornerRadius(tl0 ?? 0, w, h);
+  const tr = clampCornerRadius(tr0 ?? 0, w, h);
+  const br = clampCornerRadius(br0 ?? 0, w, h);
+  const bl = clampCornerRadius(bl0 ?? 0, w, h);
+  if (tl === 0 && tr === 0 && br === 0 && bl === 0) {
+    fillUniformRect(pdfPage, color, x, y, w, h);
+    return;
   }
-  pdfPage.pushOperators(...operators);
+  const { r: red, g: green, b: blue } = color;
+  const ops = [setFillingRgbColor(red / 255, green / 255, blue / 255), moveTo(x + tl, y)];
+  ops.push(lineTo(x + w - br, y));
+  if (br > 0) {
+    const k = 0.5523 * br;
+    ops.push(appendBezierCurve(x + w - br + k, y, x + w, y + br - k, x + w, y + br));
+  }
+  ops.push(lineTo(x + w, y + h - tr));
+  if (tr > 0) {
+    const k = 0.5523 * tr;
+    ops.push(appendBezierCurve(x + w, y + h - tr + k, x + w - tr + k, y + h, x + w - tr, y + h));
+  }
+  ops.push(lineTo(x + tl, y + h));
+  if (tl > 0) {
+    const k = 0.5523 * tl;
+    ops.push(appendBezierCurve(x + tl - k, y + h, x, y + h - tl + k, x, y + h - tl));
+  }
+  ops.push(lineTo(x, y + bl));
+  if (bl > 0) {
+    const k = 0.5523 * bl;
+    ops.push(appendBezierCurve(x, y + bl - k, x + bl - k, y, x + bl, y));
+  }
+  ops.push(closePath(), fillPath());
+  pdfPage.pushOperators(...ops);
+}
+
+function strokeRoundedRectPerCorner(
+  pdfPage: PDFPage,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radii: Array<number | undefined>,
+  edge: EdgeSpec
+): void {
+  if (edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none') return;
+  const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
+  if (thickness <= 0) return;
+  const [tl0, tr0, br0, bl0] = radii;
+  const tl = clampCornerRadius(tl0 ?? 0, w, h);
+  const tr = clampCornerRadius(tr0 ?? 0, w, h);
+  const br = clampCornerRadius(br0 ?? 0, w, h);
+  const bl = clampCornerRadius(bl0 ?? 0, w, h);
+  const { r: red, g: green, b: blue } = edge.color ?? { r: 0, g: 0, b: 0 };
+  const dashArray = dashArrayForStyle(edge.style, thickness);
+  const ops = [
+    pushGraphicsState(),
+    setStrokingRgbColor(red / 255, green / 255, blue / 255),
+    setLineWidth(thickness),
+    setLineCap(xfaCapToPdf(edge.cap)),
+    setLineJoin(xfaJoinToPdf(edge.join)),
+    setDashPattern(dashArray ?? [], 0),
+    moveTo(x + tl, y),
+    lineTo(x + w - br, y),
+  ];
+  if (br > 0) {
+    const k = 0.5523 * br;
+    ops.push(appendBezierCurve(x + w - br + k, y, x + w, y + br - k, x + w, y + br));
+  }
+  ops.push(lineTo(x + w, y + h - tr));
+  if (tr > 0) {
+    const k = 0.5523 * tr;
+    ops.push(appendBezierCurve(x + w, y + h - tr + k, x + w - tr + k, y + h, x + w - tr, y + h));
+  }
+  ops.push(lineTo(x + tl, y + h));
+  if (tl > 0) {
+    const k = 0.5523 * tl;
+    ops.push(appendBezierCurve(x + tl - k, y + h, x, y + h - tl + k, x, y + h - tl));
+  }
+  ops.push(lineTo(x, y + bl));
+  if (bl > 0) {
+    const k = 0.5523 * bl;
+    ops.push(appendBezierCurve(x, y + bl - k, x + bl - k, y, x + bl, y));
+  }
+  ops.push(closePath(), strokePath(), popGraphicsState());
+  const started = beginOpacityScope(pdfPage, { stroke: edge.opacity });
+  pdfPage.pushOperators(...ops);
+  endOpacityScope(pdfPage, started);
+}
+
+function drawUnderlineInValueArea(
+  pdfPage: PDFPage,
+  border: BorderSpec,
+  pos: { x?: number; y?: number; w?: number; h?: number } | undefined,
+  reserve: number,
+  placement: string,
+  pageH: number
+): void {
+  if (!border || !pos || pos.x === undefined || pos.y === undefined) return;
+  const w = pos.w ?? 0;
+  const h = pos.h ?? 0;
+  if (w <= 0 || h <= 0) return;
+  const edges = border.edges ?? [];
+  const bottom: EdgeSpec | undefined =
+    edges.length === 1 ? edges[0] : edges.length >= 3 ? edges[2] : undefined;
+  if (!bottom || bottom.presence === 'hidden' || bottom.presence === 'invisible' || bottom.style === 'none') {
+    drawBorderBox(pdfPage, border, pos, pageH);
+    return;
+  }
+  if (border.fill?.color && border.fill.presence !== 'hidden' && border.fill.presence !== 'invisible') {
+    drawBorderBox(pdfPage, { ...border, edges: [] }, pos, pageH);
+  }
+  const y = flipY(pos.y, h, pageH);
+  const x1 = placement === 'right' ? pos.x : pos.x + reserve;
+  const x2 = placement === 'right' ? pos.x + w - reserve : pos.x + w;
+  if (x2 <= x1) {
+    drawBorderBox(pdfPage, border, pos, pageH);
+    return;
+  }
+  drawEdge(pdfPage, bottom, x1, y, x2, y);
 }
 
 async function renderField(
@@ -522,26 +630,21 @@ async function renderField(
 
   const margins = getMargins(node.margin);
   const x = pos.x + margins.left;
-  const width = Math.max((pos.w ?? 0) - margins.left - margins.right, 0);
-  const height = pos.h ?? 18;
+  const width = Math.max((pos.w ?? pos.minW ?? 0) - margins.left - margins.right, 0);
+  const height = pos.h ?? pos.minH ?? 18;
   const y = flipY(pos.y, height, pageH) + margins.bottom;
   const innerHeight = Math.max(height - margins.top - margins.bottom, 0);
-  // XFA default font size is 10pt (matches position-engine line height).
   const fontSize = node.font?.size ?? 10;
   const fontColor = toPdfColor(node.font?.color);
-  // Choice lists display the selected item's text, not its export value (G7).
   const valueText = node.ui?.type === 'choiceList'
     ? resolveChoiceText(node.resolvedValue, node.ui.items)
     : formatValue(node.resolvedValue, node.formatPicture);
-  // JustH/JustV codes — para@hAlign wins, textEdit hAlign is the fallback
-  // (flow-engine.ts:15 reads the same pair for box alignment).
   const justH = mapJustH(node.para?.hAlign ?? node.ui?.hAlign);
   const valueAlign = alignClassOf(justH);
   const justV = mapJustV(node.para?.vAlign ?? node.ui?.vAlign);
   const verticalAlign: 'top' | 'middle' | 'bottom' =
     justV === 2 ? 'middle' : justV === 3 ? 'bottom' : 'top';
 
-  // Handle special UI types
   if (node.ui?.type === 'checkButton') {
     return renderCheckButton(pdfPage, node, pos.x, flipY(pos.y, height, pageH), pos.w ?? 0, height, fontSize, fontManager, fontColor);
   }
@@ -552,10 +655,20 @@ async function renderField(
     return;
   }
 
-  if (node.border) drawBorderBox(pdfPage, node.border, pos, pageH);
+  if (node.border) {
+    const placement = node.caption?.placement ?? 'left';
+    const reserve = node.caption?.reserve ?? 0;
+    if (
+      (placement === 'left' || placement === 'right') &&
+      reserve > 0 &&
+      isBottomUnderlineOnly(node.border.edges)
+    ) {
+      drawUnderlineInValueArea(pdfPage, node.border, pos, reserve, placement, pageH);
+    } else {
+      drawBorderBox(pdfPage, node.border, pos, pageH);
+    }
+  }
 
-  // Buttons draw their authored label centred in the widget box (G7); the
-  // data value is irrelevant. Signatures flatten to an empty (bordered) box.
   if (node.ui?.type === 'button') {
     await renderButton(pdfPage, node, x, y, width, innerHeight, fontSize, fontManager, fontColor, valueText);
     return;
@@ -573,7 +686,6 @@ async function renderField(
   const valueFamily = node.font?.family ?? 'Helvetica';
   const valueScale = scaleForFamily(valueFamily);
 
-  // Draw caption if present
   if (node.caption?.text) {
     const captionFamily = node.caption.font?.family ?? node.font?.family ?? 'Helvetica';
     const captionFont = node.caption.font
@@ -591,20 +703,69 @@ async function renderField(
     let captionX = x;
     let captionY = y;
 
-    // Caption must not paint over the value area. `reserve` is the authored
-    // strip width, computed by Designer for its own font; if the caption
-    // measures wider in the resolved font it would otherwise silently overlap
-    // the value. Clamp the strip the caption may occupy to the authored
-    // reserve and clip the caption to it.
     const captionWidth = measureTextWidth(node.caption.text, captionSize, captionFont, captionScale);
     const captionStrip =
       placement === 'left' || placement === 'right'
         ? Math.max(Math.min(reserve || captionWidth, width), 0)
         : width;
 
-    if (verticalRot) {
-      // Box swap: caption wraps along the box height (single line — the
-      // reading length is the measured text length).
+    const richSymbol = captionTrailingSymbol(node.caption.text, node.caption.richHtml);
+    let captionPainted = false;
+    if (
+      richSymbol &&
+      (placement === 'left' || placement === 'right') &&
+      reserve > 0 &&
+      !verticalRot
+    ) {
+      const captionAdvance = paraMetrics(node.para, captionSize).lineAdvance;
+      const { baselines: symBaselines } = layoutLines(
+        1,
+        captionSize,
+        { top: y + innerHeight, bottom: y },
+        verticalAlign,
+        captionFont,
+        { lineAdvance: captionAdvance }
+      );
+      const symY = symBaselines[0];
+      const labelW = measureTextWidth(richSymbol.label, captionSize, captionFont, captionScale);
+      const symW = measureTextWidth(richSymbol.symbol, captionSize, captionFont, captionScale);
+      const labelX = placement === 'right' ? x + width - captionStrip : x;
+      const symX =
+        placement === 'right'
+          ? x + width - symW
+          : x + Math.max(captionStrip - symW, labelW + 1);
+      const clipped = clipOverflow(
+        pdfPage,
+        placement === 'left' ? x : x + width - captionStrip,
+        y,
+        captionStrip,
+        innerHeight,
+        labelW + symW > captionStrip + 0.01
+      );
+      drawScaledText(
+        pdfPage,
+        richSymbol.label,
+        { x: labelX, y: symY, size: captionSize, font: captionFont, color: captionColor, rotate: rotation },
+        captionScale
+      );
+      drawScaledText(
+        pdfPage,
+        richSymbol.symbol,
+        { x: symX, y: symY, size: captionSize, font: captionFont, color: captionColor, rotate: rotation },
+        captionScale
+      );
+      if (richSymbol.underline) {
+        const uy = symY - Math.max(0.5, captionSize * 0.12);
+        pdfPage.drawLine({
+          start: { x: symX, y: uy },
+          end: { x: symX + symW, y: uy },
+          thickness: Math.max(0.25, captionSize * 0.05),
+          color: captionColor,
+        });
+      }
+      endOverflowClip(pdfPage, clipped);
+      captionPainted = true;
+    } else if (verticalRot) {
       const anchor = rotatedAnchor({
         rotate,
         box: innerBox,
@@ -619,20 +780,11 @@ async function renderField(
         captionY = anchor.y;
       }
     } else {
-      // Baseline placement via the same ascent-based model as the value text
-      // (layoutLines), so a caption and its value on the same line share one
-      // baseline instead of two independently-derived guesses.
       const captionAdvance = paraMetrics(node.para, captionSize).lineAdvance;
-      const captionTop =
-        verticalAlign === 'bottom'
-          ? y + innerHeight
-          : verticalAlign === 'middle'
-            ? y + innerHeight / 2
-            : y + innerHeight;
       const { baselines: captionBaselines } = layoutLines(
         1,
         captionSize,
-        { top: captionTop, bottom: y },
+        { top: y + innerHeight, bottom: y },
         verticalAlign,
         captionFont,
         { lineAdvance: captionAdvance }
@@ -644,37 +796,36 @@ async function renderField(
       }
     }
 
-    // Clip the caption to its strip so an over-wide caption can never paint
-    // into the value area (the "Pos." over "Machine location" collision).
-    const captionClip =
-      placement === 'left' || placement === 'right'
-        ? clipOverflow(
-            pdfPage,
-            placement === 'left' ? x : x + width - captionStrip,
-            y,
-            captionStrip,
-            innerHeight,
-            captionWidth > captionStrip + 0.01
-          )
-        : false;
+    if (!captionPainted) {
+      const captionClip =
+        placement === 'left' || placement === 'right'
+          ? clipOverflow(
+              pdfPage,
+              placement === 'left' ? x : x + width - captionStrip,
+              y,
+              captionStrip,
+              innerHeight,
+              captionWidth > captionStrip + 0.01
+            )
+          : false;
 
-    drawScaledText(
-      pdfPage,
-      node.caption.text,
-      {
-        x: captionX,
-        y: captionY,
-        size: captionSize,
-        font: captionFont,
-        color: captionColor,
-        rotate: rotation,
-      },
-      captionScale
-    );
-    endOverflowClip(pdfPage, captionClip);
+      drawScaledText(
+        pdfPage,
+        node.caption.text,
+        {
+          x: captionX,
+          y: captionY,
+          size: captionSize,
+          font: captionFont,
+          color: captionColor,
+          rotate: rotation,
+        },
+        captionScale
+      );
+      endOverflowClip(pdfPage, captionClip);
+    }
   }
 
-  // Barcode fields draw bars, not glyphs (G1: `renderBarcode` had no call site).
   if (node.ui?.type === 'barcode') {
     await renderBarcodeValue(pdfPage, node, valueText, {
       x, y, w: width, h: innerHeight,
@@ -682,7 +833,6 @@ async function renderField(
     return;
   }
 
-  // Draw field value with multi-line wrapping
   if (valueText) {
     const valueFont = await fontManager.getSafeFont(
       valueText,
@@ -691,12 +841,9 @@ async function renderField(
       node.font?.posture
     );
     const valueAreaWidth = Math.max(width - reserve, 0);
-    // `<para>` block metrics: line advance, vertical space and horizontal insets.
     const pm = paraMetrics(node.para, fontSize);
 
     if (verticalRot) {
-      // Box swap: wrap along the reading axis (box height), anchor with the
-      // cross-axis offset preserving the caption reserve strip.
       const valueBox = { x: x + reserve, y, w: valueAreaWidth, h: innerHeight };
       const lines = wrapText(valueText, fontSize, innerHeight, valueFont, {
         horizontalScale: valueScale,
@@ -721,7 +868,6 @@ async function renderField(
       });
       if (anchor) {
         if (lines.length > 1) {
-          // pdf-lib stacks joined lines in text space — correct under rotation
           pdfPage.setLineHeight(advance);
         }
         drawScaledText(
@@ -741,13 +887,6 @@ async function renderField(
       return;
     }
 
-    // Wrap text to fit within the value area (hard \n breaks always split).
-    // `<para marginLeft/Right>` inset the text block; `textIndent` narrows the
-    // first line of each paragraph. Single-line fields never soft-wrap: XFA
-    // shows them on one line (overflowing visibly if wider than the box),
-    // while wrapping them shatters table values into overlapping fragments
-    // (Example-1 `29815.6/95850.4`). Infinite width disables soft wrapping
-    // but preserves hard-break splitting.
     const textX = x + reserve + pm.marginLeft;
     const textW = Math.max(valueAreaWidth - pm.marginLeft - pm.marginRight, 0);
     const measure = (s: string): number =>
@@ -757,8 +896,6 @@ async function renderField(
       firstLineIndent: pm.textIndent,
     });
 
-    // First line at the top of the block; `spaceAbove`/`spaceBelow` shrink the
-    // usable box and `lineHeight` overrides the per-line advance.
     const { baselines } = layoutLines(
       lines.length,
       fontSize,
@@ -782,18 +919,14 @@ async function renderField(
       verticalOverflow || horizontalOverflow
     );
 
-    // Draw each line
     for (let i = 0; i < lines.length; i++) {
       const { text: line, paragraphEnd } = lines[i];
       const lineY = baselines[i];
       const lineWidth = measure(line);
-      // First line of each paragraph carries the text indent.
       const indent = i === 0 || lines[i - 1].paragraphEnd ? pm.textIndent : 0;
       const lineAvail = Math.max(textW - indent, 0);
       const baseX = textX + indent + horizontalOffsetX(justH, lineAvail, lineWidth);
 
-      // Justify/justifyAll widen the inter-word gaps (jftext:73245);
-      // every other code draws the line whole at the alignment offset.
       const segments = justifyLine(line, lineAvail, lineWidth, measure, {
         code: justH,
         paragraphLast: paragraphEnd,
@@ -855,11 +988,7 @@ async function renderButton(
   const font = await fontManager.getSafeFont(label, family, node.font?.weight, node.font?.posture);
   const scale = scaleForFamily(family);
   const textWidth = measureTextWidth(label, fontSize, font, scale);
-  // Baseline from the shared ascent-based model (was `(height - fontSize)/2`,
-  // which assumed the em box equals the ascent and put every label low).
   const { baselines } = layoutLines(1, fontSize, { top: y + height, bottom: y }, 'middle', font);
-  // `highlight` describes the *press* appearance, which never shows in a
-  // flattened render, so the label is simply centred horizontally.
   drawScaledText(
     pdfPage,
     label,
@@ -892,19 +1021,12 @@ async function renderCheckButton(
   const posture = node.font?.posture;
   const scale = scaleForFamily(family);
 
-  // The checkmark glyph (U+2611/U+2610) is not WinAnsi — getSafeFont falls back
-  // to the embedded Unicode font so drawing never throws.
   const font = await fontManager.getSafeFont(checkChar, family, weight, posture);
 
-  // Baseline from the shared ascent-based model, consistent with every other
-  // text path (was `(height - fontSize)/2`).
   const { baselines } = layoutLines(1, fontSize, { top: y + height, bottom: y }, 'middle', font);
 
-  // Draw the check indicator. The box is 1.5 em wide by design so the glyph and
-  // its following caption have room; it is not a font-metric quantity.
   drawScaledText(pdfPage, checkChar, { x, y: baselines[0], size: fontSize, font, color: fontColor }, scale);
 
-  // Draw caption next to checkbox
   if (node.caption?.text) {
     const captionFont = await fontManager.getSafeFont(node.caption.text, family, weight, posture);
     drawScaledText(
@@ -927,20 +1049,17 @@ async function renderDraw(
   if (pos?.x === undefined || pos?.y === undefined) return;
 
   const margins = getMargins(node.margin);
-  const width = Math.max((pos.w ?? 0) - margins.left - margins.right, 0);
+  const width = Math.max((pos.w ?? pos.minW ?? 0) - margins.left - margins.right, 0);
   const measuredHeight =
-    pos.h == null &&
+    pos.h == null && pos.minH == null &&
     (node.value?.type === 'richText' || node.value?.type === 'text')
       ? drawValueHeight(node, width)
       : undefined;
-  const outerHeight = pos.h ?? measuredHeight ?? 18;
+  const outerHeight = pos.h ?? pos.minH ?? measuredHeight ?? 18;
   const x = pos.x + margins.left;
   const y = flipY(pos.y, outerHeight, pageH) + margins.bottom;
   const height = Math.max(outerHeight - margins.top - margins.bottom, 0);
 
-  // A rotated rectangle is identical to its swapped visual box: draw the
-  // fill/border with w/h exchanged so label backgrounds stay in the narrow
-  // vertical strip instead of painting a horizontal bar across the table.
   const borderRotate = normalizeRotation(pos.rotate ?? 0);
   const borderPos =
     (borderRotate === 90 || borderRotate === 270) &&
@@ -958,7 +1077,7 @@ async function renderDraw(
   }
 
   if (node.value.type === 'rectangle' || node.value.type === 'line') {
-    if (node.value.shapeBorder) drawBorderBox(pdfPage, node.value.shapeBorder, pos, pageH);
+    if (node.value.shapeBorder) drawBorderBox(pdfPage, node.value.shapeBorder, borderPos, pageH);
     return;
   }
 
@@ -975,7 +1094,6 @@ async function renderDraw(
   if (node.value.type === 'text') {
     const text = stripHtml(node.value.content ?? '');
     if (!text) return;
-    // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
     const fontColor = toPdfColor(node.font?.color);
     const font = await fontManager.getSafeFont(
@@ -995,8 +1113,6 @@ async function renderDraw(
     const drawScale = scaleForFamily(baseFamily);
 
     if (isVerticalRotation(rotate)) {
-      // Box swap: wrap along the authored long axis and anchor in the
-      // post-rotation box (w/h exchanged).
       const lines = wrapText(text, fontSize, width, font, { horizontalScale: drawScale });
       const advance = pm.lineAdvance;
       const longest = lines.reduce(
@@ -1034,7 +1150,6 @@ async function renderDraw(
       return;
     }
 
-    // Multi-line text wrapping with `<para>` insets/indent and line advance.
     const textX = x + pm.marginLeft;
     const textW = Math.max(width - pm.marginLeft - pm.marginRight, 0);
     const wrapped = breakLinesInfo(
@@ -1065,8 +1180,6 @@ async function renderDraw(
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineY = baselines[i];
-      // breakLinesInfo applies the indent to the first line of every source
-      // paragraph, so draw each paragraph start with the same shift.
       const indent = i === 0 || wrapped[i - 1].paragraphEnd ? pm.textIndent : 0;
       const lineAvail = Math.max(textW - indent, 0);
       const lineWidth = measureTextWidth(line, fontSize, font, drawScale);
@@ -1099,19 +1212,14 @@ function renderArcOrCircle(
   const rx = w / 2;
   const ry = h / 2;
   const cx = x + rx;
-  const cy = y; // already flipped
+  const cy = y;
 
   const edge = node.value?.shapeBorder?.edges?.[0] ?? {};
   const fillColor = node.value?.shapeBorder?.fill?.color;
-  // An XFA arc's default edge is a black 0.5pt stroke (XFA 3.3, Template
-  // Reference, arc edge); hidden/invisible/none suppresses only the stroke.
   const thickness = quantizeStrokeWidth(edge.thickness ?? DEFAULT_EDGE_THICKNESS_PT);
   const strokeVisible =
     edge.presence !== 'hidden' && edge.presence !== 'invisible' && edge.style !== 'none';
 
-  // Ellipse/circle borders honour the edge dash pattern and line cap; the join
-  // is emitted as an operator because pdf-lib's drawEllipse has no join option
-  // (adobepdf.xdc:187-191 dash ratios; designrenderer:6182 cap/join enums).
   const dashArray = strokeVisible ? dashArrayForStyle(edge.style, thickness) : undefined;
   const lineJoin = xfaJoinToPdf(edge.join);
   const lineCap = xfaCapToPdf(edge.cap);
@@ -1152,10 +1260,8 @@ async function renderRichText(
   const runs = parseRichText(content);
 
   if (runs.length === 0) {
-    // Fallback to plain text
     const text = stripHtml(content);
     if (!text) return;
-    // XFA default font size is 10pt (template <font> without @size).
     const fontSize = node.font?.size ?? 10;
     const baseFamily = node.font?.family ?? 'Helvetica';
     const drawScale = scaleForFamily(baseFamily);
@@ -1222,7 +1328,6 @@ async function renderRichText(
     return;
   }
 
-  // XFA default font size is 10pt (template <font> without @size).
   const baseFontSize = node.font?.size ?? 10;
   const baseFontFamily = node.font?.family ?? 'Helvetica';
   const wrapWidth = width ?? 500;
@@ -1237,7 +1342,6 @@ async function renderRichText(
 
   const richScale = scaleForFamily(baseFontFamily);
 
-  // One font per run — bold/italic/size come from the run's tags.
   const styled: StyledRun[] = [];
   for (const run of runs) {
     const font = await fontManager.getSafeFont(
@@ -1246,7 +1350,7 @@ async function renderRichText(
       run.bold ? 'bold' : node.font?.weight,
       run.italic ? 'italic' : node.font?.posture
     );
-    styled.push({ text: run.text, size: run.fontSize ?? baseFontSize, font, color: run.color });
+    styled.push({ text: run.text, size: run.fontSize ?? baseFontSize, font, color: run.color, underline: run.underline });
   }
 
   const lines = layoutRunLines(styled, {
@@ -1296,6 +1400,16 @@ async function renderRichText(
         },
         richScale
       );
+      if (run.underline) {
+        const segW = measureText(segment.text, run.size, run.font, { horizontalScale: richScale });
+        const uy = lineY - Math.max(0.5, run.size * 0.12);
+        pdfPage.drawLine({
+          start: { x: lineOriginX + segment.x, y: uy },
+          end: { x: lineOriginX + segment.x + segW, y: uy },
+          thickness: Math.max(0.25, run.size * 0.05),
+          color: run.color ? toPdfColor(run.color) : toPdfColor(node.font?.color),
+        });
+      }
     }
   }
   endOverflowClip(pdfPage, clipped);
@@ -1314,8 +1428,6 @@ async function renderImage(
   try {
     const image = await embedBase64Image(doc, value.content, value.contentType);
 
-    // Aspect-ratio scaling (xfaimageservice_disasm.c:9324-9379).
-    // image.width / image.height are the pixel dimensions from pdf-lib.
     const rect = computeImageRect(
       value.aspectMode,
       w,
@@ -1329,7 +1441,6 @@ async function renderImage(
       { hAlign: value.hAlign, vAlign: value.vAlign }
     );
 
-    // y is already the bottom-left PDF coordinate; apply vertical alignment offset.
     pdfPage.drawImage(image, {
       x: x + rect.offsetX,
       y: y + rect.offsetY,
@@ -1337,24 +1448,16 @@ async function renderImage(
       height: rect.drawH,
     });
   } catch {
-    // Image decode/embed failed — skip silently (matches Adobe behaviour on
-    // corrupt or unsupported images).
+    return;
   }
 }
 
-/** Flip y-coordinate from XDP (top-origin) to PDF (bottom-origin). */
 function flipY(y: number, h: number, pageH: number): number {
   return pageH - y - h;
 }
 
 export { formatValue } from '../lib/value-format';
 
-/** Strip HTML tags for basic rich text rendering. */
-/**
- * Overflow clip — only when content exceeds the frame (jftext:144269);
- * no autoSize, no clip when merely fitting. Suppressed for rotated fields
- * (designrenderer:7755).
- */
 function clipOverflow(
   pdfPage: PDFPage,
   x: number,
@@ -1381,7 +1484,6 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** Get effective margins from margin spec (handles MarginSpec or individual values). */
 function getMargins(margin?: MarginSpec): { top: number; right: number; bottom: number; left: number } {
   if (!margin) return { top: 0, right: 0, bottom: 0, left: 0 };
   return {
@@ -1392,15 +1494,6 @@ function getMargins(margin?: MarginSpec): { top: number; right: number; bottom: 
   };
 }
 
-/**
- * Measure text width in points.
- *
- * `horizontalScale` condenses the result for condensed faces resolved to a
- * full-width font. Every wrap decision, alignment offset and justification
- * split must use the same scale that the matching `drawText` applies, or the
- * text will overflow its own box — the class of defect that made every
- * Arial Narrow run in the MechanicalSeal/IPQT forms wrap to too many lines.
- */
 function measureTextWidth(
   text: string,
   fontSize: number,
@@ -1410,32 +1503,14 @@ function measureTextWidth(
   return measureText(text, fontSize, font, { horizontalScale });
 }
 
-/** Horizontal scale to apply when drawing a condensed family (1 = none). */
 function scaleForFamily(family: string | undefined): number | undefined {
   return isCondensedFamily(family) ? NARROW_SCALE : undefined;
 }
 
-/**
- * The PDF `Tz` operator (horizontal scaling, percent). pdf-lib exposes no
- * helper for it, so it is constructed directly.
- */
 function setTextHorizontalScale(percent: number): PDFOperator {
   return PDFOperator.of(PDFOperatorNames.SetTextHorizontalScaling, [PDFNumber.of(percent)]);
 }
 
-/**
- * `drawText` with an optional horizontal scale.
- *
- * pdf-lib exposes no horizontal-scaling option on `drawText`, so the scale is
- * applied with the text-state operator `Tz` (a percentage affecting glyph
- * advances only) around a normal `drawText` call. Wrapping the delegate call
- * rather than hand-emitting the text operators keeps pdf-lib's own string
- * encoding, font-resource registration and rotation handling intact — those are
- * easy to get subtly wrong and would regress every script's output.
- *
- * `Tz` is part of the text state, not the graphics state, so it is reset after
- * the run to avoid leaking into whatever is drawn next.
- */
 function drawScaledText(
   pdfPage: PDFPage,
   text: string,
@@ -1454,7 +1529,6 @@ function drawScaledText(
   }
 }
 
-/** Wrap text into lines that fit within the given width. */
 function wrapText(
   text: string,
   fontSize: number,
@@ -1464,23 +1538,11 @@ function wrapText(
 ): string[] {
   if (!text) return [text];
   if (maxWidth <= 0) return text.split(/\r\n|\r|\n/);
-  // ponytail: wrap must measure with the same condensed scale the draw path
-  // applies (Tz), or condensed families wrap at full width and overflow their
-  // own box with extra lines. Callers computing alignment/draw must pass the
-  // identical scale (see measureTextWidth doc).
   const measure = (s: string): number =>
     measureTextWidth(s, fontSize, font, opts.horizontalScale);
   return breakLines(text, maxWidth, measure, { firstLineIndent: opts.firstLineIndent });
 }
 
-/**
- * Draw an XFA `<field ui><barcode>` as vector bars plus an optional
- * human-readable interpretation (HRI) line.
- *
- * Attribute semantics follow `adobepdf.xdc:212-252`
- * (`moduleWidth`, `moduleHeight`, `wideNarrowRatio`, `textLocation`,
- * `errorCorrectionLevel`, `checksum`, `dataLength`).
- */
 async function renderBarcodeValue(
   pdfPage: PDFPage,
   node: FieldNode,
@@ -1542,10 +1604,6 @@ async function renderBarcodeValue(
   }
 }
 
-/**
- * `<barcode errorCorrectionLevel="0-8">` (Adobe `BarcodeData.xml` ecc range).
- * Unauthored or malformed levels fall back to the encoder's Adobe default (5).
- */
 function parseErrorCorrectionLevel(raw?: string): number | undefined {
   if (raw == null || raw === '') return undefined;
   const n = Number.parseInt(raw, 10);
@@ -1553,7 +1611,6 @@ function parseErrorCorrectionLevel(raw?: string): number | undefined {
   return n;
 }
 
-/** `wideNarrowRatio` is authored either as a plain number or as a `.xdc` range. */
 function parseWideNarrowRatio(raw?: string): number {
   if (!raw) return 2.5;
   const nums = raw.match(/\d+(?:\.\d+)?/g);
@@ -1563,4 +1620,18 @@ function parseWideNarrowRatio(raw?: string): number {
   const hi = parseFloat(nums[1]);
   if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return 2.5;
   return Math.min(Math.max((lo + hi) / 2, 2), 3);
+}
+
+function captionTrailingSymbol(
+  text: string | undefined,
+  richHtml: string | undefined
+): { label: string; symbol: string; underline: boolean } | undefined {
+  if (!text || !richHtml || !/xfa-spacerun|spacerun/i.test(richHtml)) return undefined;
+  const trimmed = text.trimEnd();
+  const m = trimmed.match(/^(.*\S)\s*([+\-±])$/);
+  if (!m) return undefined;
+  const label = m[1];
+  const symbol = m[2];
+  if (!label) return undefined;
+  return { label, symbol, underline: /underline/i.test(richHtml) };
 }

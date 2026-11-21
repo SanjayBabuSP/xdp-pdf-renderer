@@ -59,7 +59,6 @@ function findSubform(layout: LayoutModel, name: string): SubformNode | undefined
   return found;
 }
 
-/** Run parse → bind → expand → scripts → embed resolution. */
 function runPreLayout(dataFile: string): {
   layout: LayoutModel;
   errors: string[];
@@ -120,9 +119,7 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
       expect(errors).toEqual([]);
       expect(executed).toBeGreaterThanOrEqual(4);
 
-      // MachineLocationIsAssumption is empty → the -Black twin hides.
       expect(findField(layout, 'MachineLocation-Black')?.presence).toBe('hidden');
-      // The twin that never ran a script keeps its template presence.
       expect(findField(layout, 'MachineLocation-White')?.presence).toBe('visible');
     });
 
@@ -132,10 +129,9 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
 
       expect(text).toContain('Machine location (white)');
       expect(text).toContain('Newtown');
-      expect(text.filter((t) => t === 'Newtown')).toHaveLength(2); // white + density row
+      expect(text.filter((t) => t === 'Newtown')).toHaveLength(2);
       expect(text).not.toContain('Machine location (black)');
 
-      // No opaque full-cell black fill anywhere over the value area.
       expect(/(^|\n)0 g(\n|$)/.test(stream)).toBe(false);
     });
   });
@@ -159,7 +155,6 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
       const host = findDraw(layout, 'unitHost');
       expect(host?.value?.content).toContain('kg/m3');
       expect(host?.value?.content).not.toContain('xfa:embed');
-      // The source field stays hidden: only its embedded appearance is drawn.
       expect(findField(layout, 'unitDensity')?.presence).toBe('hidden');
       expect(findField(layout, 'unitDensity')?.resolvedValue).toBe('kg/m3');
     });
@@ -179,7 +174,7 @@ describe('MechanicalSeal synthetic fixture — Adobe parity', () => {
       const stream = await contentStream(await render('synthetic.xml'));
       expect(extractText(stream)).toContain('DRAFT');
       expect(rotatedTextMatrices(stream, 30).length).toBeGreaterThan(0);
-      expect(hasGreyFill(stream, 0.6)).toBe(true); // 153/255
+      expect(hasGreyFill(stream, 0.6)).toBe(true);
     });
 
     it('omits the watermark without the preview flag', async () => {

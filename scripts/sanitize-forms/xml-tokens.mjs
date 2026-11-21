@@ -1,5 +1,3 @@
-// Lossless XML tokenizer: tokens.map((t) => t.raw).join('') === input.
-// Only the parts the sanitizer rewrites are ever re-encoded.
 
 export function tokenize(xml) {
   const tokens = [];
@@ -71,7 +69,6 @@ export function localName(qname) {
 
 const ATTR = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
-/** Attributes of an open/empty tag, with offsets of each raw value inside `raw`. */
 export function parseAttrs(raw) {
   const attrs = [];
   ATTR.lastIndex = /^<[^\s/>]+/.exec(raw)[0].length;
@@ -93,15 +90,10 @@ export function parseAttrs(raw) {
   return attrs;
 }
 
-/** Replace attribute values; `edits` maps attribute index → new decoded value. */
 export function spliceAttrs(raw, attrs, edits) {
   return spliceTag(raw, attrs, { values: edits });
 }
 
-/**
- * Rewrites an open/empty tag: `tag` = new element name, `names` maps attribute
- * index → new attribute name, `values` maps attribute index → new decoded value.
- */
 export function spliceTag(raw, attrs, { tag, names = new Map(), values = new Map() } = {}) {
   const edits = [];
   for (const [index, value] of values) {
@@ -127,11 +119,6 @@ export function decode(s) {
   });
 }
 
-/**
- * Minimal escaping that copies the original token's style (`like`): raw CR vs
- * `&#xD;`, raw `>` vs `&gt;`. Some XDP consumers do not decode character
- * references, so changing the style would change the text they see.
- */
 export function encodeText(s, like = '') {
   const crRef = /&#(?:x[dD]|13);/.test(like);
   const gtRef = like.includes('&gt;');

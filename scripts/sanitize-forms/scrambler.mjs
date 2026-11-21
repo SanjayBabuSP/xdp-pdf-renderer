@@ -1,11 +1,6 @@
-// Deterministic, salted text scrambler. The same input (and salt) always maps
-// to the same output, so values stay consistent across XDP, XSD, XML data and
-// scripts. Replacements keep length, case, script (Latin/CJK/...) and, for
-// Latin letters, approximate glyph width so text wraps like the original.
 
 import { createHmac } from 'node:crypto';
 
-// Arial/Helvetica width classes (lower/upper case); letters only swap inside a class.
 const LATIN_CLASSES = [
   'ilj', 'ftr', 'ckvxyzs', 'abdeghnopqu', 'mw',
   'IJ', 'FLTZ', 'ABEKPSVXY', 'CDHNRU', 'GOQ', 'MW',
@@ -76,7 +71,6 @@ const INT_RANGES = {
 const FLOAT_TYPES = new Set(['float', 'double', 'decimal']);
 const DATE_TYPES = new Set(['date', 'dateTime', 'time']);
 
-/** Splits "MachineLocation2" → ["machine", "location"] and keeps the joined form too. */
 export function wordsOf(s, { camel = true } = {}) {
   const out = [];
   for (const run of s.match(/\p{L}+/gu) ?? []) {
@@ -94,7 +88,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
   const wordCache = new Map();
   const numCache = new Map();
 
-  // Values scripts compare against stay verbatim; numbers match numerically ("02" == 2).
   const isControl = (v) =>
     controlValues.has(v) || (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(v) && controlNumbers.has(Number(v)));
 
@@ -141,7 +134,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
   function word(w) {
     let out = wordCache.get(w);
     if (out === undefined) {
-      // Re-roll the rare draw that reproduces the original word.
       for (let attempt = 0; attempt < 8 && (out === undefined || out === w); attempt++) {
         const next = rng(`w:${w.toLowerCase()}${attempt ? `#${attempt}` : ''}`);
         out = '';
@@ -156,7 +148,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
   function digits(run) {
     let out = numCache.get(run);
     if (out === undefined) {
-      // Re-roll so numbers like "200" never survive unchanged by chance.
       for (let attempt = 0; attempt < 8 && (out === undefined || out === run); attempt++) {
         const next = rng(`n:${run}${attempt ? `#${attempt}` : ''}`);
         out = '';
@@ -226,11 +217,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     return `user-${hex(`e:${e.toLowerCase()}`, 6)}@example.com`;
   }
 
-  /**
-   * Windows/UNC/relative path → its file name. The name is only kept verbatim when
-   * `keepName` is set (it then names a sibling fixture file); otherwise it is
-   * scrambled and just the extension survives.
-   */
   function path(p, keepName = false) {
     const trimmed = p.replace(/\s+$/, '');
     const base = trimmed.split(/[\\/]+/).filter(Boolean).pop() ?? '';
@@ -279,7 +265,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     return s.replace(EVERYTHING, (m, ...args) => replaceMatch(m, args[args.length - 1]));
   }
 
-  /** Free text: every word, number, date, email, URL and path is replaced. */
   function text(value) {
     const trimmed = value.trim();
     if (!trimmed || isControl(trimmed)) return value;
@@ -288,7 +273,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     return out;
   }
 
-  /** Code-like text (config, attributes, PIs): only emails, URLs and paths. */
   function sensitive(value) {
     return value.replace(SENSITIVE, (m, ...args) => {
       const groups = args[args.length - 1];
@@ -309,7 +293,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     let hi = 10n ** BigInt(run.length) - 1n;
     const bound = sign === '-' ? (min === null ? null : -min) : max;
     if (bound !== null && bound < hi) hi = bound;
-    // Out of range in the original too: keep that shape, but never the digits.
     if (hi < lo) return value.replace(run, digits(run));
     const next = rng(`i:${trimmed}`);
     let rand = 0n;
@@ -320,7 +303,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     return value.replace(trimmed, sign + n.toString());
   }
 
-  /** Data value typed by its XSD simple type (local name, e.g. "date", "byte"). */
   function typed(value, type = 'string') {
     const trimmed = value.trim();
     if (!trimmed || isControl(trimmed)) return value;
@@ -344,7 +326,6 @@ export function createScrambler({ salt, controlValues = new Set(), controlNumber
     return out;
   }
 
-  /** Same-length stand-in for a digest/hash value. */
   function digest(value) {
     const b64 = createHmac('sha256', salt).update(`h:${value}`).digest('base64');
     return (b64.repeat(Math.ceil(value.length / b64.length) + 1)).slice(0, value.length);

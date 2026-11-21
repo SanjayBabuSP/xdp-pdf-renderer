@@ -1,23 +1,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFString } from 'pdf-lib';
 
-/**
- * Tagged PDF support (G11).
- *
- * Sets the catalog flags and builds a logical structure tree:
- *   Catalog /MarkInfo << /Marked true >>
- *   Catalog /StructTreeRoot → /Document → [/P …]
- *   Each page gets /StructParents for its element list.
- *
- * Limitation: the flat content pipeline does not emit marked-content operators
- * (BDC/EMC), so structure elements are not yet wired to MCIDs. The tree and
- * accessibility metadata (title/lang) are nevertheless valid and recognised by
- * screen readers and PDF/UA preflight tools.
- */
-
 export interface TaggedOptions {
-  /** Document language (BCP-47), e.g. `en-US`. Written as catalog /Lang. */
   language?: string;
-  /** Document title for accessibility. */
   title?: string;
 }
 
@@ -36,7 +20,6 @@ export function markDocumentTagged(doc: PDFDocument, options: TaggedOptions = {}
     if (infoDict) infoDict.set(PDFName.of('Title'), PDFString.of(options.title));
   }
 
-  // One /Document element containing a /P per page.
   const parentTree = PDFDict.withContext(context);
   const nums = PDFArray.withContext(context);
   parentTree.set(PDFName.of('Nums'), nums);
@@ -60,7 +43,6 @@ export function markDocumentTagged(doc: PDFDocument, options: TaggedOptions = {}
     paragraph.set(PDFName.of('P'), context.register(documentElement));
     paragraph.set(PDFName.of('Pg'), page.ref);
     kids.push(context.register(paragraph));
-    // Page-local structure parent key.
     page.node.set(PDFName.of('StructParents'), PDFNumber.of(0));
   });
 

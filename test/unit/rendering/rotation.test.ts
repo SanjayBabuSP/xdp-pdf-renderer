@@ -40,7 +40,7 @@ describe('rotation', () => {
   });
 
   describe('rotatedAnchor', () => {
-    const box = { x: 10, y: 20, w: 40, h: 100 }; // PDF coords: y = bottom
+    const box = { x: 10, y: 20, w: 40, h: 100 };
     const common = { lineLen: 60, ascent: 8, descent: 2 };
 
     it('returns null for non-vertical rotations', () => {
@@ -49,7 +49,6 @@ describe('rotation', () => {
     });
 
     it('rotate 90: reading runs bottom→top; top-align starts line at box bottom + …', () => {
-      // valign top: reading END at box top → anchorY = top − lineLen
       const a = rotatedAnchor({ ...common, rotate: 90, box, align: 'left', valign: 'top' });
       expect(a).toEqual({ x: 10 + 8, y: 20 + 100 - 60 });
     });
@@ -66,7 +65,6 @@ describe('rotation', () => {
 
     it('rotate 90: center-align centers the cross extent', () => {
       const a = rotatedAnchor({ ...common, rotate: 90, box, align: 'center', valign: 'bottom' });
-      // anchorX + (descent − ascent)/2 = box center
       expect(a!.x + (2 - 8) / 2).toBeCloseTo(10 + 20, 10);
       expect(a!.y).toBe(20);
     });
@@ -107,8 +105,6 @@ describe('rotation', () => {
     });
 
     it('rotate 270: multi-line block is flush left (anchor shifts +x with stack)', () => {
-      // lines march −x from the anchor; left-align puts the leftmost line's
-      // descent edge at box.x → anchorX = box.x + descent + stack
       const single = rotatedAnchor({ ...common, rotate: 270, box, align: 'left', valign: 'top' });
       const multi = rotatedAnchor({
         ...common,

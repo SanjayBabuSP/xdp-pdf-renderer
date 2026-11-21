@@ -75,7 +75,7 @@ export default async ({ client } = {}) => {
       const mode = readMode();
       if (mode === 'off') return;
       const instructions = getPonytailInstructions(mode);
-      if (output.system.length > 0) {
+      if (output.system.length) {
         output.system[output.system.length - 1] += '\n\n' + instructions;
       } else {
         output.system.push(instructions);

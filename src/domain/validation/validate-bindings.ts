@@ -10,7 +10,6 @@ import {
 import { success, failure } from '../../lib/result-type';
 import { ERROR_CODES } from '../../errors/error-codes';
 
-/** Validate that all dataRef bind expressions in the layout resolve to schema fields. */
 export function validateBindings(
   layout: LayoutModel,
   schema: SchemaModel,
@@ -26,7 +25,6 @@ export function validateBindings(
     }
   }
 
-  // Also check master page children
   for (const page of layout.pages) {
     const pageRefs = collectBindRefs(page.masterPageChildren);
     for (const { ref, arrayContext } of pageRefs) {
@@ -36,11 +34,7 @@ export function validateBindings(
     }
   }
 
-  // Unresolvable bind refs are common in real-world XFA forms: the XSD often omits nested
-  // value-help sub-elements (e.g. $.SealType.name) or session-scoped fields (e.g. generatedAt).
-  // These render as blank at runtime rather than blocking the whole document, matching XFA's
-  // actual data-binding behavior. Only fail hard in strict mode.
-  if (errors.length > 0 && strict) {
+  if (errors.length && strict) {
     return failure(ERROR_CODES.UNRESOLVED_BINDING.code, ERROR_CODES.UNRESOLVED_BINDING.message, errors);
   }
   return success(undefined);

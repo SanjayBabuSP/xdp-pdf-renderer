@@ -49,12 +49,32 @@ describe('parse-xml-data', () => {
     expect(result.data.Name).toBe('Acme Corp');
   });
 
-  it('coerces float fields', () => {
+  it('preserves float lexical form (Adobe shows data as-is with no picture)', () => {
     const result = parseXmlData(SIMPLE_XML, schema);
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(typeof result.data.Amount).toBe('number');
-    expect(result.data.Amount).toBe(45000);
+    expect(result.data.Amount).toBe('45000.00');
+  });
+
+  it('preserves non-canonical integer lexicals (localised decimals stay verbatim)', () => {
+    const xml = '<value><a>0,006</a><b>007</b><c>5</c><d>-44</d></value>';
+    const intSchema: SchemaModel = {
+      rootElement: 'value',
+      schemaAttributes: {},
+      fields: {
+        a: { type: 'byte', required: true },
+        b: { type: 'int', required: true },
+        c: { type: 'int', required: true },
+        d: { type: 'short', required: true },
+      },
+    };
+    const result = parseXmlData(xml, intSchema);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.a).toBe('0,006');
+    expect(result.data.b).toBe('007');
+    expect(result.data.c).toBe(5);
+    expect(result.data.d).toBe(-44);
   });
 
   it('normalizes repeating elements into array', () => {

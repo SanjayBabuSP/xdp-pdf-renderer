@@ -20,7 +20,6 @@ describe('render-pdf workflow (integration)', () => {
 
     expect(Buffer.isBuffer(result.data)).toBe(true);
     expect(result.data.length).toBeGreaterThan(0);
-    // Check PDF magic bytes
     expect(result.data.slice(0, 5).toString()).toBe('%PDF-');
   });
 
@@ -41,9 +40,6 @@ describe('render-pdf workflow (integration)', () => {
       'utf8'
     );
 
-    // Default: missing (even required) fields are tolerated and rendering
-    // continues (Preview-PDF parity — Adobe renders documents whose data only
-    // partially matches the schema).
     const result = await renderFormToPdf(xdp, xsd, invalidData);
     expect(result.success).toBe(true);
   });

@@ -2,42 +2,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import fontkit from '@pdf-lib/fontkit';
 
-/**
- * Font file registry.
- *
- * Adobe LiveCycle Designer ships 88 OTFs (reference/Adobe-LiveCycle-Designer-11.0/fonts,
- * 218 MB — CJK faces alone are 5–15 MB each). They are far too large to ship inside the
- * package, so they are imported on demand:
- *
- *     npm run fonts:import -- [sourceDir]
- *
- * which copies them to `assets/fonts/adobe/` and writes `manifest.json` describing each
- * face (family / weight / posture). FontManager loads that manifest at render time and
- * falls back to the base-14 fonts when no Adobe faces have been imported.
- */
-
-/** A single font face as described by the manifest (or a scanned directory). */
 export interface FontVariant {
-  /** Absolute path of the font file. */
   file: string;
-  /** `normal` (weight class < 700) or `bold`. */
   weight: string;
-  /** `normal` or `italic`. */
   posture: string;
-  /** OS/2 usWeightClass when available (400 regular, 700 bold, …). */
   weightClass?: number;
-  /** PostScript name (e.g. `MyriadPro-BoldIt`). */
   psName?: string;
 }
 
-/** Indexed font registry: lowercased family name (plus aliases) → faces. */
 export interface FontManifest {
   fonts: Record<string, FontVariant[]>;
-  /** Directory the manifest describes (files are stored absolute). */
   source?: string;
 }
 
-/** Default import destination — `assets/fonts/adobe/`. */
 export function adobeFontDir(): string {
   return path.join(__dirname, '..', '..', 'assets', 'fonts', 'adobe');
 }
@@ -47,17 +24,9 @@ export function manifestPath(dir: string = adobeFontDir()): string {
 }
 
 export function familyKey(family: string): string {
-  // Spaceless match: XDP authors write both `Myriad Pro` and `MyriadPro`
-  // (ditto Minion, Courier Std, …) for the same face, and the manifest
-  // carries both spellings as duplicate keys — collapse whitespace so either
-  // request resolves to an embedded face instead of the DejaVu fallback.
   return family.trim().toLowerCase().replace(/[\s_]+/g, '');
 }
 
-/**
- * Load a previously imported manifest. Returns null when no fonts were imported
- * (the renderer then falls back to base-14 + the bundled Unicode font).
- */
 export function loadManifest(dir: string = adobeFontDir()): FontManifest | null {
   const file = manifestPath(dir);
   if (!fs.existsSync(file)) return null;
@@ -68,8 +37,6 @@ export function loadManifest(dir: string = adobeFontDir()): FontManifest | null 
     };
     const fonts: Record<string, FontVariant[]> = {};
     for (const [key, variants] of Object.entries(raw.fonts ?? {})) {
-      // Collapse spaced/PostScript duplicate keys (`myriad pro` +
-      // `myriadpro-regular` → `myriadpro…`) so spaceless lookups hit.
       const norm = familyKey(key);
       const list = (fonts[norm] ??= []);
       for (const variant of variants ?? []) {
@@ -85,7 +52,6 @@ export function loadManifest(dir: string = adobeFontDir()): FontManifest | null 
   }
 }
 
-/** Index a variant under its family plus useful aliases. */
 export function indexVariant(manifest: FontManifest, family: string, variant: FontVariant): void {
   const keys = new Set([familyKey(family)]);
   if (variant.psName) keys.add(familyKey(variant.psName));
@@ -98,17 +64,10 @@ export function indexVariant(manifest: FontManifest, family: string, variant: Fo
   }
 }
 
-/** Look up every face registered for a family (undefined when unknown). */
 export function lookupVariants(manifest: FontManifest, family: string): FontVariant[] | undefined {
   return manifest.fonts[familyKey(family)];
 }
 
-/**
- * Choose the face closest to the requested weight/posture.
- *
- * Exact weight+posture wins; otherwise the nearer of the two halves, falling back to
- * whatever the family provides (a family with a single Regular face still renders).
- */
 export function pickVariant(
   variants: FontVariant[],
   weight?: string,
@@ -144,7 +103,6 @@ export function normalizePosture(posture?: string): string {
   return value;
 }
 
-/** Metadata extracted from a font file. */
 export interface FontMetadata {
   family: string;
   subfamily?: string;
@@ -154,7 +112,6 @@ export interface FontMetadata {
   posture: string;
 }
 
-/** Read family / weight / posture from a font file. */
 export function describeFont(buffer: Buffer, fallbackName: string): FontMetadata {
   const font = fontkit.create(buffer) as unknown as {
     name?: { records?: Record<string, { en?: string }> };
@@ -179,7 +136,6 @@ export function describeFont(buffer: Buffer, fallbackName: string): FontMetadata
   };
 }
 
-/** OS/2 usWeightClass lives at offset 4 of the OS/2 table. */
 function readWeightClass(
   buffer: Buffer,
   directory?: { tables?: Record<string, { offset?: number }> }
@@ -199,7 +155,6 @@ function guessWeight(subfamily?: string): number {
 
 const FONT_EXTENSIONS = new Set(['.otf', '.ttf', '.otc', '.ttc']);
 
-/** Scan a directory of font files into a manifest (absolute paths). */
 export function scanFontDir(dir: string): FontManifest {
   const manifest: FontManifest = { fonts: {}, source: dir };
   if (!fs.existsSync(dir)) return manifest;
@@ -220,7 +175,7 @@ export function scanFontDir(dir: string): FontManifest {
         psName: meta.psName,
       });
     } catch {
-      // Unreadable/exotic font — skip rather than fail the render.
+      continue;
     }
   }
   return manifest;

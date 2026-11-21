@@ -3,11 +3,6 @@ import { resolveBindings } from '../../../../src/domain/mapping/resolve-bindings
 import { dispatchScripts } from '../../../../src/domain/scripting';
 import { LayoutModel, LayoutNode, SubformNode } from '../../../../src/types';
 
-/**
- * G5 — a real `instanceManager`: `addInstance` / `removeInstance` /
- * `setInstances` / `moveInstance` mutate the layout tree instead of no-oping.
- */
-
 function xdp(script: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
@@ -79,7 +74,6 @@ describe('G5 — instanceManager', () => {
   });
 
   it('exposes a live count', () => {
-    // Writes the observed count into the field before and after adding.
     const layout = run('$.instanceManager.addInstance(); $.row.rawValue = $.instanceManager.count;');
     expect(rows(layout)?.children).toHaveLength(2);
     expect(rows(layout)?.children[0].name).toBe('row');

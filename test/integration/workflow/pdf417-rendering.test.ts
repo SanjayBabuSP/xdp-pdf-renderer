@@ -1,11 +1,6 @@
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream, pathRectCount } from '../../helpers/pdf-content';
 
-/**
- * PDF417 end-to-end (G15a): `<barcode type="pdf417">` must render a stacked
- * module symbol — Adobe renders pdf417 in software per `adobepdf.xdc:215`.
- */
-
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value">
@@ -42,7 +37,6 @@ describe('PDF417 renders from an XDP barcode field', () => {
     if (!result.success) return;
 
     const content = await contentStream(result.data);
-    // A 3-4 row symbol yields dozens of dark runs.
     expect(pathRectCount(content)).toBeGreaterThan(20);
   });
 

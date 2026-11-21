@@ -80,7 +80,6 @@ describe('G12 — /XFA package embedding', () => {
     const firstName = xfa.lookup(0, PDFString);
     expect(['template', 'config']).toContain(firstName.decodeText());
 
-    // Locate the template stream and prove it round-trips.
     let templateXml = '';
     for (let i = 0; i < xfa.size(); i += 2) {
       if (xfa.lookup(i, PDFString).decodeText() !== 'template') continue;

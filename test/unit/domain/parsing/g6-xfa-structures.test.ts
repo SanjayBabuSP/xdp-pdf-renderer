@@ -7,12 +7,6 @@ import { FormCalcEvaluator } from '../../../../src/domain/scripting/formcalc/eva
 import { formatValue } from '../../../../src/lib/value-format';
 import { LayoutModel, LayoutNode, FieldNode, SubformNode, DrawNode, ExclGroupNode } from '../../../../src/types';
 
-/**
- * G6 — XFA structures that were parsed-or-dropped but never used:
- * `<assist>`, `<extras>`, `<traversal>`, `<subformSet>`, `<area>`,
- * value/format `<picture>`, and nested non-field children of `<exclGroup>`.
- */
-
 const PAGE = `
       <pageSet name="MasterPage">
         <pageArea name="Page1" id="Page1">
@@ -49,8 +43,6 @@ function subform(name: string, inner = ''): SubformNode {
   const node = byName(parseTemplate(`<subform name="${name}">${inner}</subform>`).children, name);
   return node as SubformNode;
 }
-
-// ─── <assist> ────────────────────────────────────────────────────────────────
 
 describe('G6 — <assist>', () => {
   it('parses toolTip / description / name / usage on a field', () => {
@@ -134,8 +126,6 @@ describe('G6 — <assist>', () => {
   });
 });
 
-// ─── <extras> ────────────────────────────────────────────────────────────────
-
 describe('G6 — <extras>', () => {
   it('parses @value and element-text entries', () => {
     const f = field('n', '<extras><owner value="QA"/><revision>3</revision></extras>');
@@ -166,8 +156,6 @@ describe('G6 — <extras>', () => {
   });
 });
 
-// ─── <traversal> ─────────────────────────────────────────────────────────────
-
 describe('G6 — <traversal>', () => {
   it('parses the authored focus order onto the container', () => {
     const s = subform(
@@ -182,8 +170,6 @@ describe('G6 — <traversal>', () => {
     expect(f.traversal).toEqual({ order: 'tab' });
   });
 });
-
-// ─── <subformSet> / <area> ───────────────────────────────────────────────────
 
 describe('G6 — <subformSet> and <area>', () => {
   it('instantiates the @initial alternative instead of dropping the whole set', () => {
@@ -232,8 +218,6 @@ describe('G6 — <subformSet> and <area>', () => {
   });
 });
 
-// ─── <exclGroup> non-field children ──────────────────────────────────────────
-
 describe('G6 — nested subforms/draws inside <exclGroup>', () => {
   it('keeps field, draw and subform children (previously field-only)', () => {
     const layout = parseTemplate(
@@ -244,8 +228,6 @@ describe('G6 — nested subforms/draws inside <exclGroup>', () => {
        </exclGroup>`
     );
     const g = byName(layout.children, 'g') as ExclGroupNode;
-    // parseChildren groups by element type (fast-xml-parser object keys), so
-    // assert membership rather than interleaved document order.
     expect(g.children.map((c) => `${c.type}:${c.name}`).sort()).toEqual([
       'draw:d',
       'field:f',
@@ -255,8 +237,6 @@ describe('G6 — nested subforms/draws inside <exclGroup>', () => {
     expect(nested.children.map((c) => c.name)).toEqual(['inner']);
   });
 });
-
-// ─── <picture> / <format> ────────────────────────────────────────────────────
 
 describe('G6 — display picture resolution', () => {
   it('prefers <format><picture> over <bind><picture>', () => {

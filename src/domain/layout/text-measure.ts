@@ -21,12 +21,6 @@ function embedderFor(name: string): StandardFontEmbedder | undefined {
   }
 }
 
-/**
- * Measure text for the layout/sizing pass using the same standard-font metrics
- * the renderer uses for base-14 aliases (Arial Narrow → Helvetica × NARROW_SCALE).
- * Falls back to the renderer's average-character approximation for families
- * without a standard PDF counterpart.
- */
 export function measureLayoutText(text: string, size: number, font?: FontSpec): number {
   if (!text) return 0;
   const family = font?.family ?? 'Helvetica';
@@ -39,7 +33,6 @@ export function measureLayoutText(text: string, size: number, font?: FontSpec): 
         if (isCondensedFamily(family)) width *= NARROW_SCALE;
         return width;
       } catch {
-        // Unencodable glyph in a base-14 font — use the fallback below.
       }
     }
   }

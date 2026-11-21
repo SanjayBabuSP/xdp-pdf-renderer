@@ -21,7 +21,6 @@ describe('border-style', () => {
     });
 
     it('clamps very thin strokes so dash segments stay visible', () => {
-      // 0.2pt clamps to 0.5pt.
       expect(dashArrayForStyle('dashed', 0.2)).toEqual([2, 1]);
     });
 

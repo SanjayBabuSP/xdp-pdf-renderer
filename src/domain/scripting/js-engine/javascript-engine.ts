@@ -1,6 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────────
-// JavaScript Script Engine — Sandboxed execution using Node.js vm module
-// ────────────────────────────────────────────────────────────────────────────
 
 import * as vm from 'vm';
 import { XfaNode, ScriptEngineConfig, ScriptableNode } from '../script-types';
@@ -26,13 +23,9 @@ export interface JsExecutionResult {
   logs: string[];
 }
 
-/** Page-layout facts exposed to scripts through `xfa.layout` (G4). */
 export interface XfaLayoutInfo {
-  /** Number of pages in the generated document. */
   pageCount: number;
-  /** Maps a ScriptableNode key (or its layout-node object) to a 1-based page. */
   pageOf: Map<unknown, number>;
-  /** Number of content nodes per 1-based page. */
   pageContent: Map<number, number>;
 }
 
@@ -60,10 +53,6 @@ function createNullProxy(): Record<string, unknown> {
   });
 }
 
-/**
- * Sandboxed JavaScript engine for XFA scripts.
- * Provides $, xfa, event, and host objects matching Adobe LiveCycle behavior.
- */
 export class JavaScriptEngine {
   private fieldAccessor: FieldAccessor;
   private config: Required<ScriptEngineConfig>;
@@ -82,20 +71,14 @@ export class JavaScriptEngine {
     };
   }
 
-  /**
-   * Set the node map for deep xfa.form navigation.
-   * Should be called before execute() with the full layout tree node map.
-   */
   setNodeMap(nodeMap: Map<string, ScriptableNode>): void {
     this.nodeMap = nodeMap;
   }
 
-  /** The bound data instance backing `xfa.record` / `xfa.resolveNode`. */
   setFormData(formData: unknown): void {
     this.formDataForRecord = formData ?? {};
   }
 
-  /** Supply page-layout facts for the `xfa.layout` pseudo-model (G4). */
   setLayoutInfo(info: XfaLayoutInfo): void {
     this.layoutInfo = info;
   }
@@ -119,7 +102,6 @@ export class JavaScriptEngine {
       currentKey
     );
 
-    // `instanceManager` mutations act on the shared node map / layout tree.
     setActiveProxyHooks(this.instanceHooks);
     try {
       const wrappedScript = this.wrapScript(script, eventName);
@@ -155,9 +137,6 @@ export class JavaScriptEngine {
   ): Record<string, unknown> {
     const self = this;
 
-    // `$` must be the *scriptable* for the node that owns this script — that
-    // proxy writes through to the same LayoutNode the dispatcher reconciles.
-    // Fall back to the (detached) XfaNode copy only when no key is known.
     const dollarSign =
       currentKey !== undefined && this.nodeMap.has(currentKey)
         ? createXfaFormProxy(this.nodeMap, currentKey, this.modifiedFields)
@@ -217,7 +196,6 @@ export class JavaScriptEngine {
     const self = this;
     const childProxies = (node.children ?? []).map((child) => self.createNodeProxy(child));
 
-    // Use a Proxy to handle both get and set for value/rawValue/presence
     const target: Record<string, unknown> = {
       name: node.name,
       type: node.type,
@@ -306,27 +284,21 @@ export class JavaScriptEngine {
     currentKey: string | undefined,
     eventObj: Record<string, unknown>,
   ): Record<string, unknown> {
-    // Use deep xfa.form proxy if nodeMap is available (Component 3 enhancement)
-    // Anchored at the current script's node so `xfa.form.$...` scoped paths
-    // start from the right place; falls back to the form root.
     const formProxy =
       this.nodeMap.size > 0
         ? createXfaFormProxy(this.nodeMap, currentKey ?? '', this.modifiedFields)
         : this.createFallbackFormProxy(formData);
 
-    // Create template proxy from nodeMap (access to layout structure)
     const templateProxy = this.nodeMap.size > 0
       ? this.createTemplateProxy()
       : createNullProxy();
 
-    // Create datasets proxy from formData
     const datasetsProxy = this.createDatasetsProxy(formData);
 
     return {
       form: formProxy,
       resolveNode: (somExpr: string) => this.resolveSomExpression(somExpr, null),
       resolveNodes: (somExpr: string) => {
-        // Resolve all matching nodes for wildcard expressions
         const results: Record<string, unknown>[] = [];
         if (somExpr.includes('[*]')) {
           const basePath = somExpr.replace(/\[\*\]/g, '');
@@ -341,29 +313,15 @@ export class JavaScriptEngine {
         }
         return results;
       },
-      // `xfa.record` — the bound data instance seen through XFA's node view.
-      // Present even when the node map is empty so `initialize` scripts that
-      // read flags from the data never abort.
       record: createRecordProxy(formData),
       template: templateProxy,
       datasets: datasetsProxy,
-      // `xfa.layout` — page-number and page-count queries used by Designer's
-      // auto-generated page-number scripts (G4).
       layout: this.createLayoutObject(currentKey),
       host: this.createHostObject(),
-      // Adobe exposes the same event object as both `event` and `xfa.event`.
       event: eventObj,
     };
   }
 
-  /**
-   * `xfa.layout` pseudo-model.
-   *
-   * Adobe scripts (and Designer's page-number wizard) use
-   * `xfa.layout.page(this)` and `xfa.layout.pageCount()` — evidence:
-   * `ConvertIP.exe_disasm.c:73871` (`this.rawValue = xfa.layout.pageCount()`)
-   * and `FormDesigner.exe_disasm.c:2306780` (`xfa.layout.page(this)`).
-   */
   private createLayoutObject(currentKey?: string): Record<string, unknown> {
     const self = this;
     return {
@@ -375,12 +333,10 @@ export class JavaScriptEngine {
       page: (node?: unknown) => self.pageOfNode(node, currentKey),
       absPage: (node?: unknown) => self.pageOfNode(node, currentKey),
       pageContent: (page: unknown) => self.layoutInfo.pageContent.get(Number(page)) ?? 0,
-      // Adobe relayout returns the (unchanged) layout in a static render.
       relayout: () => true,
     };
   }
 
-  /** Resolve `page(node)` arguments: current node, `$` proxy, SOM path or name. */
   private pageOfNode(node?: unknown, currentKey?: string): number {
     let key: string | undefined;
     if (node == null) {
@@ -408,11 +364,9 @@ export class JavaScriptEngine {
   }
 
   private createTemplateProxy(): Record<string, unknown> {
-    // Create a proxy that allows navigation of the template structure
     const self = this;
     const templateNodes: Record<string, unknown> = {};
 
-    // Build a proxy representation of all template nodes
     for (const [path, node] of this.nodeMap) {
       templateNodes[path] = {
         name: node.name,
@@ -429,13 +383,10 @@ export class JavaScriptEngine {
     return new Proxy(templateNodes, {
       get(target, prop) {
         if (typeof prop === 'string') {
-          // Allow direct path lookup
           if (target[prop]) return target[prop];
-          // Allow name-based lookup
           for (const [path, node] of Object.entries(target)) {
             if (path.endsWith(`.${prop}`) || path === prop) return node;
           }
-          // Return a resolveNode function for SOM expressions
           if (prop === 'resolveNode') {
             return (somExpr: string) => self.resolveSomExpression(somExpr, null);
           }
@@ -446,7 +397,6 @@ export class JavaScriptEngine {
   }
 
   private createDatasetsProxy(formData: unknown): Record<string, unknown> {
-    // Create a proxy for xfa.datasets.data that wraps the actual data
     const data = formData as Record<string, unknown>;
     return new Proxy(data ?? {}, {
       get(target, prop) {
@@ -477,8 +427,6 @@ export class JavaScriptEngine {
     };
   }
 
-  // ─── instanceManager mutation hooks (G5) ──────────────────────────────
-
   private instanceHooks: ProxyHooks = {
     addInstance: (parentPath) => this.addInstance(parentPath),
     removeInstance: (parentPath, index) => this.removeInstance(parentPath, index),
@@ -486,12 +434,6 @@ export class JavaScriptEngine {
     moveInstance: (parentPath, from, to) => this.moveInstance(parentPath, from, to),
   };
 
-  /**
-   * `instanceManager.addInstance()` — clone the container's last instance node,
-   * append it to the layout tree, and register the clone (and its subtree) in
-   * the shared node map. Returns the new node's SOM path, or null when there is
-   * no existing instance to clone.
-   */
   private addInstance(parentPath: string): string | null {
     const parent = this.nodeMap.get(parentPath);
     const layoutParent = parent?.layoutNode as { children?: LayoutNode[] } | undefined;
@@ -500,14 +442,12 @@ export class JavaScriptEngine {
       | undefined;
     if (!parent || !layoutParent?.children || !template) return null;
 
-    // Structured clone so edits to the new instance never alias the original.
     const clone = JSON.parse(JSON.stringify(template)) as LayoutNode;
     delete (clone as { resolvedValue?: unknown }).resolvedValue;
     layoutParent.children.push(clone);
     return this.registerSubtree(parent, clone);
   }
 
-  /** `instanceManager.removeInstance(i)` — drop the i-th instance and its subtree. */
   private removeInstance(parentPath: string, index: number): void {
     const parent = this.nodeMap.get(parentPath);
     const child = parent?.children?.[index];
@@ -522,7 +462,6 @@ export class JavaScriptEngine {
     this.unregisterSubtree(child);
   }
 
-  /** `instanceManager.setInstances(n)` — grow or shrink to exactly n instances. */
   private setInstances(parentPath: string, count: number): void {
     const parent = this.nodeMap.get(parentPath);
     if (!parent || count < 0) return;
@@ -535,7 +474,6 @@ export class JavaScriptEngine {
     }
   }
 
-  /** `instanceManager.moveInstance(from, to)` — reorder instances. */
   private moveInstance(parentPath: string, from: number, to: number): void {
     const parent = this.nodeMap.get(parentPath);
     const children = parent?.children;
@@ -554,7 +492,6 @@ export class JavaScriptEngine {
     }
   }
 
-  /** Register a freshly cloned layout node (and descendants) in the node map. */
   private registerSubtree(parent: ScriptableNode, layoutNode: LayoutNode): string {
     const name = layoutNode.name ?? '<unnamed>';
     const basePath = parent.path ? `${parent.path}.${name}` : name;
@@ -566,6 +503,14 @@ export class JavaScriptEngine {
     }
 
     const record = (key: string): unknown => (layoutNode as unknown as Record<string, unknown>)[key];
+    const ln = layoutNode as unknown as {
+      font?: { color?: { r: number; g: number; b: number } };
+      border?: { fill?: { color?: { r: number; g: number; b: number } }; edges?: Array<{ color?: { r: number; g: number; b: number } }> };
+    };
+    const fillInit = ln.border?.fill?.color ? `${ln.border.fill.color.r},${ln.border.fill.color.g},${ln.border.fill.color.b}` : undefined;
+    const fontInit = ln.font?.color ? `${ln.font.color.r},${ln.font.color.g},${ln.font.color.b}` : undefined;
+    const edgeInit = ln.border?.edges?.find((e) => e?.color)?.color;
+    const borderInit = edgeInit ? `${edgeInit.r},${edgeInit.g},${edgeInit.b}` : undefined;
     const scriptable: ScriptableNode = {
       type: layoutNode.type,
       name: layoutNode.name,
@@ -581,6 +526,9 @@ export class JavaScriptEngine {
       events: record('events') as ScriptableNode['events'],
       calculate: record('calculate') as ScriptableNode['calculate'],
       validate: record('validate') as ScriptableNode['validate'],
+      fillColor: fillInit,
+      fontColor: fontInit,
+      borderColor: borderInit,
       children: [],
     };
 
@@ -599,7 +547,6 @@ export class JavaScriptEngine {
     return path;
   }
 
-  /** Remove a scriptable (and descendants) from the node map. */
   private unregisterSubtree(scriptable: ScriptableNode): void {
     if (scriptable.key) this.nodeMap.delete(scriptable.key);
     if (scriptable.path && scriptable.path !== scriptable.key) {
@@ -612,7 +559,6 @@ export class JavaScriptEngine {
   }
 
   private createEventObject(currentNode: XfaNode | null, eventName: string): Record<string, unknown> {
-    // Enhanced xfa.event matching Adobe LiveCycle Designer (Reference: EScript.ppi)
     let _cancelAction = false;
     return {
       name: eventName,
@@ -623,18 +569,15 @@ export class JavaScriptEngine {
       propagated: false,
       rejected: false,
       submitTrigger: null,
-      // Enhanced properties matching Adobe's event object
       prevText: currentNode?.rawValue ?? '',
       newText: currentNode?.rawValue ?? '',
       change: '',
-      commitKey: 0, // 0=none, 1=enter, 2=tab
+      commitKey: 0,
       modifier: false,
       keyDown: 0,
       shift: false,
-      // Cancel action method
       get cancelAction() { return _cancelAction; },
       set cancelAction(val: boolean) { _cancelAction = val; },
-      // Locking methods
       lock: () => {},
       unlock: () => {},
     };
@@ -647,34 +590,28 @@ export class JavaScriptEngine {
     let _currentPage = 1;
     const engine = this;
     return {
-      // Identity
       name: 'Adobe LiveCycle Designer',
-      appType: 'Exchange', // 'Exchange' = Acrobat, 'Reader' = Reader
+      appType: 'Exchange',
       version: '11.0',
       language: 'ENU',
       platform: 'Cross-platform',
       certificateAlias: '',
       pathSeparator: '.',
 
-      // Page info
-      numPages: 1, // Will be set by the pipeline
+      numPages: 1,
       get currentPage() { return _currentPage; },
       set currentPage(val: number) { _currentPage = val; },
       title: '',
 
-      // Script execution control
       get calculationsEnabled() { return _calculationsEnabled; },
       set calculationsEnabled(val: boolean) { _calculationsEnabled = val; },
       get validationsEnabled() { return _validationsEnabled; },
       set validationsEnabled(val: boolean) { _validationsEnabled = val; },
 
-      // Date/time
       now,
 
-      // Methods
       alert: () => {},
       messageBox: (msg: string, _title?: string, _icon?: number, _buttons?: number) => {
-        // In static PDF generation, messageBox returns the default button (1 = OK)
         return 1;
       },
       formatValue: (value: unknown, picture?: string) => {
@@ -766,7 +703,6 @@ export class JavaScriptEngine {
     if (value == null) return '';
     const trimmed = picture.trim();
 
-    // Date picture patterns
     if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
       const date = value instanceof Date ? value : new Date(String(value));
       if (isNaN(date.getTime())) return String(value);
@@ -793,7 +729,6 @@ export class JavaScriptEngine {
       return formatted;
     }
 
-    // Number picture patterns
     if (/[0#.,]/.test(trimmed) && typeof value === 'number') {
       const mask = trimmed.replace(/\s+/g, '');
       const prefix = mask.match(/^[^0-9#.,]+/)?.[0] ?? '';
@@ -821,13 +756,11 @@ export class JavaScriptEngine {
     if (!value) return value;
     const trimmed = picture.trim();
 
-    // For date patterns, try to parse
     if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
       const date = new Date(value);
       if (!isNaN(date.getTime())) return date;
     }
 
-    // For number patterns, extract numeric value
     if (/[0#.,]/.test(trimmed)) {
       const cleaned = value.replace(/[^0-9.\-]/g, '');
       const num = parseFloat(cleaned);
@@ -838,10 +771,6 @@ export class JavaScriptEngine {
   }
 
   private resolveSomExpression(somExpr: string, contextNode: XfaNode | null): Record<string, unknown> | null {
-    // `xfa.record.…` / `record.…` addresses the data instance, not the form.
-    // Misses resolve to a null-safe node rather than null so that
-    // `xfa.resolveNode("xfa.record.X").value === ""` is a benign comparison
-    // instead of a TypeError that aborts the script.
     const recordPrefix = somExpr.match(/^(?:xfa\.)?record\.(.*)$/);
     if (recordPrefix) {
       const rest = recordPrefix[1];
@@ -859,13 +788,10 @@ export class JavaScriptEngine {
         : (createRecordProxy(current) as Record<string, unknown>);
     }
 
-    // Try the nodeMap first (deep proxy with full navigation)
     if (this.nodeMap.size > 0) {
-      // Try direct path
       if (this.nodeMap.has(somExpr)) {
         return createXfaFormProxy(this.nodeMap, somExpr, this.modifiedFields);
       }
-      // Try scoped resolution from nodeMap keys
       for (const [path] of this.nodeMap) {
         if (path.endsWith(`.${somExpr}`) || path === somExpr) {
           return createXfaFormProxy(this.nodeMap, path, this.modifiedFields);
@@ -873,7 +799,6 @@ export class JavaScriptEngine {
       }
     }
 
-    // Fall back to fieldAccessor
     const value = this.fieldAccessor.getField(somExpr, '$');
     if (value === undefined) return null;
     const name = somExpr.split('.').pop() ?? somExpr;
@@ -894,10 +819,6 @@ export class JavaScriptEngine {
   }
 
   private wrapScript(script: string, _eventName: string): string {
-    // `.call($, …)` so `this` inside the script is the scripting object —
-    // Designer emits `this.rawValue = …` far more often than `$.rawValue = …`.
-    // `returnValue` is deliberately NOT declared here: scripts assign to it to
-    // return a value, and a local `var` would swallow that from `execute()`.
     return `
       (function($, xfa, event, host) {
         ${script}

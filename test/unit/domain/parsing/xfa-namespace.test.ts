@@ -1,11 +1,5 @@
 import { parseXdp } from '../../../../src/domain/parsing/parse-xdp';
 
-/**
- * G16 — `xfa-namespace-validation.ts` is now enforced by `parseXdp`: supported
- * versions parse cleanly, known-unsupported versions warn (default) or fail
- * (strict).
- */
-
 function xdp(templateNamespace: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">

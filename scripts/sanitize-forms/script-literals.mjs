@@ -1,12 +1,8 @@
-// Splits XFA scripts (JavaScript / FormCalc) into code, string literals,
-// regex literals and comments, so the sanitizer rewrites literals and comments
-// and (through names.mjs) renames identifiers in code.
 
 const JS_REGEX_KEYWORDS = new Set([
   'return', 'typeof', 'case', 'do', 'else', 'in', 'instanceof', 'new', 'delete', 'void', 'throw',
 ]);
 
-// Literal values XFA/JS code compares against or assigns; never scrambled.
 export const BUILTIN = new Set(
   `visible hidden invisible inactive open readOnly protected nonInteractive
   left center right justify justifyAll radix top middle bottom
@@ -32,7 +28,6 @@ const PICTURE_SYMBOLS = /yy|mm|dd|hh|ss|zz|99|MMM|EEE/i;
 const LOCALE = /^[a-z]{2,3}(?:[_-](?:[A-Z]{2}|[A-Z][a-z]{3}))?(?:[_-][A-Z]{2})?$/;
 const CONTENT_TYPE = /^(?:text|image|application|audio|video|multipart)\/[\w.+-]+$/;
 
-/** True when a string literal is code (keyword, SOM path, picture, ...), not human text. */
 export function isCodeLiteral(content, vocab) {
   const s = content.trim();
   if (!s || !/\p{L}/u.test(s)) return true;
@@ -46,7 +41,6 @@ export function scriptLanguage(contentType) {
   return /javascript|ecmascript/i.test(contentType ?? '') ? 'js' : 'formcalc';
 }
 
-/** [{ kind: 'code' | 'string' | 'comment' | 'regex', text }] covering `src` exactly. */
 export function lexScript(src, lang) {
   return lang === 'js' ? lexJs(src) : lexFormCalc(src);
 }
@@ -176,7 +170,6 @@ function lexFormCalc(src) {
   return parts;
 }
 
-/** Decoded content of a string part; `encode` turns new content back into a literal. */
 export function literal(part) {
   const { text, quote, lang } = part;
   const closed = text.length > 1 && text.endsWith(quote);
@@ -207,10 +200,6 @@ export function literal(part) {
   };
 }
 
-/**
- * Applies `scramble` to human-text literals (outside any markup) and comments;
- * with `names`, also renames identifiers and name / SOM-path literals.
- */
 export function rewriteScript(src, lang, { vocab, scramble, names }) {
   return lexScript(src, lang)
     .map((part) => {

@@ -1,6 +1,3 @@
-// Placeholder images that keep the original's format, pixel size, alpha and DPI
-// so layout and image-decoding paths behave the same. Every placeholder carries
-// a marker so audits can prove no real image survived.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +20,6 @@ const FONT_FILE = path.join(
 const MAX_SIDE = 8000;
 let fontRegistered = false;
 
-/** { format, width, height, alpha?, phys?, density?, bitCount?, ppm? } or null. */
 export function sniffImage(buf) {
   if (buf.length >= 26 && buf.readUInt32BE(0) === 0x89504e47) return sniffPng(buf);
   if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) return sniffJpeg(buf);
@@ -65,7 +61,6 @@ function sniffPng(buf) {
   return info;
 }
 
-/** 'none' | 'binary' | 'partial' — how the image uses transparency (not where). */
 function alphaUsage(buf) {
   try {
     const { data } = PNG.sync.read(buf);
@@ -114,7 +109,6 @@ function sniffJpeg(buf) {
   return info;
 }
 
-/** { format, contentType, data } — PNG, JPEG and BMP keep their format; others become PNG. */
 export function makePlaceholder(info) {
   const width = clampSide(info?.width);
   const height = clampSide(info?.height);
@@ -138,7 +132,6 @@ function clampSide(n) {
   return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), MAX_SIDE) : 100;
 }
 
-/** alphaMode: 'none' opaque, 'binary' transparent margin + opaque body, 'partial' translucent. */
 function draw(width, height, alphaMode) {
   if (!fontRegistered) {
     GlobalFonts.registerFromPath(FONT_FILE, 'SanitizePlaceholder');

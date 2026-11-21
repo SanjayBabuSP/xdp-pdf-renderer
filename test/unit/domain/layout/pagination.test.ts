@@ -2,7 +2,7 @@ import { applyPagination } from '../../../../src/domain/layout/apply-pagination'
 import { LayoutModel, LayoutNode, SubformNode, FieldNode, Position } from '../../../../src/types';
 
 const CA = { x: 54, y: 54, w: 487, h: 734 };
-const BOUNDARY = 788; // CA.y + CA.h — start of flow page 1
+const BOUNDARY = 788;
 
 function model(children: LayoutNode[], templateCount = 1): LayoutModel {
   const templates = Array.from({ length: templateCount }, (_, i) => ({
@@ -47,17 +47,17 @@ describe('applyPagination (coordinate-based)', () => {
 
     const p0 = out.pages[0].children[0] as SubformNode;
     expect(p0.position!.y).toBe(700);
-    expect(p0.position!.h).toBe(88); // clipped at 788
+    expect(p0.position!.h).toBe(88);
     expect(p0.children.map((c) => c.position!.y)).toEqual([760]);
 
     const p1 = out.pages[1].children[0] as SubformNode;
-    expect(p1.position!.y).toBe(54); // translated by −734
+    expect(p1.position!.y).toBe(54);
     expect(p1.position!.h).toBe(734);
-    expect(p1.children.map((c) => c.position!.y)).toEqual([66]); // 800 − 734
+    expect(p1.children.map((c) => c.position!.y)).toEqual([66]);
 
     const p2 = out.pages[2].children[0] as SubformNode;
     expect(p2.position!.y).toBe(54);
-    expect(p2.position!.h).toBe(178); // 1700 − 1522
+    expect(p2.position!.h).toBe(178);
   });
 
   it('rebase breakBefore to the next content-area top', () => {
@@ -101,7 +101,7 @@ describe('applyPagination (coordinate-based)', () => {
     expect(out.pages).toHaveLength(2);
 
     const p0 = out.pages[0].children[0] as SubformNode;
-    expect(p0.position!.h).toBe(28); // clipped at 788
+    expect(p0.position!.h).toBe(28);
     expect(p0.children.map((c) => [c.position!.y, c.position!.h])).toEqual([
       [760, 20],
       [780, 8],
@@ -126,7 +126,6 @@ describe('applyPagination (coordinate-based)', () => {
       subform('first', { x: 54, y: 54, w: 100, h: 10 }),
       { ...subform('second', { x: 54, y: 64, w: 100, h: 20 }), breakBefore: 'pageOdd' },
     ]);
-    // pageOdd → flow page index 2 (physical page 3): y = 54 + 2·734
     expect(out.pages.length).toBeGreaterThanOrEqual(3);
     expect(out.pages[2].children[0].position!.y).toBe(54);
   });
@@ -145,7 +144,6 @@ describe('applyPagination (coordinate-based)', () => {
     expect(out.success).toBe(true);
     if (!out.success) return;
     const frag = out.data.pages[1].children[0];
-    // t_1 = (40−54, 40−54−734) = (−14, −748): y 788→40, x 54→40.
     expect(frag.position!.x).toBe(40);
     expect(frag.position!.y).toBe(40);
   });
@@ -157,8 +155,6 @@ describe('applyPagination (coordinate-based)', () => {
   });
 
   it('preserves a trailing breakBefore section as its own last page', () => {
-    // IPQT shape: body filling 5 pages + a closing section forced onto page 6.
-    // Guards against dropping a trailing near-empty page (the 6→5 divergence).
     const out = run([
       subform('body', { x: 54, y: 54, w: 200, h: 5 * 734 }),
       { ...subform('revision', { x: 54, y: 54 + 5 * 734, w: 200, h: 30 }), breakBefore: 'contentArea' },

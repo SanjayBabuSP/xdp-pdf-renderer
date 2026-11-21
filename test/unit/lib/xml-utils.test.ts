@@ -1,6 +1,5 @@
 import { parseXml, firstChild, extractRichTextContent } from '../../../src/lib/xml-utils';
 
-/** Helpers that tolerate Designer-emitted duplicate/variant XML shapes. */
 describe('xml-utils robustness (ADS parity)', () => {
   it('firstChild unwraps duplicated singular children (Example-1 draw)', () => {
     const doc = parseXml(

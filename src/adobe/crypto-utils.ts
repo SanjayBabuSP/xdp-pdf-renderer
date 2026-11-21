@@ -1,13 +1,5 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Crypto utilities — MD5 hash for PDF security key computation
-// ────────────────────────────────────────────────────────────────────────────
 
-/**
- * Compute MD5 hash of a Uint8Array.
- * Used for PDF Standard Security Handler key derivation.
- */
 export function md5(input: Uint8Array): Uint8Array {
-  // MD5 implementation per RFC 1321
   const s = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
     5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
@@ -34,7 +26,6 @@ export function md5(input: Uint8Array): Uint8Array {
     0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
   ];
 
-  // Pre-processing
   const msgLen = input.length;
   const bitLen = msgLen * 8;
   const padLen = ((56 - (msgLen + 1) % 64) + 64) % 64;
@@ -43,18 +34,15 @@ export function md5(input: Uint8Array): Uint8Array {
   padded.set(input);
   padded[msgLen] = 0x80;
 
-  // Append length in bits as 64-bit little-endian
   const view = new DataView(padded.buffer);
   view.setUint32(msgLen + 1 + padLen, bitLen >>> 0, true);
   view.setUint32(msgLen + 1 + padLen + 4, Math.floor(bitLen / 0x100000000) >>> 0, true);
 
-  // Initialize hash values
   let a0 = 0x67452301;
   let b0 = 0xefcdab89;
   let c0 = 0x98badcfe;
   let d0 = 0x10325476;
 
-  // Process each 64-byte block
   const M = new Uint32Array(16);
   for (let offset = 0; offset < padded.length; offset += 64) {
     for (let j = 0; j < 16; j++) {
@@ -97,7 +85,6 @@ export function md5(input: Uint8Array): Uint8Array {
     d0 = (d0 + D) >>> 0;
   }
 
-  // Produce the 16-byte digest
   const digest = new Uint8Array(16);
   const dv = new DataView(digest.buffer);
   dv.setUint32(0, a0, true);
@@ -108,18 +95,14 @@ export function md5(input: Uint8Array): Uint8Array {
   return digest;
 }
 
-// ─── PDF Standard Security Handler primitives ──────────────────────────────
-
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
-/** 32-byte password padding string from the PDF spec (Algorithm 2, step 1). */
 export const PASSWORD_PADDING = new Uint8Array([
   0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56,
   0xff, 0xfa, 0x01, 0x08, 0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80,
   0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
 ]);
 
-/** Pad/truncate a password to 32 bytes per the PDF spec. */
 export function padPassword(password: string): Uint8Array {
   const out = new Uint8Array(32);
   const bytes = new TextEncoder().encode(password);
@@ -140,7 +123,6 @@ export function concatBytes(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** Little-endian encoding helpers used by per-object key derivation. */
 export function le32(value: number): Uint8Array {
   return new Uint8Array([
     value & 0xff,
@@ -164,7 +146,6 @@ export function xorKey(key: Uint8Array, n: number): Uint8Array {
   return out;
 }
 
-/** RC4 stream cipher (symmetric). */
 export function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
   const s = new Uint8Array(256);
   for (let i = 0; i < 256; i++) s[i] = i;
@@ -185,7 +166,6 @@ export function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
   return out;
 }
 
-/** AES-128-CBC encrypt with a random IV prepended (PDF 1.6 AESV2 objects). */
 export function aesCbcEncrypt(key: Uint8Array, data: Uint8Array): Uint8Array {
   const iv = randomBytes(16);
   const cipher = createCipheriv('aes-128-cbc', key, iv);
@@ -193,7 +173,6 @@ export function aesCbcEncrypt(key: Uint8Array, data: Uint8Array): Uint8Array {
   return concatBytes(new Uint8Array(iv), new Uint8Array(encrypted));
 }
 
-/** AES-128-CBC decrypt, stripping the prepended IV. Used by round-trip tests. */
 export function aesCbcDecrypt(key: Uint8Array, data: Uint8Array): Uint8Array {
   const iv = data.subarray(0, 16);
   const decipher = createDecipheriv('aes-128-cbc', key, iv);
@@ -226,11 +205,6 @@ export function bytesToBinaryString(bytes: Uint8Array): string {
   return out;
 }
 
-// ─── Standard Security Handler key algorithms ──────────────────────────────
-
-/**
- * Algorithm 2 — compute the `/O` (owner) entry.
- */
 export function computeOwnerEntry(
   ownerPassword: string,
   userPassword: string,
@@ -255,10 +229,6 @@ export function computeOwnerEntry(
   return o;
 }
 
-/**
- * Algorithm 3 — derive the file encryption key from the user password, `/O`,
- * `/P` and the first `/ID` string.
- */
 export function computeEncryptionKey(
   userPassword: string,
   o: Uint8Array,
@@ -278,9 +248,6 @@ export function computeEncryptionKey(
   return digest.subarray(0, keyLength);
 }
 
-/**
- * Algorithms 4 & 5 — compute the `/U` (user) entry.
- */
 export function computeUserEntry(
   encryptionKey: Uint8Array,
   id0: Uint8Array,
@@ -301,10 +268,6 @@ export function computeUserEntry(
   return out;
 }
 
-/**
- * Algorithm 1 — per-object key derived from the file key and the object's
- * number/generation (plus the AES salt for AESV2 objects).
- */
 export function objectKey(
   encryptionKey: Uint8Array,
   objectNumber: number,
@@ -312,15 +275,11 @@ export function objectKey(
   useAES: boolean,
 ): Uint8Array {
   const parts = [encryptionKey, le24(objectNumber), le16(generationNumber)];
-  if (useAES) parts.push(new Uint8Array([0x73, 0x41, 0x6c, 0x54])); // "sAlT"
+  if (useAES) parts.push(new Uint8Array([0x73, 0x41, 0x6c, 0x54]));
   const digest = md5(concatBytes(...parts));
   return digest.subarray(0, Math.min(encryptionKey.length + 5, 16));
 }
 
-/**
- * Algorithm 6 — verify a user password against the stored `/U` entry
- * (used by tests and by tools that validate credentials).
- */
 export function authenticateUserPassword(
   password: string,
   o: Uint8Array,

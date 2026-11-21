@@ -11,34 +11,14 @@ import {
 } from 'pdf-lib';
 import { FieldNode, LayoutNode, PaginatedLayout } from '../types';
 
-/**
- * Interactive AcroForm generation from the XFA template (G8).
- *
- * The renderer normally produces flat vector pages. When
- * `RenderOptions.adobe.acroForm` is enabled, every visible bound input field is
- * also emitted as a real AcroForm field with a widget annotation, carrying the
- * current value, the `<assist>` tooltip (`/TU`) and the access state (`/Ff`).
- *
- * Field type mapping follows the XFA UI to PDF `/FT` correspondence:
- *   textEdit / numericEdit / dateTimeEdit → `/Tx`
- *   checkButton                           → `/Btn` (checkbox)
- *   choiceList                            → `/Ch` (combo or list)
- *   signature                             → `/Sig`
- *
- * Known limitation: appearance streams are not generated; `/NeedAppearances`
- * is set so viewers synthesise them from `/DA` + `/V`.
- */
-
 const F_READONLY = 1 << 0;
 const F_MULTILINE = 1 << 12;
 const F_COMBO = 1 << 17;
 
 export interface AcroFormOptions {
-  /** Order fields using the authored `<traversal>` lists. Default true. */
   tabOrderFromTraversal?: boolean;
 }
 
-/** A collected XFA field ready to be turned into an AcroForm widget. */
 interface AcroFieldSpec {
   path: string;
   ft: 'Tx' | 'Btn' | 'Ch' | 'Sig';
@@ -97,7 +77,7 @@ function buildFieldDict(doc: PDFDocument, spec: AcroFieldSpec): PDFDict {
   dict.set(PDFName.of('FT'), PDFName.of(spec.ft));
   dict.set(PDFName.of('T'), safeString(spec.path));
   if (spec.tooltip) dict.set(PDFName.of('TU'), safeString(spec.tooltip));
-  dict.set(PDFName.of('F'), PDFNumber.of(4)); // print
+  dict.set(PDFName.of('F'), PDFNumber.of(4));
   dict.set(PDFName.of('P'), spec.page.ref);
   dict.set(PDFName.of('Rect'), context.obj(spec.rect));
   if (spec.flags) dict.set(PDFName.of('Ff'), PDFNumber.of(spec.flags));
@@ -118,13 +98,10 @@ function buildFieldDict(doc: PDFDocument, spec: AcroFieldSpec): PDFDict {
   return dict;
 }
 
-/** PDFString cannot hold characters outside PDFDocEncoding; use hex otherwise. */
 function safeString(value: string): PDFString | PDFHexString {
   // eslint-disable-next-line no-control-regex
   return /^[\x00-\xff]*$/.test(value) ? PDFString.of(value) : PDFHexString.fromText(value);
 }
-
-// ─── Field collection ────────────────────────────────────────────────────────
 
 function collectFields(
   doc: PDFDocument,
@@ -185,7 +162,6 @@ function toAcroField(
   const h = pos.h ?? 0;
   if (w <= 0 || h <= 0) return null;
 
-  // `position` is top-left, y-down in template points; convert to PDF y-up.
   const rect: [number, number, number, number] = [
     pos.x,
     pageHeight - (pos.y + h),
@@ -229,10 +205,6 @@ function toAcroField(
   };
 }
 
-/**
- * Document order, except when the container authors a `<traversal><field
- * name=…/></traversal>` list — then listed names lead, in that order.
- */
 function orderedChildren(
   nodes: LayoutNode[],
   traversalFields: string[] | undefined,
