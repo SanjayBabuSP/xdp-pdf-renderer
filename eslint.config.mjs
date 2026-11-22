@@ -19,5 +19,14 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
+  },
+  {
+    files: ['src/domain/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { paths: ['fs', 'node:fs', 'path', 'node:path', 'vm', 'node:vm'] },
+      ],
+    },
   }
 );

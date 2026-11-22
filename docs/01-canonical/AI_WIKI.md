@@ -10,7 +10,8 @@ you **must** update this file in the same change.
    `reference/RENDERING_BEHAVIOR.md` for the Adobe evidence behind rendering
    decisions, and `README.md` for the public API.
 2. **Code contains no inline rationale.** Do not re-add comments to explain
-   behaviour. Put the explanation here instead.
+   behaviour. Put the explanation here instead. TSDoc on the exported public
+   API is the only exception.
 3. **Every code change must update this file:**
    - Add or update the relevant section below with *what* changed and *why*.
    - Add a dated entry to §11 (Change ledger). Reference the file/function and
@@ -28,10 +29,12 @@ Render a PDF from three inputs — an XDP/XFA template, an XSD schema, and XML
 data — in Node.js with no SAP or Adobe runtime dependency. It is an educational
 re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 
-- Public API: `render()` / `renderFormToPdf()` in `src/index.ts`,
-  `src/workflows/render-pdf.ts`. CLI in `src/cli.ts`.
+- Public API: `render()`, `validate()`, `inspect()` and `ERROR_CODES` in
+  `src/index.ts`; `renderFormToPdf()` in `src/workflows/render-pdf.ts`. CLI in
+  `src/cli.ts`.
 - Purity rule: everything under `src/domain/`, `src/lib/`, and `src/config/` is
-  pure (no I/O). `src/rendering/` is the PDF I/O boundary.
+  pure (no I/O). `src/rendering/` is the PDF I/O boundary and `src/adapters/`
+  holds runtime adapters such as the `vm` sandbox.
 - Every fallible operation returns `Result<T> = { success: true; data: T } |
   { success: false; error: ErrorResult }` (`src/lib/result-type.ts`).
 - Schema/binding problems are warnings by default; `strictValidation: true`
@@ -51,6 +54,7 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 | `src/domain/layout/` | Flow / position / table engines, sizing, pagination |
 | `src/rendering/` | pdf-lib rendering: text, borders, images, fonts, gradients |
 | `src/rendering/text/` | Line metrics, measurement, wrapping, rotation |
+| `src/adapters/` | Runtime adapters; `vm` sandbox creation and realm hardening |
 | `src/lib/` | Units, XPath, XML helpers, value formatting, results |
 | `src/adobe/`, `src/config/` | Adobe compatibility helpers and config-as-data |
 | `reference/` | Decompiled DLL evidence and observed rendering behaviour |
@@ -58,6 +62,22 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
 | `.skills/` | Canonical installed JS/TS coding skills; `.agents/skills/` holds discovery links |
 | `test/unit/`, `test/integration/` | Regression suites |
 | `test/fixtures/sample-forms/` | Sanitized real forms + Adobe-generated reference PDFs |
+
+### Where do I change X
+
+| Change | Start here |
+| --- | --- |
+| Public options, return type, error codes | `src/types.ts`, `src/errors/error-codes.ts`, `src/index.ts` |
+| CLI flags and output | `src/cli.ts`, `test/unit/cli.test.ts` |
+| Pipeline order, cancellation, timeout | `src/workflows/render-pdf.ts` |
+| XDP/XSD/XML parsing | `src/domain/parsing/` |
+| Bindings, repeats, conditions, embeds | `src/domain/mapping/` |
+| FormCalc or JavaScript scripts | `src/domain/scripting/`, `src/adapters/vm-sandbox.ts` |
+| Layout, pagination, table geometry | `src/domain/layout/` |
+| PDF drawing, fonts, images, barcodes | `src/rendering/` |
+| Adobe PDF features | `src/adobe/` |
+| Build, lint, CI, coverage gates | `package.json`, `eslint.config.mjs`, `jest.config.js`, `.github/workflows/` |
+| Docs and agent rules | `AGENTS.md`, `docs/` |
 
 ## 3. Pipeline (exact order matters)
 
@@ -163,6 +183,27 @@ re-implementation of Adobe LiveCycle Designer's "Preview as PDF" behaviour.
   parsed into `ParaSpec` and applied to values, draws and rich runs. `lineHeight`
   as a percentage is not yet interpreted.
 
+### 5.1 Locale-aware picture formatting
+
+- `src/lib/locale-format.ts` normalizes XFA IDs (`de_DE → de-DE`), rejects
+  invalid values without throwing, and caches `Intl` formatters for month/day
+  names, meridiem text and number separators.
+- Effective locale precedence is `RenderOptions.locale` > field > subform >
+  root XDP `locale` > `en-US`. With no locale, every formatter stays on the
+  original English path so existing PDFs are byte-stable.
+- Locale affects only picture expansion: month/weekday names (`MMMM`, `MMM`,
+  `EEEE`, `EEE`), meridiem text (`A`, `AMPM`, `am`), and group/decimal
+  separators. Picture grammar tokens, `AD`/`GMT`, `host.language`, `wordNum`,
+  ISO/epoch helpers and diagnostics remain English/locale-neutral.
+- `renderFormToPdf()` resolves the locale once and supplies it to embeds,
+  scripts, layout measurement, pagination and rendering. Using different
+  locales for measurement and painting would clip text or split lines wrongly.
+- `formatValue` localizes both output and numeric input coercion; FormCalc and
+  the JS host carry locale per instance (`FormCalcEnv`, engine config) so
+  `Format`/`Parse` and `xfa.host.formatValue`/`unformatValue` stay symmetric.
+- XFA `localeSet` authored patterns are not parsed; `Intl` data is the source
+  of localized names and separators. There is no message translation layer.
+
 ## 6. Borders, images and rotation
 
 - Edges: dash patterns scaled by thickness; cap/join map to PDF `J`/`j`; corner
@@ -220,8 +261,8 @@ Marked as Medium confidence in `reference/RENDERING_BEHAVIOR.md` §8.
 npm run lint
 npm run build
 npm run format:check
-npm run test:unit          # 107 suites
-npm run test:coverage      # ≥90% lines (currently 96.5%)
+npm run test:unit          # 111 suites
+npm run test:coverage      # thresholds: 94/84/95/96 (currently 96.47% lines)
 npm run test:integration   # 17 suites
 node scripts/render-sample-forms.mjs
 ```
@@ -240,7 +281,7 @@ fixture-specific code to make a diff disappear.
 | `test/unit/domain/mapping/*`, `test/unit/domain/validation/*` | Repeat expansion, binding and schema/structure validation |
 | `test/unit/rendering/*`, `test/unit/lib/*` | Image/fill/font/border/geometry helpers and value formatting |
 | `test/unit/workflows/render-pdf.test.ts`, `test/unit/cli.test.ts`, `test/unit/barrels.test.ts` | Workflow options/branches, CLI wiring, public exports |
-| Coverage gate | `npm run test:coverage`: 96.5% lines, 94.44% statements, 95.67% functions, 84.66% branches |
+| Coverage gate | `npm run test:coverage`: 96.47% lines, 94.44% statements, 95.56% functions, 84.52% branches |
 | `test/unit/lib/xpath-resolver.test.ts` | Repeat-scoped binding fallback |
 | `test/unit/domain/parsing/parse-xml-data.test.ts` | Lexical decimals / `0,006` |
 | `test/unit/rendering/line-metrics.test.ts` | Ascent clamp, line advance |
@@ -257,8 +298,53 @@ fixture-specific code to make a diff disappear.
 | `test/unit/domain/layout/apply-pagination.test.ts` | Multi-line fields split by line range across pages |
 | `test/unit/rendering/rich-text-parser.test.ts` | Paragraph-level CSS, nested span overrides |
 | `test/unit/domain/scripting/formcalc-golden.test.ts` | FormCalc property access / resolveNode |
+| `test/unit/lib/locale-format.test.ts` | Locale normalization, localized names, meridiem, separators |
+| `test/unit/lib/value-format.test.ts` | XFA-style IDs, localized AM/PM and number separators |
+| `test/unit/domain/scripting/evaluator-formats.test.ts` | FormCalc localized format/parse round-trips |
+| `test/unit/domain/scripting/javascript-engine.test.ts` | JS host localized numeric/meridiem formatting |
+| `test/unit/workflows/render-pdf.test.ts` | Normalized `RenderOptions.locale` reaches rendering |
+| `test/unit/domain/scripting/js-sandbox-escape.test.ts` | Host `process` cannot be reached from script globals |
+| `test/unit/cli.test.ts` | CLI version comes from `package.json` |
+| `test/unit/barrels.test.ts` | Root exports, error hints and typed error codes |
+| `test/unit/rendering/font-manager.test.ts` | Font byte cache and `FONT_NOT_FOUND` path |
+| `test/unit/workflows/fuzz-inputs.test.ts` | Malformed inputs never throw out of `render()` |
+| `test/unit/lib/locale-format.test.ts` | Idempotent locale normalization property |
 
 ## 11. Change ledger (append newest first)
+
+### 2026-11-22 — library hardening and developer experience
+- Script sandbox moved behind `src/adapters/vm-sandbox.ts`. `vm` contexts now
+  disable string/WASM code generation and every injected value is rebased onto
+  sandbox-realm prototypes, closing the `constructor.constructor` escape. A
+  new ESLint boundary rule forbids `fs`, `path` and `vm` under `src/domain/`.
+- Public API gained `validate()`, `inspect()`, typed `ErrorCode`, error hints,
+  `AbortSignal`/`timeoutMs`, `Uint8Array` output and TSDoc. All render failures,
+  including unexpected throws, now return `Result` instead of rejecting.
+- Package hardening: `exports` map, lazy Adobe/barcode/PDF417 loading, explicit
+  `FONT_NOT_FOUND`, process-wide font-byte cache, CLI version from
+  `package.json`, build no longer rewrites sources, no forced Jest exit, and
+  release provenance. `fast-xml-parser` moved to 5.x and `@types/node` to 22.x;
+  production audit is clean. CI adds format/lint/coverage/audit/size/benchmark
+  gates and a three-OS matrix.
+- Documentation: script-isolation decision, API reference, README security
+  section, where-to-change-X map. Research and plan:
+  `docs/02-research/2026-11-22-library-improvements.md`,
+  `docs/03-plans/2026-11-22-library-improvements.md`.
+
+### 2026-11-22 — locale-aware XFA formatting
+- Added `src/lib/locale-format.ts` and threaded a normalized locale from
+  `RenderOptions.locale` / XDP `locale` through embeds, scripts, layout,
+  pagination and rendering. XFA IDs are converted (`de_DE → de-DE`) once;
+  invalid values are ignored and the default path remains `en-US`.
+- `formatValue`, FormCalc and the JS picture engine now use the same helpers
+  for localized month/weekday names, meridiem text and number separators.
+  Formatting and parsing were updated together so `Format`/`Parse` and host
+  `formatValue`/`unformatValue` round-trips stay symmetric.
+- No translation framework or message catalog was added: captions/data stay
+  verbatim, diagnostics stay English, and `host.language`, `wordNum`, ISO/epoch
+  helpers and picture grammar tokens are unchanged.
+- Research/plan: `docs/02-research/2026-11-22-locale-aware-formatting.md`,
+  `docs/03-plans/2026-11-22-locale-aware-formatting.md`.
 
 ### 2026-11-21 — CI-safe CFF subset regression test
 - Replaced the Adobe OTF dependency in `cff-subset.test.ts` with a mocked

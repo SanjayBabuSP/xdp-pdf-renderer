@@ -1,18 +1,28 @@
+import {
+  getMeridiem,
+  getMonthNames,
+  getNumberSeparators,
+  getWeekdayNames,
+  normalizeLocale,
+  type NumberSeparators,
+} from './locale-format';
+
 export function formatValue(value: unknown, picture?: string, locale?: string): string {
   if (value == null) return '';
   if (!picture) return String(value);
 
   const pattern = picture.trim();
+  const resolvedLocale = normalizeLocale(locale);
 
-  const compound = formatCompoundValue(value, pattern, locale);
+  const compound = formatCompoundValue(value, pattern, resolvedLocale);
   if (compound !== null) return compound;
 
   if (looksLikeNumberPattern(pattern)) {
-    return formatNumberValue(value, pattern);
+    return formatNumberValue(value, pattern, resolvedLocale);
   }
 
   if (looksLikeDatePattern(pattern)) {
-    return formatDateValue(value, pattern, locale);
+    return formatDateValue(value, pattern, resolvedLocale);
   }
 
   return String(value);
@@ -27,12 +37,12 @@ function formatCompoundValue(value: unknown, pattern: string, locale?: string): 
   return pattern.replace(COMPOUND_RE, (_match, kind: string, body: string) => {
     const k = kind.toLowerCase();
     if (k === 'text') return formatTextTemplate(value, body);
-    if (k === 'num') return formatNumberValue(value, body || 'zzz,zzz,zz9.99');
+    if (k === 'num') return formatNumberValue(value, body || 'zzz,zzz,zz9.99', locale);
     const effective = body || (k === 'time' ? 'h:MM:SS A' : 'M/D/YYYY');
     const pictured = typeof value === 'string' ? parseDateByPicture(value, effective) : null;
     const date = pictured ?? coerceDate(value);
     if (!date) return String(value);
-    if (k === 'time') return formatTimeBody(date, effective);
+    if (k === 'time') return formatTimeBody(date, effective, locale);
     return formatDateBody(date, effective, locale);
   });
 }
@@ -141,12 +151,12 @@ function formatDateBody(date: Date, body: string, locale?: string): string {
   return applyTokens(body, tokens);
 }
 
-function formatTimeBody(date: Date, body: string): string {
+function formatTimeBody(date: Date, body: string, locale?: string): string {
   const hours24 = date.getUTCHours();
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
   const minutes = date.getUTCMinutes();
   const seconds = date.getUTCSeconds();
-  const meridiem = hours24 < 12 ? 'AM' : 'PM';
+  const meridiem = getMeridiem(locale, hours24 >= 12);
   const pad = (n: number): string => String(n).padStart(2, '0');
 
   const tokens: Array<[RegExp, () => string]> = [
@@ -189,13 +199,11 @@ function applyTokens(body: string, tokens: Array<[RegExp, () => string]>): strin
 }
 
 function monthName(date: Date, style: 'long' | 'short', locale?: string): string {
-  return new Intl.DateTimeFormat(locale ?? 'en-US', { month: style, timeZone: 'UTC' }).format(date);
+  return getMonthNames(locale, style)[date.getUTCMonth()];
 }
 
 function weekdayName(date: Date, style: 'long' | 'short', locale?: string): string {
-  return new Intl.DateTimeFormat(locale ?? 'en-US', { weekday: style, timeZone: 'UTC' }).format(
-    date
-  );
+  return getWeekdayNames(locale, style)[date.getUTCDay()];
 }
 
 function coerceDate(value: unknown): Date | null {
@@ -234,8 +242,9 @@ function looksLikeNumberPattern(pattern: string): boolean {
 
 const INT_PLACEHOLDER = /[0#9z]/;
 
-function formatNumberValue(value: unknown, pattern: string): string {
-  const number = coerceNumber(value);
+function formatNumberValue(value: unknown, pattern: string, locale?: string): string {
+  const separators = getNumberSeparators(locale);
+  const number = coerceNumber(value, separators);
   if (number === null) return String(value);
 
   const bar = pattern.indexOf('|');
@@ -248,10 +257,15 @@ function formatNumberValue(value: unknown, pattern: string): string {
 
   const scaled = /%/.test(part) ? Math.abs(number) * 100 : Math.abs(number);
 
-  return renderNumberTemplate(scaled, part, addSign);
+  return renderNumberTemplate(scaled, part, addSign, separators);
 }
 
-function renderNumberTemplate(abs: number, template: string, addSign: boolean): string {
+function renderNumberTemplate(
+  abs: number,
+  template: string,
+  addSign: boolean,
+  separators: NumberSeparators
+): string {
   const dot = template.indexOf('.');
   const intTemplate = dot >= 0 ? template.slice(0, dot) : template;
   const afterDot = dot >= 0 ? template.slice(dot + 1) : '';
@@ -263,12 +277,18 @@ function renderNumberTemplate(abs: number, template: string, addSign: boolean): 
   const rounded = abs.toFixed(decimals);
   const [intDigits, fracDigits = ''] = rounded.split('.');
 
-  const intOut = renderIntegerTemplate(intTemplate, intDigits, addSign);
-  const fracOut = decimals > 0 ? `.${fillPlaceholders(fracTemplate, fracDigits)}` : '';
+  const intOut = renderIntegerTemplate(intTemplate, intDigits, addSign, separators.group);
+  const fracOut =
+    decimals > 0 ? `${separators.decimal}${fillPlaceholders(fracTemplate, fracDigits)}` : '';
   return `${intOut}${fracOut}${suffix}`;
 }
 
-function renderIntegerTemplate(template: string, digits: string, addSign: boolean): string {
+function renderIntegerTemplate(
+  template: string,
+  digits: string,
+  addSign: boolean,
+  groupSeparator: string
+): string {
   const chars = [...template];
   const placeholderIdx = chars
     .map((c, i) => (INT_PLACEHOLDER.test(c) ? i : -1))
@@ -315,7 +335,7 @@ function renderIntegerTemplate(template: string, digits: string, addSign: boolea
       const leftHasContent = placeholderIdx.some(
         (idx) => idx < i && (rendered.get(idx) ?? '') !== '' && (rendered.get(idx) ?? '') !== ' '
       );
-      if (leftHasContent || !overflowPlaced) out += ',';
+      if (leftHasContent || !overflowPlaced) out += groupSeparator;
       continue;
     }
     out += ch;
@@ -338,12 +358,18 @@ function fillPlaceholders(template: string, digits: string): string {
   return out;
 }
 
-function coerceNumber(value: unknown): number | null {
+function coerceNumber(value: unknown, separators: NumberSeparators): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') {
     const normalized = value.trim();
     if (!normalized) return null;
-    const compact = normalized.replace(/[$€£¥₹,\s]/g, '').replace(/%/g, '');
+    const compact = normalized
+      .replace(/[$€£¥₹\s]/g, '')
+      .replace(/%/g, '')
+      .split(separators.group)
+      .join('')
+      .split(separators.decimal)
+      .join('.');
     const parsed = Number(compact);
     return Number.isFinite(parsed) ? parsed : null;
   }

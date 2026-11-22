@@ -1,4 +1,5 @@
 import { Result } from '../types';
+import { ERROR_CODES } from '../errors/error-codes';
 import { success, failure } from './result-type';
 
 type Unit = 'in' | 'cm' | 'mm' | 'pt' | 'px';
@@ -106,7 +107,12 @@ export function toPoints(valueWithUnit: string): Result<number> {
   if (!match) {
     const num = Number(trimmed);
     if (!isNaN(num) && trimmed !== '') return success(num);
-    return failure('UNKNOWN_UNIT', `Cannot parse dimension: ${trimmed}`);
+    return failure(
+      ERROR_CODES.UNKNOWN_UNIT.code,
+      `Cannot parse dimension: ${trimmed}`,
+      undefined,
+      ERROR_CODES.UNKNOWN_UNIT.hint
+    );
   }
 
   const value = parseFloat(match[1]);

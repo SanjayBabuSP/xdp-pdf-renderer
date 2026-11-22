@@ -5,15 +5,25 @@ import * as formcalc from '../../src/domain/scripting/formcalc';
 import * as jsEngine from '../../src/domain/scripting/js-engine';
 
 describe('public barrels expose their runtime exports', () => {
-  it('src/index.ts exposes render and ERROR_CODES', () => {
+  it('src/index.ts exposes the public API', () => {
     expect(typeof root.render).toBe('function');
+    expect(typeof root.validate).toBe('function');
+    expect(typeof root.inspect).toBe('function');
     expect(typeof root.ERROR_CODES).toBe('object');
     expect(root.ERROR_CODES.PDF_GENERATION_FAILED.code).toBe('REN_5003');
+    expect(root.ERROR_CODES.FONT_NOT_FOUND.hint).toEqual(expect.any(String));
   });
 
   it('render delegates to the workflow', async () => {
     const result = await root.render({ xdp: '<invalid/>', xsd: '', data: '' });
     expect(result.success).toBe(false);
+  });
+
+  it('validate and inspect return failure results for invalid inputs', async () => {
+    const validated = await root.validate({ xdp: '<invalid/>', xsd: '', data: '' });
+    expect(validated.success).toBe(false);
+    const inspected = root.inspect('<invalid/>');
+    expect(inspected.success).toBe(false);
   });
 
   it('src/adobe/index.ts exposes its feature entry points', () => {

@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PDFDocument, PDFFont } from 'pdf-lib';
 import { RenderOptions, FontEquateRule } from '../types';
+import { ERROR_CODES } from '../errors/error-codes';
 import { createPatchedFontkit } from './cff-subset-patch';
 import { FontSubstitution } from './font-substitution';
 import {
@@ -27,6 +28,25 @@ import {
 import defaultFontsJson from '../config/default-fonts.json';
 
 const DEFAULT_FONTS: Record<string, string> = defaultFontsJson;
+
+interface CachedFontBytes {
+  mtimeMs: number;
+  size: number;
+  bytes: Buffer;
+}
+
+const FONT_BYTES_CACHE = new Map<string, CachedFontBytes>();
+const FONT_BYTES_CACHE_LIMIT = 8 * 1024 * 1024;
+let cachedFontBytesTotal = 0;
+
+export class FontFileNotFoundError extends Error {
+  readonly code = ERROR_CODES.FONT_NOT_FOUND.code;
+
+  constructor(fontPath: string) {
+    super(`${ERROR_CODES.FONT_NOT_FOUND.message}: ${fontPath}`);
+    this.name = 'FontFileNotFoundError';
+  }
+}
 
 const UNICODE_FALLBACK_REGULAR = path.join(
   __dirname,
@@ -212,7 +232,30 @@ export class FontManager {
 
   private async loadCustomFont(fontPath: string): Promise<PDFFont> {
     const resolvedPath = path.isAbsolute(fontPath) ? fontPath : path.resolve(fontPath);
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(resolvedPath);
+    } catch {
+      throw new FontFileNotFoundError(resolvedPath);
+    }
+
+    const cached = FONT_BYTES_CACHE.get(resolvedPath);
+    if (cached !== undefined && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+      return this.doc.embedFont(cached.bytes, { subset: true });
+    }
+
     const fontBytes = fs.readFileSync(resolvedPath);
+    if (cached !== undefined) cachedFontBytesTotal -= cached.size;
+    if (cachedFontBytesTotal + fontBytes.length > FONT_BYTES_CACHE_LIMIT) {
+      FONT_BYTES_CACHE.clear();
+      cachedFontBytesTotal = 0;
+    }
+    FONT_BYTES_CACHE.set(resolvedPath, {
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      bytes: fontBytes,
+    });
+    cachedFontBytesTotal += fontBytes.length;
     return this.doc.embedFont(fontBytes, { subset: true });
   }
 

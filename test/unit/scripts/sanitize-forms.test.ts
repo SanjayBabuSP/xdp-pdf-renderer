@@ -3,10 +3,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { PNG } from 'pngjs';
-import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument } from 'pdf-lib';
 import { render } from '../../../src';
 import { contentStream, extractText } from '../../helpers/pdf-content';
+import { JPEG_BASE64 } from '../../helpers/jpeg-fixture';
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const SCRIPT = path.join(REPO, 'scripts', 'sanitize-forms.mjs');
@@ -31,11 +31,7 @@ function pngBase64(): string {
 }
 
 function jpegBase64(): string {
-  const canvas = createCanvas(30, 10);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#3366cc';
-  ctx.fillRect(0, 0, 30, 10);
-  return canvas.encodeSync('jpeg', 90).toString('base64');
+  return JPEG_BASE64;
 }
 
 function bmpBase64(width = 8, height = 4): string {

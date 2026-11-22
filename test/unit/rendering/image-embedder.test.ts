@@ -1,8 +1,8 @@
-import { createCanvas } from '@napi-rs/canvas';
 import { PDFDocument } from 'pdf-lib';
 import { PNG } from 'pngjs';
 import { embedBase64Image } from '../../../src/rendering/image-embedder';
 import { ERROR_CODES } from '../../../src/errors/error-codes';
+import { JPEG_BASE64 } from '../../helpers/jpeg-fixture';
 
 function pngBytes(): Buffer {
   const png = new PNG({ width: 2, height: 2 });
@@ -16,11 +16,7 @@ function pngBytes(): Buffer {
 }
 
 function jpegBytes(): Buffer {
-  const canvas = createCanvas(3, 2);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#00ff00';
-  ctx.fillRect(0, 0, 3, 2);
-  return canvas.toBuffer('image/jpeg');
+  return Buffer.from(JPEG_BASE64, 'base64');
 }
 
 function bmpBytes(bitsPerPixel: number): Buffer {

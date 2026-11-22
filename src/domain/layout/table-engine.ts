@@ -52,6 +52,7 @@ function layoutRow(
       cell.position?.h != null &&
       cell.position.h !== 0;
     const result = layoutChild(cell, {
+      ...ctx,
       x: ctx.x + xOffset,
       y: ctx.y + yOffset,
       availableWidth: cw,
@@ -126,7 +127,7 @@ function layoutSubformSetRows(
           colWidths,
           layoutChild
         )
-      : layoutChild(child, { x: ctx.x, y, availableWidth: ctx.availableWidth });
+      : layoutChild(child, { ...ctx, x: ctx.x, y, availableWidth: ctx.availableWidth });
     children.push(result.node);
     innerOffset += result.height;
   }
@@ -182,7 +183,12 @@ export function layoutTableSubform(
       children.push(r.node);
       yOffset += r.height;
     } else {
-      const r = layoutChild(child, { x: baseX, y: baseY + yOffset, availableWidth: contentW });
+      const r = layoutChild(child, {
+        ...ctx,
+        x: baseX,
+        y: baseY + yOffset,
+        availableWidth: contentW,
+      });
       children.push(r.node);
       yOffset += r.height;
     }

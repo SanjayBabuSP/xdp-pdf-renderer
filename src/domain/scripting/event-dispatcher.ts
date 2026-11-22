@@ -90,7 +90,7 @@ export function dispatchInteractiveEvent(
   try {
     const index = buildScriptIndex(layout);
     const allNodes = index.allNodes;
-    const fieldAccessor = createFieldAccessor(allNodes, data);
+    const fieldAccessor = createFieldAccessor(allNodes, data, config.locale);
     const changeTracker = new PropertyChangeTracker();
     for (const node of index.ordered) {
       changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
@@ -121,7 +121,16 @@ export function dispatchInteractiveEvent(
       if (skipEvents.has(entry.eventName)) continue;
       dispatcher.addEventListener(entry.element, entry.eventName, (event) => {
         event.handled = true;
-        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+        executeSingleScript(
+          entry,
+          fieldAccessor,
+          jsEngine,
+          allNodes,
+          layout,
+          data,
+          stats,
+          config.locale
+        );
       });
     }
 
@@ -203,14 +212,32 @@ function executeScriptLifecycle(
   if (!skipEvents.has('validate')) {
     const validateScripts = scripts.filter((s) => s.eventName === 'validate');
     for (const entry of validateScripts) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      executeSingleScript(
+        entry,
+        fieldAccessor,
+        jsEngine,
+        allNodes,
+        layout,
+        data,
+        stats,
+        config.locale
+      );
     }
   }
 
   if (!skipEvents.has('overlay')) {
     const overlayScripts = scripts.filter((s) => s.eventName === 'overlay');
     for (const entry of overlayScripts) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      executeSingleScript(
+        entry,
+        fieldAccessor,
+        jsEngine,
+        allNodes,
+        layout,
+        data,
+        stats,
+        config.locale
+      );
     }
   }
 
@@ -219,14 +246,32 @@ function executeScriptLifecycle(
       (s) => (s.eventName === 'ready' || s.eventName === 'form:ready') && !isLayoutReadyEvent(s)
     );
     for (const entry of formReadyScripts) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      executeSingleScript(
+        entry,
+        fieldAccessor,
+        jsEngine,
+        allNodes,
+        layout,
+        data,
+        stats,
+        config.locale
+      );
     }
   }
 
   if (!skipEvents.has('layout:ready') && !skipEvents.has('layoutReady')) {
     const layoutReadyScripts = scripts.filter((s) => isLayoutReadyEvent(s));
     for (const entry of layoutReadyScripts) {
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      executeSingleScript(
+        entry,
+        fieldAccessor,
+        jsEngine,
+        allNodes,
+        layout,
+        data,
+        stats,
+        config.locale
+      );
     }
   }
 
@@ -264,7 +309,7 @@ export function dispatchPostLayoutScripts(
     const view = paginatedToLayoutView(layout);
     const index = buildScriptIndex(view);
     const allNodes = index.allNodes;
-    const fieldAccessor = createFieldAccessor(allNodes, data);
+    const fieldAccessor = createFieldAccessor(allNodes, data, config.locale);
     const changeTracker = new PropertyChangeTracker();
     for (const node of index.ordered) {
       changeTracker.snapshot(node.key ?? node.path ?? node.name ?? '', node);
@@ -280,7 +325,16 @@ export function dispatchPostLayoutScripts(
         (s) => s.eventName === 'docReady' || s.runAt === 'docReady'
       );
       for (const entry of docReadyScripts) {
-        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, view, data, stats);
+        executeSingleScript(
+          entry,
+          fieldAccessor,
+          jsEngine,
+          allNodes,
+          view,
+          data,
+          stats,
+          config.locale
+        );
       }
     }
 
@@ -391,12 +445,30 @@ function executeInitializePhase(
   for (const item of orderInitializeByTree(perElement)) {
     if (!skipEvents.has('initialize')) {
       for (const entry of item.init) {
-        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+        executeSingleScript(
+          entry,
+          fieldAccessor,
+          jsEngine,
+          allNodes,
+          layout,
+          data,
+          stats,
+          config.locale
+        );
       }
     }
     if (!skipEvents.has('indexChange')) {
       for (const entry of item.index) {
-        executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+        executeSingleScript(
+          entry,
+          fieldAccessor,
+          jsEngine,
+          allNodes,
+          layout,
+          data,
+          stats,
+          config.locale
+        );
       }
     }
   }
@@ -420,7 +492,7 @@ function executeCalculatePhase(
   layout: LayoutModel,
   data: Record<string, unknown>,
   stats: { executed: number; errors: number; errorMessages: string[] },
-  _config: ScriptDispatchConfig
+  config: ScriptDispatchConfig
 ): void {
   if (calcScripts.length === 0) return;
 
@@ -446,7 +518,16 @@ function executeCalculatePhase(
     const entry = scriptByPath.get(path);
     if (!entry) continue;
     const before = snapshotValue(entry.element);
-    executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+    executeSingleScript(
+      entry,
+      fieldAccessor,
+      jsEngine,
+      allNodes,
+      layout,
+      data,
+      stats,
+      config.locale
+    );
     if (before !== snapshotValue(entry.element)) changedPaths.add(path);
   }
 
@@ -465,7 +546,16 @@ function executeCalculatePhase(
       const entry = scriptByPath.get(path);
       if (!entry) continue;
       const before = snapshotValue(entry.element);
-      executeSingleScript(entry, fieldAccessor, jsEngine, allNodes, layout, data, stats);
+      executeSingleScript(
+        entry,
+        fieldAccessor,
+        jsEngine,
+        allNodes,
+        layout,
+        data,
+        stats,
+        config.locale
+      );
       if (before !== snapshotValue(entry.element)) changedPaths.add(path);
     }
 
@@ -489,7 +579,8 @@ function executeSingleScript(
   allNodes: Map<string, ScriptableNode>,
   layout: LayoutModel,
   data: Record<string, unknown>,
-  stats: { executed: number; errors: number; errorMessages: string[] }
+  stats: { executed: number; errors: number; errorMessages: string[] },
+  locale?: string
 ): void {
   const scriptKey = entry.element.key ?? entry.elementPath;
   fieldAccessor.setCurrentKey?.(scriptKey);
@@ -512,7 +603,9 @@ function executeSingleScript(
     } else {
       const parser = new FormCalcParser(entry.scriptContent);
       const ast = parser.parse();
-      const evaluator = new FormCalcEvaluator(fieldAccessor);
+      const evaluator = new FormCalcEvaluator(fieldAccessor, {
+        locale: entry.element.locale ?? locale,
+      });
       const result = evaluator.evaluate(ast);
 
       if (entry.eventName === 'calculate' && result.value !== undefined) {
@@ -626,6 +719,7 @@ export function buildScriptIndex(layout: LayoutModel): ScriptIndex {
           'resolvedValue' in node ? (node as { resolvedValue?: unknown }).resolvedValue : undefined,
         formatPicture:
           'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined,
+        locale: 'locale' in node ? (node as { locale?: string }).locale : undefined,
         position:
           'position' in node
             ? (

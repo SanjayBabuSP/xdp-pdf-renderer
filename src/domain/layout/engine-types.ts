@@ -4,6 +4,7 @@ export interface LayoutContext {
   x: number;
   y: number;
   availableWidth: number;
+  locale?: string;
   widthFromContent?: boolean;
   stretchWidth?: boolean;
   widthFromText?: boolean;

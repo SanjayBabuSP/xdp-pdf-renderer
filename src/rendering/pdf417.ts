@@ -1,4 +1,22 @@
-import pdf417Tables from '../config/pdf417-tables.json';
+import { createRequire } from 'node:module';
+
+const requireJson = createRequire(__filename);
+
+type Cluster = 'cluster0' | 'cluster3' | 'cluster6';
+
+interface Pdf417Tables {
+  rs: Record<string, number[]>;
+  clusters: Record<Cluster, string[]>;
+}
+
+let tables: Pdf417Tables | undefined;
+
+function pdf417Data(): Pdf417Tables {
+  if (tables === undefined) {
+    tables = requireJson('../config/pdf417-tables.json') as Pdf417Tables;
+  }
+  return tables;
+}
 
 const MOD = 929;
 
@@ -192,7 +210,7 @@ export function ecCountForLevel(level: number): number {
 }
 
 function rsGenerator(level: number): number[] {
-  const coefficients = (pdf417Tables.rs as Record<string, number[]>)[String(level)];
+  const coefficients = pdf417Data().rs[String(level)];
   if (!coefficients) throw new Error(`PDF417 EC level ${level} has no Adobe coefficients`);
   return coefficients;
 }
@@ -268,12 +286,12 @@ function rightIndicator(row: number, rows: number, columns: number): number {
   }
 }
 
-function clusterFor(row: number): keyof typeof pdf417Tables.clusters {
+function clusterFor(row: number): Cluster {
   return (['cluster0', 'cluster3', 'cluster6'] as const)[row % 3];
 }
 
 function patternFor(row: number, codeword: number): string {
-  const table = pdf417Tables.clusters[clusterFor(row)];
+  const table = pdf417Data().clusters[clusterFor(row)];
   const pattern = table[codeword];
   if (!pattern) throw new Error(`PDF417 codeword ${codeword} has no pattern in cluster ${row % 3}`);
   return pattern;

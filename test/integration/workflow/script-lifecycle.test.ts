@@ -100,6 +100,6 @@ describe('XFA script lifecycle order (Phase 1)', () => {
     const result = await renderFormToPdf(xdp, xsd, data);
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.slice(0, 5).toString()).toBe('%PDF-');
+    expect(Buffer.from(result.data).subarray(0, 5).toString()).toBe('%PDF-');
   });
 });

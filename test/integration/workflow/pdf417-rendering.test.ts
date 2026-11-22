@@ -45,6 +45,6 @@ describe('PDF417 renders from an XDP barcode field', () => {
     const b = await renderFormToPdf(XDP, XSD, DATA.replace('001', '002'), {});
     expect(a.success && b.success).toBe(true);
     if (!a.success || !b.success) return;
-    expect(a.data.equals(b.data)).toBe(false);
+    expect(Buffer.from(a.data).equals(Buffer.from(b.data))).toBe(false);
   });
 });

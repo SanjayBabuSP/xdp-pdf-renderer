@@ -85,7 +85,6 @@ import {
   xfaJoinToPdf,
 } from './border-style';
 import { drawGradientFill, isGradientFill, isGray, grayLevel } from './fill-paint';
-import { renderBarcode } from './barcode-renderer';
 import { toPointsOrZero } from '../lib/unit-converter';
 import { ERROR_CODES } from '../errors/error-codes';
 
@@ -159,7 +158,7 @@ async function renderNode(
       return;
   }
   if (node.type === 'draw') return renderDraw(pdfPage, node, pageH, fontManager, pageIndex);
-  if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager);
+  if (node.type === 'field') return renderField(pdfPage, node, pageH, fontManager, options.locale);
   if (node.type === 'subform')
     return renderSubform(pdfPage, node, pageH, fontManager, options, pageIndex, totalPages);
   if (node.type === 'exclGroup') return renderExclGroup(pdfPage, node, pageH, fontManager, options);
@@ -685,7 +684,8 @@ async function renderField(
   pdfPage: PDFPage,
   node: FieldNode,
   pageH: number,
-  fontManager: FontManager
+  fontManager: FontManager,
+  locale?: string
 ): Promise<void> {
   const pos = node.position;
   if (pos?.x === undefined || pos?.y === undefined) return;
@@ -701,7 +701,7 @@ async function renderField(
   const valueText =
     node.ui?.type === 'choiceList'
       ? resolveChoiceText(node.resolvedValue, node.ui.items)
-      : formatValue(node.resolvedValue, node.formatPicture);
+      : formatValue(node.resolvedValue, node.formatPicture, node.locale ?? locale);
   const justH = mapJustH(node.para?.hAlign ?? node.ui?.hAlign);
   const valueAlign = alignClassOf(justH);
   const justV = mapJustV(node.para?.vAlign ?? node.ui?.vAlign);
@@ -1719,6 +1719,7 @@ async function renderBarcodeValue(
   const moduleW = Math.max(toPointsOrZero(ui.moduleWidth) || 1, 0.1);
   const ratio = parseWideNarrowRatio(ui.wideNarrowRatio);
 
+  const { renderBarcode } = await import('./barcode-renderer');
   renderBarcode(
     pdfPage,
     symbology,

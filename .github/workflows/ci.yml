@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [22.x, 24.x]
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -37,6 +37,19 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Unit coverage
+        run: npm run test:coverage
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+      - name: Check package size
+        run: npm run check:size
+      - name: Benchmark (report only)
+        run: npm run bench
+        continue-on-error: true
       - name: Run tests
         run: npm test
         env:

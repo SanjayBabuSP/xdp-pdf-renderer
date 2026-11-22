@@ -1,4 +1,4 @@
-import * as vm from 'vm';
+import { createSandbox, runInSandbox } from '../../../adapters/vm-sandbox';
 import { XfaNode, ScriptEngineConfig, ScriptableNode } from '../script-types';
 import { LayoutNode } from '../../../types';
 import { FieldAccessor } from '../formcalc/evaluator';
@@ -9,6 +9,15 @@ import {
   ProxyHooks,
 } from './xfa-form-proxy';
 import { createRecordProxy } from './xfa-record-proxy';
+import { getMeridiem, getNumberSeparators, normalizeLocale } from '../../../lib/locale-format';
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isDateValue(value: unknown): value is Date {
+  return value instanceof Date || Object.prototype.toString.call(value) === '[object Date]';
+}
 
 export class JavaScriptEngineError extends Error {
   constructor(message: string) {
@@ -56,7 +65,8 @@ function createNullProxy(): Record<string, unknown> {
 
 export class JavaScriptEngine {
   private fieldAccessor: FieldAccessor;
-  private config: Required<ScriptEngineConfig>;
+  private config: Required<Omit<ScriptEngineConfig, 'locale'>>;
+  private locale?: string;
   private modifiedFields: string[] = [];
   private nodeMap: Map<string, ScriptableNode> = new Map();
   private formDataForRecord: unknown = {};
@@ -64,6 +74,7 @@ export class JavaScriptEngine {
 
   constructor(fieldAccessor: FieldAccessor, config: ScriptEngineConfig = {}) {
     this.fieldAccessor = fieldAccessor;
+    this.locale = normalizeLocale(config.locale);
     this.config = {
       maxExecutionTime: config.maxExecutionTime ?? 5000,
       maxRecursionDepth: config.maxRecursionDepth ?? 50,
@@ -95,19 +106,18 @@ export class JavaScriptEngine {
     this.formDataForRecord = formData ?? {};
     const logs: string[] = [];
 
-    const context = this.createSandboxContext(currentNode, eventName, formData, logs, currentKey);
+    const globals = this.createSandboxContext(currentNode, eventName, formData, logs, currentKey);
 
     setActiveProxyHooks(this.instanceHooks);
     try {
-      const wrappedScript = this.wrapScript(script, eventName);
-      const sandbox = vm.createContext(context);
-      vm.runInContext(wrappedScript, sandbox, {
+      const sandbox = createSandbox(globals);
+      runInSandbox(sandbox, this.wrapScript(script, eventName), {
         filename: `xfa-${eventName}.js`,
         timeout: this.config.maxExecutionTime,
       });
 
       return {
-        value: (context as Record<string, unknown>).returnValue ?? undefined,
+        value: (sandbox.globals as Record<string, unknown>).returnValue ?? undefined,
         modifiedFields: [...this.modifiedFields],
         logs,
       };
@@ -160,25 +170,6 @@ export class JavaScriptEngine {
       util: this.createUtilObject(),
       FormCalc: { eval: () => null },
       this: dollarSign,
-      parseInt,
-      parseFloat,
-      isNaN,
-      isFinite,
-      Math,
-      Date,
-      String,
-      Number,
-      Boolean,
-      Array,
-      Object,
-      RegExp,
-      JSON,
-      encodeURIComponent,
-      decodeURIComponent,
-      encodeURI,
-      decodeURI,
-      escape,
-      unescape,
       returnValue: undefined,
     };
   }
@@ -692,7 +683,7 @@ export class JavaScriptEngine {
         return result;
       },
       printd: (format: string, date: Date) => {
-        if (!(date instanceof Date)) return '';
+        if (!isDateValue(date)) return '';
         return format
           .replace(/YYYY/g, String(date.getFullYear()))
           .replace(/MM/g, String(date.getMonth() + 1).padStart(2, '0'))
@@ -720,9 +711,12 @@ export class JavaScriptEngine {
     const trimmed = picture.trim();
 
     if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
-      const date = value instanceof Date ? value : new Date(String(value));
+      const date = isDateValue(value) ? value : new Date(String(value));
       if (isNaN(date.getTime())) return String(value);
+      const meridiem = getMeridiem(this.locale, date.getHours() >= 12);
       const replacements: Record<string, string> = {
+        AMPM: meridiem,
+        am: meridiem.toLocaleLowerCase(this.locale),
         YYYY: String(date.getFullYear()),
         YY: String(date.getFullYear()).slice(-2),
         MM: String(date.getMonth() + 1).padStart(2, '0'),
@@ -735,8 +729,6 @@ export class JavaScriptEngine {
         m: String(date.getMinutes()),
         ss: String(date.getSeconds()).padStart(2, '0'),
         s: String(date.getSeconds()),
-        AMPM: date.getHours() >= 12 ? 'PM' : 'AM',
-        am: date.getHours() >= 12 ? 'pm' : 'am',
       };
       let formatted = trimmed;
       for (const [token, replacement] of Object.entries(replacements)) {
@@ -755,15 +747,16 @@ export class JavaScriptEngine {
         ? (digitsMask.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0)
         : 0;
       const hasGrouping = digitsMask.includes(',');
+      const { group, decimal } = getNumberSeparators(this.locale);
       const absValue = Math.abs(value);
       const rounded = absValue.toFixed(decimalPlaces);
       const [wholeRaw, fractionRaw = ''] = rounded.split('.');
       let whole = wholeRaw;
       if (hasGrouping) {
-        whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, group);
       }
       const sign = value < 0 ? '-' : '';
-      const numeric = hasDecimal ? `${whole}.${fractionRaw}` : whole;
+      const numeric = hasDecimal ? `${whole}${decimal}${fractionRaw}` : whole;
       return `${prefix}${sign}${numeric}${suffix}`;
     }
 
@@ -775,12 +768,23 @@ export class JavaScriptEngine {
     const trimmed = picture.trim();
 
     if (/(YYYY|YY|MM|DD|HH|mm|ss|AMPM|am|pm)/i.test(trimmed)) {
-      const date = new Date(value);
+      const am = getMeridiem(this.locale, false);
+      const pm = getMeridiem(this.locale, true);
+      const normalized = value
+        .replace(new RegExp(escapeRegExp(am), 'gi'), 'AM')
+        .replace(new RegExp(escapeRegExp(pm), 'gi'), 'PM');
+      const date = new Date(normalized);
       if (!isNaN(date.getTime())) return date;
     }
 
     if (/[0#.,]/.test(trimmed)) {
-      const cleaned = value.replace(/[^0-9.-]/g, '');
+      const { group, decimal } = getNumberSeparators(this.locale);
+      const cleaned = value
+        .split(group)
+        .join('')
+        .split(decimal)
+        .join('.')
+        .replace(/[^0-9.-]/g, '');
       const num = parseFloat(cleaned);
       if (!isNaN(num)) return num;
     }

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import * as pdfRenderer from '../../../src/rendering/pdf-renderer';
+import type { RenderOptions } from '../../../src/types';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -54,9 +55,13 @@ function minimalFixture(): { xdp: string; xsd: string; data: string } {
   };
 }
 
-function expectPdf(value: unknown): asserts value is Buffer {
-  expect(Buffer.isBuffer(value)).toBe(true);
-  expect((value as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+function expectPdf(value: unknown): asserts value is Uint8Array {
+  expect(value).toBeInstanceOf(Uint8Array);
+  expect(
+    Buffer.from(value as Uint8Array)
+      .subarray(0, 5)
+      .toString()
+  ).toBe('%PDF-');
 }
 
 describe('renderFormToPdf', () => {
@@ -69,6 +74,24 @@ describe('renderFormToPdf', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
     expectPdf(result.data);
+  });
+
+  it('normalizes and forwards the locale option to rendering', async () => {
+    const original = pdfRenderer.renderPdfWithDoc;
+    let received: RenderOptions | undefined;
+    const spy = jest
+      .spyOn(pdfRenderer, 'renderPdfWithDoc')
+      .mockImplementation((layout, options, rules) => {
+        received = options;
+        return original(layout, options, rules);
+      });
+    try {
+      const result = await renderFormToPdf(xdp(), XSD, VALID_DATA, { locale: 'de_DE' });
+      expect(result.success).toBe(true);
+      expect(received?.locale).toBe('de-DE');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('reports schema validation problems through onWarning in non-strict mode', async () => {
@@ -155,6 +178,19 @@ describe('renderFormToPdf', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error(result.error.message);
     expectPdf(result.data);
+  });
+
+  it('returns RENDER_ABORTED when the caller signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await renderFormToPdf(xdp(), XSD, VALID_DATA, {
+      signal: controller.signal,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected failure');
+    expect(result.error.code).toBe('REN_5004');
   });
 
   it('wraps renderer failures as PDF_GENERATION_FAILED', async () => {

@@ -77,4 +77,5 @@ from other sources are deliberately not installed: `typescript-magician`
 this file). `skills-lock.json` records only installed skills.
 
 Skill guidance overrides ad-hoc style preferences. The repository still forbids
-explanatory inline comments in source; rationale belongs in the wiki.
+explanatory inline comments in source; rationale belongs in the wiki. TSDoc on
+the exported public API is the only exception.

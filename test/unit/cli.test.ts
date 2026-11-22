@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import { Command } from 'commander';
-import { render } from '../../src/index';
-import { parseXdp } from '../../src/domain/parsing/parse-xdp';
+import { inspect, render, validate } from '../../src/index';
 import type { LayoutModel, Result } from '../../src/types';
+import { version } from '../../package.json';
 
 interface CommandSpy {
   commandName: string | undefined;
@@ -20,7 +20,12 @@ jest.mock('fs', () => {
   return {
     ...actual,
     existsSync: jest.fn(),
-    readFileSync: jest.fn(),
+    readFileSync: jest.fn((filePath: unknown) => {
+      if (typeof filePath === 'string' && filePath.endsWith('package.json')) {
+        return JSON.stringify(jest.requireActual('../../package.json'));
+      }
+      return '';
+    }),
     writeFileSync: jest.fn(),
   };
 });
@@ -87,8 +92,11 @@ jest.mock('commander', () => {
   return { Command: MockCommand };
 });
 
-jest.mock('../../src/index', () => ({ render: jest.fn() }));
-jest.mock('../../src/domain/parsing/parse-xdp', () => ({ parseXdp: jest.fn() }));
+jest.mock('../../src/index', () => ({
+  inspect: jest.fn(),
+  render: jest.fn(),
+  validate: jest.fn(),
+}));
 
 class ProcessExit extends Error {}
 
@@ -130,7 +138,8 @@ describe('cli module wiring', () => {
       .mockReset()
       .mockImplementation(() => undefined);
     jest.mocked(render).mockReset();
-    jest.mocked(parseXdp).mockReset();
+    jest.mocked(validate).mockReset();
+    jest.mocked(inspect).mockReset();
   });
 
   afterEach(() => {
@@ -145,7 +154,7 @@ describe('cli module wiring', () => {
     expect(root.descriptions).toEqual([
       'Render PDF documents from XDP templates, XSD schemas, and XML data',
     ]);
-    expect(root.versions).toEqual(['0.1.0']);
+    expect(root.versions).toEqual([version]);
     expect(root.parsedArgv).toBe(argv);
     expect(root.children.map((child) => child.commandName)).toEqual([
       'render',
@@ -226,7 +235,7 @@ describe('cli module wiring', () => {
   it('reads stdin when the data flag is a dash', async () => {
     jest.mocked(render).mockResolvedValue({ success: true, data: Buffer.from('%PDF-') });
     await root.children[0].actions[0]({ ...(await opts()), data: '-' });
-    expect(fs.readFileSync).toHaveBeenCalledWith('/dev/stdin', 'utf8');
+    expect(fs.readFileSync).toHaveBeenCalledWith(0, 'utf8');
   });
 
   it('reports render failures and exits with code 1', async () => {
@@ -249,10 +258,10 @@ describe('cli module wiring', () => {
     expect(jest.mocked(render)).not.toHaveBeenCalled();
   });
 
-  it('wires the validate action to render() and prints validation success', async () => {
-    jest.mocked(render).mockResolvedValue({ success: true, data: Buffer.from('%PDF-') });
+  it('wires the validate action to the library validate() function', async () => {
+    jest.mocked(validate).mockResolvedValue({ success: true, data: Buffer.from('%PDF-') });
     await root.children[1].actions[0](await opts());
-    expect(jest.mocked(render)).toHaveBeenCalledWith({
+    expect(jest.mocked(validate)).toHaveBeenCalledWith({
       xdp: 'FILE',
       xsd: 'FILE',
       data: 'FILE',
@@ -262,7 +271,7 @@ describe('cli module wiring', () => {
   });
 
   it('reports validate failures and exits with code 1', async () => {
-    jest.mocked(render).mockResolvedValue({
+    jest.mocked(validate).mockResolvedValue({
       success: false,
       error: { code: 'VAL_2001', message: 'invalid', details: ['missing'] },
     });
@@ -272,16 +281,16 @@ describe('cli module wiring', () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it('wires the inspect action to parseXdp() and prints the parsed layout', async () => {
+  it('wires the inspect action to the library inspect() function', async () => {
     const layout: LayoutModel = { rootSubformName: 'form', pages: [], children: [] };
-    jest.mocked(parseXdp).mockReturnValue({ success: true, data: layout });
+    jest.mocked(inspect).mockReturnValue({ success: true, data: layout });
     await root.children[2].actions[0]({ xdp: 'template.xdp', output: 'json' });
-    expect(jest.mocked(parseXdp)).toHaveBeenCalledWith('FILE');
+    expect(jest.mocked(inspect)).toHaveBeenCalledWith('FILE');
     expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify(layout, null, 2) + '\n');
   });
 
   it('reports inspect failures and exits with code 1', async () => {
-    jest.mocked(parseXdp).mockReturnValue({
+    jest.mocked(inspect).mockReturnValue({
       success: false,
       error: { code: 'XDP_1001', message: 'bad template' },
     });

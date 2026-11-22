@@ -2,8 +2,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
-import { FontManager } from '../../../src/rendering/font-manager';
+import { FontFileNotFoundError, FontManager } from '../../../src/rendering/font-manager';
 import { loadManifest } from '../../../src/rendering/font-registry';
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return { ...actual, readFileSync: jest.fn(actual.readFileSync) };
+});
 
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
 const DEJA_VU_BOLD = path.join(
@@ -71,6 +76,29 @@ describe('FontManager', () => {
     const fm = new FontManager(doc);
     const font = await fm.getDefaultFont();
     expect(font).toBeDefined();
+  });
+});
+
+describe('FontManager — font file handling', () => {
+  it('reports a missing font file as FONT_NOT_FOUND', async () => {
+    const doc = await PDFDocument.create();
+    const fm = new FontManager(doc, { fonts: { Missing: '/no/such/font.ttf' } });
+    await expect(fm.getFont('Missing')).rejects.toBeInstanceOf(FontFileNotFoundError);
+    await expect(fm.getFont('Missing')).rejects.toMatchObject({ code: 'REN_5001' });
+  });
+
+  it('reuses font bytes across manager instances', async () => {
+    jest.mocked(fs.readFileSync).mockClear();
+    for (let i = 0; i < 2; i++) {
+      const doc = await PDFDocument.create();
+      const fm = new FontManager(doc, { fonts: { Cached: DEJA_VU } });
+      const font = await fm.getFont('Cached');
+      expect(font.name).toBe('DejaVuSans');
+    }
+    const reads = jest
+      .mocked(fs.readFileSync)
+      .mock.calls.filter(([filePath]) => filePath === DEJA_VU);
+    expect(reads.length).toBeLessThanOrEqual(1);
   });
 });
 

@@ -299,6 +299,24 @@ describe('JavaScriptEngine — node proxies and event objects', () => {
     expect(date.getFullYear()).toBe(1996);
   });
 
+  it('formats numbers with localized separators', () => {
+    const engine = engineFor([], DATA, { locale: 'de_DE' });
+    const result = run(
+      engine,
+      'returnValue = [host.formatValue(1234.5, "$#,##0.00"), host.unformatValue("$1.234,50", "$#,##0.00")];'
+    );
+    expect(result.value).toEqual(['$1.234,50', 1234.5]);
+  });
+
+  it('formats localized meridiem text', () => {
+    const engine = engineFor([], DATA, { locale: 'zh-CN' });
+    const result = run(
+      engine,
+      'returnValue = host.formatValue(new Date(1996, 2, 15, 15, 30, 45), "YYYY-MM-DD AMPM");'
+    );
+    expect(result.value).toBe('1996-03-15 下午');
+  });
+
   it('exposes app and util objects including printf, date and stream helpers', () => {
     const engine = engineFor();
     const result = run(

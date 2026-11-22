@@ -3,15 +3,18 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
-import { render } from './index';
-import { parseXdp } from './domain/parsing/parse-xdp';
+import { inspect, render, validate } from './index';
+
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+) as { version: string };
 
 const program = new Command();
 
 program
   .name('xdp-pdf')
   .description('Render PDF documents from XDP templates, XSD schemas, and XML data')
-  .version('0.1.0');
+  .version(packageJson.version);
 
 program
   .command('render')
@@ -34,6 +37,9 @@ program
 
     if (!result.success) {
       process.stderr.write(`Error: ${result.error.message}\nCode: ${result.error.code}\n`);
+      if (result.error.hint) {
+        process.stderr.write(`Hint: ${result.error.hint}\n`);
+      }
       if (result.error.details?.length) {
         result.error.details.forEach((d) => process.stderr.write(`  - ${d}\n`));
       }
@@ -57,12 +63,15 @@ program
     const xsd = readFile(opts.xsd, '--xsd');
     const data = readFile(opts.data, '--data');
 
-    const result = await render({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
+    const result = await validate({ xdp, xsd, data, options: { strictValidation: !opts.lenient } });
 
     if (!result.success) {
       process.stderr.write(
         `Validation failed: ${result.error.message}\nCode: ${result.error.code}\n`
       );
+      if (result.error.hint) {
+        process.stderr.write(`Hint: ${result.error.hint}\n`);
+      }
       if (result.error.details?.length) {
         result.error.details.forEach((d) => process.stderr.write(`  - ${d}\n`));
       }
@@ -78,7 +87,7 @@ program
   .option('-o, --output <format>', 'Output format (json)', 'json')
   .action((opts) => {
     const xdp = readFile(opts.xdp, '--xdp');
-    const result = parseXdp(xdp);
+    const result = inspect(xdp);
 
     if (!result.success) {
       process.stderr.write(`Inspect failed: ${result.error.message}\n`);
@@ -97,7 +106,7 @@ function readFile(filePath: string, flag: string): string {
 }
 
 function readStdin(): string {
-  return fs.readFileSync('/dev/stdin', 'utf8');
+  return fs.readFileSync(0, 'utf8');
 }
 
 program.parse(process.argv);

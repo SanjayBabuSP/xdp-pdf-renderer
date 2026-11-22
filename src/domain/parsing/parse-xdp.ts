@@ -121,7 +121,7 @@ export function parseXdp(xdpXml: string, options: XdpParseOptions = {}): Result<
   );
   if (!namespaceResult.valid) {
     return failure(
-      'XDP_UNSUPPORTED_XFA_VERSION',
+      ERROR_CODES.UNSUPPORTED_NAMESPACE.code,
       namespaceResult.errors.join('; ') || 'Unsupported XFA template namespace'
     );
   }
@@ -613,6 +613,7 @@ function parseField(field: unknown, order?: OrderedItem): FieldNode {
     bindMatch: bind?.match,
     bindRef: bind?.ref,
     formatPicture: parseFormatPicture(field, bind),
+    locale: attr(field, 'locale'),
     ui: parseUi(ui),
     font: parseFont(getChild(field, 'font')),
     caption: parseCaption(getChild(field, 'caption'), orderedCaptionHtml(order)),

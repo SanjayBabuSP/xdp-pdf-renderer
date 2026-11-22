@@ -4,6 +4,13 @@
   "description": "Render PDF documents from XDP templates, XSD schemas, and XML data — no SAP/Adobe dependency",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -13,24 +20,28 @@
   "files": [
     "dist",
     "!dist/**/*.map",
+    "!dist/**/*.d.ts.map",
     "assets/fonts/*.ttf",
     "assets/fonts/LICENSE-DejaVu.txt",
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "prettier --write src/ test/ && tsc",
+    "build": "tsc",
     "build:watch": "tsc --watch",
-    "test": "jest --forceExit",
-    "test:unit": "jest --forceExit --testPathPattern=test/unit",
-    "test:integration": "jest --forceExit --testPathPattern=test/integration",
-    "test:coverage": "jest --forceExit --testPathPattern=test/unit --coverage --collectCoverageFrom='src/**/*.ts' --coverageReporters=json-summary --coverageReporters=text-summary",
-    "lint": "eslint src --ext .ts --max-warnings 0",
-    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "jest",
+    "test:unit": "jest --testPathPattern=test/unit",
+    "test:integration": "jest --testPathPattern=test/integration",
+    "test:coverage": "jest --testPathPattern=test/unit --coverage --collectCoverageFrom='src/**/*.ts' --coverageReporters=json-summary --coverageReporters=text-summary",
+    "test:debug": "jest --detectOpenHandles --runInBand --testPathPattern=test/unit",
+    "lint": "eslint src --max-warnings 0",
+    "lint:fix": "eslint src --fix",
     "verify": "npm run build && node scripts/verify-pdf.mjs",
     "fonts:import": "node scripts/import-adobe-fonts.mjs",
     "locales:import": "node scripts/import-xfa-locale.mjs",
     "sanitize:forms": "node scripts/sanitize-forms.mjs",
     "sample-forms": "npm run build && node scripts/render-sample-forms.mjs",
+    "check:size": "node scripts/check-pack-size.mjs",
+    "bench": "npm run build && node scripts/bench-render.mjs",
     "format": "prettier --write src/ test/",
     "format:check": "prettier --check src/ test/",
     "prepublishOnly": "npm run build"
@@ -56,13 +67,13 @@
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "commander": "^12.0.0",
-    "fast-xml-parser": "^4.5.0",
+    "fast-xml-parser": "^5.12.1",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^0.1.100",
     "@types/jest": "^29.5.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^22.20.5",
     "@types/pixelmatch": "^5.2.6",
     "@types/pngjs": "^6.0.5",
     "eslint": "^9.0.0",

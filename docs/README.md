@@ -30,6 +30,12 @@ This is the entry point for humans and AI agents. Read in this order.
   — Unit coverage baseline and gap analysis.
 - [`02-research/2026-11-21-ci-cff-test-asset.md`](02-research/2026-11-21-ci-cff-test-asset.md)
   — CI failure caused by an optional Adobe font asset.
+- [`02-research/2026-11-22-i18n-need-assessment.md`](02-research/2026-11-22-i18n-need-assessment.md)
+  — Assessment of translation i18n versus locale-aware XFA formatting.
+- [`02-research/2026-11-22-locale-aware-formatting.md`](02-research/2026-11-22-locale-aware-formatting.md)
+  — Locale propagation and picture-formatting evidence.
+- [`02-research/2026-11-22-library-improvements.md`](02-research/2026-11-22-library-improvements.md)
+  — Evidence for hardening, packaging and DX changes.
 - [`02-research/_TEMPLATE.md`](02-research/_TEMPLATE.md) — template for new
   research notes.
 
@@ -45,11 +51,17 @@ This is the entry point for humans and AI agents. Read in this order.
   — Comprehensive unit coverage plan.
 - [`03-plans/2026-11-21-ci-cff-test-asset.md`](03-plans/2026-11-21-ci-cff-test-asset.md)
   — CI-safe CFF test plan.
+- [`03-plans/2026-11-22-locale-aware-formatting.md`](03-plans/2026-11-22-locale-aware-formatting.md)
+  — Locale-aware XFA formatting plan.
+- [`03-plans/2026-11-22-library-improvements.md`](03-plans/2026-11-22-library-improvements.md)
+  — Hardening, packaging, DX and quality-gate plan.
 - [`03-plans/_TEMPLATE.md`](03-plans/_TEMPLATE.md) — template for new plans.
 
 ## 5. Decisions
 
 - [`04-decisions/fixes.md`](04-decisions/fixes.md) — historical fix rationale.
+- [`04-decisions/2026-11-22-script-isolation.md`](04-decisions/2026-11-22-script-isolation.md)
+  — trusted-template script isolation decision.
 - [`04-decisions/_TEMPLATE.md`](04-decisions/_TEMPLATE.md) — template for new
   decision records.
 
@@ -57,6 +69,8 @@ This is the entry point for humans and AI agents. Read in this order.
 
 - [`05-reference/rendering-behavior.md`](05-reference/rendering-behavior.md) —
   observed and decompiled Adobe rendering behaviour.
+- [`05-reference/API.md`](05-reference/API.md) — public API, defaults, error
+  codes and security notes.
 - [`05-reference/_TEMPLATE.md`](05-reference/_TEMPLATE.md) — template for new
   reference notes.
 

@@ -14,44 +14,114 @@ import { applyTableLayouts } from '../domain/layout/calculate-table-layout';
 import { calculatePositions } from '../domain/layout/calculate-positions';
 import { applyPagination } from '../domain/layout/apply-pagination';
 import { renderPdfWithDoc } from '../rendering/pdf-renderer';
+import { FontFileNotFoundError } from '../rendering/font-manager';
 import { dispatchScripts, dispatchPostLayoutScripts } from '../domain/scripting';
 import { ERROR_CODES } from '../errors/error-codes';
+import { normalizeLocale } from '../lib/locale-format';
+import { applyAdobeExtensionLevel, applyPdfVersion } from '../adobe/pdf-catalog';
 import {
-  applyPdfSecurity,
-  applyPdfVersion,
-  applyAdobeExtensionLevel,
-  createAcroFormFields,
-  markDocumentTagged,
   applyDocumentMetadata,
-  setNeedsRendering,
   preserveInfoOverrides,
-  embedXfaPackage,
-  addBookmarks,
-  addAnnotations,
-  createLayers,
-  flattenFormFields,
-  setGlobalTabOrder,
-} from '../adobe';
+  setNeedsRendering,
+} from '../adobe/pdf-metadata';
 import type { PDFDocument } from 'pdf-lib';
+
+class RenderAbortError extends Error {}
+
+interface RenderTiming {
+  signal?: AbortSignal;
+  deadline?: number;
+}
+
+function renderTiming(options: RenderOptions): RenderTiming {
+  const signals: AbortSignal[] = [];
+  if (options.signal !== undefined) signals.push(options.signal);
+  if (options.timeoutMs !== undefined && options.timeoutMs > 0) {
+    signals.push(AbortSignal.timeout(options.timeoutMs));
+  }
+  if (signals.length === 0) return {};
+  return {
+    signal: signals.length === 1 ? signals[0] : AbortSignal.any(signals),
+    deadline: options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : undefined,
+  };
+}
+
+function checkAbort(timing: RenderTiming): void {
+  if (
+    timing.signal?.aborted === true ||
+    (timing.deadline !== undefined && Date.now() >= timing.deadline)
+  ) {
+    throw new RenderAbortError();
+  }
+}
+
+function remainingTimeout(timing: RenderTiming): number | undefined {
+  return timing.deadline === undefined ? undefined : Math.max(1, timing.deadline - Date.now());
+}
 
 export async function renderFormToPdf(
   xdpXml: string,
   xsdXml: string,
   dataXml: string,
   options: RenderOptions = {}
-): Promise<Result<Buffer>> {
+): Promise<Result<Uint8Array>> {
+  try {
+    return await renderFormToPdfInner(xdpXml, xsdXml, dataXml, options);
+  } catch (error) {
+    if (
+      error instanceof RenderAbortError ||
+      (error instanceof Error && error.name === 'AbortError')
+    ) {
+      return failure(
+        ERROR_CODES.RENDER_ABORTED.code,
+        ERROR_CODES.RENDER_ABORTED.message,
+        undefined,
+        ERROR_CODES.RENDER_ABORTED.hint
+      );
+    }
+    if (error instanceof FontFileNotFoundError) {
+      return failure(
+        ERROR_CODES.FONT_NOT_FOUND.code,
+        error.message,
+        undefined,
+        ERROR_CODES.FONT_NOT_FOUND.hint
+      );
+    }
+    return failure(
+      ERROR_CODES.PDF_GENERATION_FAILED.code,
+      `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${String(error)}`,
+      undefined,
+      ERROR_CODES.PDF_GENERATION_FAILED.hint
+    );
+  }
+}
+
+async function renderFormToPdfInner(
+  xdpXml: string,
+  xsdXml: string,
+  dataXml: string,
+  options: RenderOptions
+): Promise<Result<Uint8Array>> {
+  const timing = renderTiming(options);
+  checkAbort(timing);
   const parseOptions = {
     strict: options.strictValidation !== false,
     maxInputSize: options.maxInputSize,
   };
   const layoutResult = parseXdp(xdpXml, parseOptions);
   if (!layoutResult.success) return layoutResult;
+  checkAbort(timing);
+
+  const locale = normalizeLocale(options.locale ?? layoutResult.data.locale);
+  const renderOptions: RenderOptions = { ...options, locale };
 
   const schemaResult = parseXsd(xsdXml, options.maxInputSize);
   if (!schemaResult.success) return schemaResult;
+  checkAbort(timing);
 
   const dataResult = parseXmlData(dataXml, schemaResult.data, options.maxInputSize);
   if (!dataResult.success) return dataResult;
+  checkAbort(timing);
 
   const structureValid = validateXdpStructure(layoutResult.data);
   if (!structureValid.success) return structureValid;
@@ -79,44 +149,49 @@ export async function renderFormToPdf(
   const expandedResult = expandRepeats(resolvedResult.data, dataResult.data);
   if (!expandedResult.success) return expandedResult;
 
+  checkAbort(timing);
+  const scriptConfig = {
+    skipScripts: options.skipScripts === true,
+    skipEvents: options.skipScriptEvents,
+    strictMode: options.strictValidation !== false,
+    locale,
+    maxExecutionTime: remainingTimeout(timing),
+  };
   const scriptResult = dispatchScripts(
     expandedResult.data,
     dataResult.data as Record<string, unknown>,
-    {
-      skipScripts: options.skipScripts === true,
-      skipEvents: options.skipScriptEvents,
-      strictMode: options.strictValidation !== false,
-    }
+    scriptConfig
   );
   if (!scriptResult.success) return scriptResult;
+  checkAbort(timing);
 
-  resolveXfaEmbeds(scriptResult.data.layout);
+  resolveXfaEmbeds(scriptResult.data.layout, locale);
 
   const computedResult = computeLayout(
     scriptResult.data.layout,
     options.pageHeight,
-    dataResult.data as Record<string, unknown>
+    dataResult.data as Record<string, unknown>,
+    locale
   );
   if (!computedResult.success) return computedResult;
 
+  checkAbort(timing);
   const postLayoutResult = dispatchPostLayoutScripts(
     computedResult.data,
     dataResult.data as Record<string, unknown>,
-    {
-      skipScripts: options.skipScripts === true,
-      skipEvents: options.skipScriptEvents,
-      strictMode: options.strictValidation !== false,
-    }
+    scriptConfig
   );
   if (!postLayoutResult.success) return postLayoutResult;
+  checkAbort(timing);
 
   const finalLayout = postLayoutResult.data.layout;
+  checkAbort(timing);
 
   try {
     const fontEquateRules = layoutResult.data.config?.fontEquateRules;
     const { buffer: pdfBuffer, doc } = await renderPdfWithDoc(
       finalLayout,
-      options,
+      renderOptions,
       fontEquateRules
     );
 
@@ -144,21 +219,23 @@ export async function renderFormToPdf(
     }
 
     if (options.adobe) {
-      applyAdobeFeatures(doc, options.adobe, finalLayout, xdpXml);
+      await applyAdobeFeatures(doc, options.adobe, finalLayout, xdpXml);
       dirty = true;
     }
 
     if (dirty) {
       const saveOptions = options.adobe?.security ? { useObjectStreams: false } : {};
       const finalBytes = await doc.save(saveOptions);
-      return success(Buffer.from(finalBytes));
+      return success(finalBytes);
     }
 
     return success(pdfBuffer);
   } catch (e) {
     return failure(
       ERROR_CODES.PDF_GENERATION_FAILED.code,
-      `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${e}`
+      `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${e}`,
+      undefined,
+      ERROR_CODES.PDF_GENERATION_FAILED.hint
     );
   }
 }
@@ -166,7 +243,8 @@ export async function renderFormToPdf(
 function computeLayout(
   layout: LayoutModel,
   pageHeight?: number,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  locale?: string
 ): Result<PaginatedLayout> {
   const filteredResult = evaluateConditions(layout, data);
   if (!filteredResult.success) return filteredResult;
@@ -177,18 +255,30 @@ function computeLayout(
   );
   if (!tableLayoutResult.success) return tableLayoutResult;
 
-  const positionedResult = calculatePositions(tableLayoutResult.data);
+  const positionedResult = calculatePositions(tableLayoutResult.data, locale);
   if (!positionedResult.success) return positionedResult;
 
-  return applyPagination(positionedResult.data, pageHeight);
+  return applyPagination(positionedResult.data, pageHeight, locale);
 }
 
-function applyAdobeFeatures(
+async function applyAdobeFeatures(
   doc: PDFDocument,
   adobe: NonNullable<RenderOptions['adobe']>,
   layout: PaginatedLayout,
   xdpXml: string
-): void {
+): Promise<void> {
+  const {
+    applyPdfSecurity,
+    createAcroFormFields,
+    markDocumentTagged,
+    embedXfaPackage,
+    addBookmarks,
+    addAnnotations,
+    createLayers,
+    flattenFormFields,
+    setGlobalTabOrder,
+  } = await import('../adobe');
+
   if (adobe.acroForm) {
     createAcroFormFields(doc, layout, typeof adobe.acroForm === 'object' ? adobe.acroForm : {});
   }

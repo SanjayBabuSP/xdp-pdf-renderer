@@ -102,6 +102,7 @@ export function layoutPositionSubform(
       x: baseX + getChildX(child),
       y: childY,
       availableWidth: nodeWidth(child) ?? contentW,
+      locale: ctx.locale,
       widthFromContent: true,
     };
     const result = layoutChild(child, childCtx);
@@ -144,18 +145,19 @@ function valueLineHeight(node: FieldNode): number {
 }
 
 export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResult {
+  const locale = node.locale ?? ctx.locale;
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
       ? (node.position?.minW ?? ctx.availableWidth)
       : ctx.widthFromText && node.position?.w == null
-        ? fieldContentWidth(node)
+        ? fieldContentWidth(node, locale)
         : ctx.availableWidth;
   const width = resolveExtent(
     ctx.stretchWidth ? { ...node.position, w: undefined } : node.position,
     'width',
     contentExtent
   );
-  const contentExtentH = captionHeight(node) + nodeValueHeight(node, width);
+  const contentExtentH = captionHeight(node) + nodeValueHeight(node, width, locale);
   const height = resolveExtent(node.position, 'height', contentExtentH);
 
   return {
@@ -167,13 +169,13 @@ export function layoutLeafField(node: FieldNode, ctx: LayoutContext): LayoutResu
   };
 }
 
-function fieldContentWidth(node: FieldNode): number {
+function fieldContentWidth(node: FieldNode, locale?: string): number {
   const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
   const pm = paraMetrics(node.para, fontSize);
   const value =
     node.ui?.type === 'choiceList'
       ? resolveChoiceText(node.resolvedValue, node.ui.items)
-      : formatValue(node.resolvedValue, node.formatPicture);
+      : formatValue(node.resolvedValue, node.formatPicture, locale);
   const valueWidth = value ? measureLayoutText(value, fontSize, node.font) : 0;
 
   let captionWidth = 0;
@@ -194,7 +196,7 @@ function fieldContentWidth(node: FieldNode): number {
   );
 }
 
-function nodeValueHeight(node: FieldNode, width: number): number {
+function nodeValueHeight(node: FieldNode, width: number, locale?: string): number {
   const top = node.margin?.topInset ?? 0;
   const bottom = node.margin?.bottomInset ?? 0;
   const left = node.margin?.leftInset ?? 0;
@@ -206,7 +208,7 @@ function nodeValueHeight(node: FieldNode, width: number): number {
   const value =
     node.ui?.type === 'choiceList'
       ? resolveChoiceText(node.resolvedValue, node.ui.items)
-      : formatValue(node.resolvedValue, node.formatPicture);
+      : formatValue(node.resolvedValue, node.formatPicture, locale);
   if (!value) return top + bottom + valueLineHeight(node);
 
   const innerWidth = Math.max(width - left - right - reserve - pm.marginLeft - pm.marginRight, 0);
@@ -283,7 +285,12 @@ export function layoutExclGroup(
   let yOffset = 0;
 
   for (const child of node.children) {
-    const result = layoutChild(child, { x: baseX, y: baseY + yOffset, availableWidth: contentW });
+    const result = layoutChild(child, {
+      ...ctx,
+      x: baseX,
+      y: baseY + yOffset,
+      availableWidth: contentW,
+    });
     children.push(result.node);
     yOffset += result.height;
   }

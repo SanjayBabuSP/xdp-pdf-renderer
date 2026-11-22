@@ -1,9 +1,28 @@
+import type { ErrorCode } from './errors/error-codes';
+
+/**
+ * A failure returned instead of a thrown exception.
+ */
 export interface ErrorResult {
-  code: string;
+  /** Machine-readable code from {@link ERROR_CODES}. */
+  code: ErrorCode;
+
+  /** Short user-facing description of the failure. */
   message: string;
+
+  /** Optional list of field-level or parser-level details. */
   details?: string[];
+
+  /** Optional next step that resolves the failure. */
+  hint?: string;
 }
 
+/**
+ * The result of an operation that either succeeds with data or returns an
+ * {@link ErrorResult}. Operations in this library do not throw on bad input.
+ *
+ * @template T - The type of the success value.
+ */
 export type Result<T> = { success: true; data: T } | { success: false; error: ErrorResult };
 
 export type Unit = 'in' | 'cm' | 'mm' | 'pt' | 'px';
@@ -247,6 +266,7 @@ export interface FieldNode {
     script?: { content: string; contentType: 'formcalc' | 'javascript'; runAt?: string };
   };
   formatPicture?: string;
+  locale?: string;
   presence?: PresenceValue;
   resolvedValue?: unknown;
   margin?: MarginSpec;
@@ -405,20 +425,55 @@ export interface DataObject {
   [key: string]: DataValue | DataValue[];
 }
 
+/**
+ * Options for rendering a form. All fields are optional.
+ */
 export interface RenderOptions {
+  /** Locale for picture formatting, e.g. `de_DE`; defaults to the XDP locale then `en-US`. */
+  locale?: string;
+
+  /** Map of font family to font file path. */
   fonts?: Record<string, string>;
+
+  /** Extra directories to scan for font files. */
   fontDirs?: string[];
+
+  /** Override the page height in points. */
   pageHeight?: number;
+
+  /** Maximum accepted size of the XDP, XSD and XML inputs in bytes. */
   maxInputSize?: number;
+
+  /** Fail on validation problems; defaults to false, which emits warnings. */
   strictValidation?: boolean;
+
+  /** Callback that receives validation warnings in non-strict mode. */
   onWarning?: (message: string) => void;
+
+  /** Render only the layout preview without final PDF features. */
   previewMode?: boolean;
+
+  /** Skip FormCalc and JavaScript execution; use this for untrusted templates. */
   skipScripts?: boolean;
+
+  /** Event names to skip, e.g. `['initialize', 'docReady']`. */
   skipScriptEvents?: string[];
+
+  /** Optional cancellation signal. */
+  signal?: AbortSignal;
+
+  /** Overall render deadline in milliseconds. */
+  timeoutMs?: number;
+
+  /** Adobe-specific PDF features. */
   adobe?: AdobeOptions;
 }
 
+/**
+ * Adobe PDF features applied after the form has been rendered.
+ */
 export interface AdobeOptions {
+  /** Password protection and encryption settings. */
   security?: {
     userPassword?: string;
     ownerPassword?: string;
@@ -434,6 +489,7 @@ export interface AdobeOptions {
     };
     encryptionMethod?: 'rc4_40' | 'rc4_128' | 'aes_128';
   };
+  /** PDF outline entries. */
   bookmarks?: Array<{
     title: string;
     pageIndex: number;
@@ -441,6 +497,7 @@ export interface AdobeOptions {
     y?: number;
     children?: Array<{ title: string; pageIndex: number }>;
   }>;
+  /** PDF annotations added on top of the rendered form. */
   annotations?: Array<{
     type: 'text' | 'stamp' | 'highlight' | 'link' | 'freeText';
     rect: [number, number, number, number];
@@ -449,17 +506,29 @@ export interface AdobeOptions {
     author?: string;
     stampName?: string;
   }>;
+  /** Optional content layers. */
   layers?: Array<{
     name: string;
     visible?: boolean;
     printable?: boolean;
     exportable?: boolean;
   }>;
+  /** Flatten form fields into static page content. */
   flatten?: boolean | { fieldNames?: string[] };
+
+  /** Structure tree order for tagged PDFs. */
   tabOrder?: 'documents' | 'fields' | 'structure' | 'appearance';
+
+  /** Emit an AcroForm for the rendered fields. */
   acroForm?: boolean | { tabOrderFromTraversal?: boolean };
+
+  /** Emit a tagged PDF structure tree. */
   tagged?: boolean | { language?: string; title?: string };
+
+  /** Embed the original XDP packet in the PDF. */
   embedXfa?: boolean;
+
+  /** Document metadata overrides. */
   metadata?: {
     producer?: string;
     creatorTool?: string;

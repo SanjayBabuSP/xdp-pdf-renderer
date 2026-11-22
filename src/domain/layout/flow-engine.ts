@@ -65,6 +65,7 @@ export function layoutFlowSubform(
       const cw = declaredWidth(child) ?? contentW;
       const childX = baseX + alignOffset(childHAlign(child), contentW, cw, 'h');
       const result = layoutChild(child, {
+        ...ctx,
         x: childX,
         y: baseY + yOffset,
         availableWidth: contentW,
@@ -88,6 +89,7 @@ export function layoutFlowSubform(
       const childX = direction === 'rl' ? baseX + contentW - xOffset - cw : baseX + xOffset;
 
       const childCtx = {
+        ...ctx,
         x: childX,
         y: baseY + yOffset,
         availableWidth: cw,

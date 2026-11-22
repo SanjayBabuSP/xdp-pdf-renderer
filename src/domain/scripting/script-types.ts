@@ -102,6 +102,7 @@ export interface ScriptExecutionResult {
 }
 
 export interface ScriptEngineConfig {
+  locale?: string;
   maxExecutionTime?: number;
   maxRecursionDepth?: number;
   enableConsole?: boolean;
@@ -122,6 +123,7 @@ export interface ScriptableNode {
   access?: string;
   resolvedValue?: unknown;
   formatPicture?: string;
+  locale?: string;
   position?: { x?: number; y?: number; w?: number; h?: number; rotate?: number };
   events?: Array<{
     name?: string;

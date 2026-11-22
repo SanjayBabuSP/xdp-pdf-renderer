@@ -155,7 +155,8 @@ function splitValueProperty(path: string): { base: string; property?: ValuePrope
 
 export function createFieldAccessor(
   allNodes: Map<string, ScriptableNode>,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  locale?: string
 ): FieldAccessor {
   let currentKey: string | null = null;
 
@@ -181,7 +182,7 @@ export function createFieldAccessor(
     if (!node) return '';
     const v = readValue(node);
     if (v == null) return '';
-    return formatValue(v, node.formatPicture);
+    return formatValue(v, node.formatPicture, node.locale ?? locale);
   };
 
   const resolveScoped = (ref: string): ScriptableNode | undefined => {

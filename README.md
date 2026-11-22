@@ -21,6 +21,7 @@ copies of private documents.
 - [Quick start](#quick-start)
 - [CLI](#cli)
 - [API reference](#api-reference)
+- [Security](#security)
 - [How it works](#how-it-works)
 - [Project structure](#project-structure)
 - [Core concepts](#core-concepts)
@@ -133,7 +134,10 @@ reported as warnings instead of hard failures.
 
 ## API reference
 
-### `render(input: RenderInput): Promise<Result<Buffer>>`
+The full exported surface, including defaults and every error code, is listed
+in [`docs/05-reference/API.md`](docs/05-reference/API.md).
+
+### `render(input: RenderInput): Promise<Result<Uint8Array>>`
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -142,12 +146,19 @@ reported as warnings instead of hard failures.
 | `data` | `string` | XML data instance. |
 | `options` | `RenderOptions` | Optional rendering configuration. |
 
+`validate(input)` has the same signature and runs the same pipeline without
+writing a file. `inspect(xdp)` returns `Result<LayoutModel>` for the parsed
+template.
+
 ### `Result<T>`
 
 ```typescript
 type Result<T> =
   | { success: true; data: T }
-  | { success: false; error: { code: string; message: string; details?: string[] } };
+  | {
+      success: false;
+      error: { code: ErrorCode; message: string; details?: string[]; hint?: string };
+    };
 ```
 
 Always check `result.success` before reading `data` or `error`.
@@ -157,6 +168,7 @@ Always check `result.success` before reading `data` or `error`.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `strictValidation` | `boolean` | `true` | Hard-fail on schema/binding problems. `false` emits `onWarning` instead. |
+| `locale` | `string` | XDP root `locale`, else `en-US` | Picture formatting locale; overrides the template locale. Accepts `de_DE` or `de-DE`. |
 | `onWarning` | `(message: string) => void` | no-op | Receives non-fatal validation warnings. |
 | `maxInputSize` | `number` | library default | Upper bound for each XML input, in characters. |
 | `fonts` | `Record<string, string>` | — | Family name to font-file path mapping. |
@@ -164,15 +176,38 @@ Always check `result.success` before reading `data` or `error`.
 | `pageHeight` | `number` | from template | Override the page height used by layout/pagination. |
 | `skipScripts` | `boolean` | `false` | Skip all XFA scripts. |
 | `skipScriptEvents` | `string[]` | — | Skip specific script events. |
+| `signal` | `AbortSignal` | — | Cancel rendering from the caller. |
+| `timeoutMs` | `number` | — | Overall render deadline in milliseconds. |
 | `previewMode` | `boolean` | `false` | Force invisible watermark nodes to render. |
 | `adobe` | `AdobeOptions` | — | Security, bookmarks, annotations, layers, flattening, AcroForm, metadata. |
+
+`locale` affects XFA picture formatting only: month/weekday names, AM/PM
+text, and number grouping/decimal separators in rendered fields, embeds and
+FormCalc/JavaScript `formatValue`. Form captions and data values remain
+verbatim; diagnostics stay in English with stable error codes.
 
 `AdobeOptions` supports `security` (user/owner passwords, permissions,
 `rc4_40` / `rc4_128` / `aes_128`), `bookmarks`, `annotations`, `layers`,
 `flatten`, `tabOrder`, `acroForm`, `tagged`, `embedXfa` and `metadata`
 (`producer`, `creatorTool`).
 
-`ERROR_CODES` is exported for machine-readable error handling.
+`ERROR_CODES` is exported for machine-readable error handling. Every entry has
+a `code`, `message` and `hint`; failures also carry a typed `ErrorCode`.
+
+---
+
+## Security
+
+XFA scripts execute in a restricted Node `vm` context. String and WASM code
+generation are disabled, and all values injected into the sandbox are rebased
+onto the sandbox realm's prototypes so `constructor.constructor` cannot reach
+the host `Function`. `vm` imports are forbidden under `src/domain/`.
+
+This is a mitigation, not a security boundary. A hostile template can still
+consume CPU or memory through ordinary loops. For untrusted templates, pass
+`skipScripts: true` and keep `timeoutMs` or `signal` set. The rationale and
+rejected alternatives are recorded in
+[`docs/04-decisions/2026-11-22-script-isolation.md`](docs/04-decisions/2026-11-22-script-isolation.md).
 
 ---
 
@@ -359,6 +394,7 @@ Design rules:
 3. Fixes must be generic and derived from XFA semantics, reference output or
    decompiled evidence — never hard-coded to one fixture.
 4. Source files contain no explanatory comments; rationale lives in the wiki.
+   TSDoc on exported public API types is the only exception.
 
 ---
 
@@ -388,17 +424,19 @@ library's output.
 
 ```bash
 npm install
-npm run build              # prettier --write src/ test/ → tsc → dist/
-npm run lint               # eslint src --ext .ts --max-warnings 0
+npm run build              # tsc → dist/ (formatting is a separate step)
+npm run lint               # eslint src --max-warnings 0
 npm run test:unit          # fast unit + focused rendering regressions
 npm run test:integration   # workflow-level tests
-npm run test:coverage      # unit coverage summary (≥90% lines)
+npm run test:coverage      # unit coverage summary and thresholds
 npm test                   # all suites
 
 npm run sample-forms       # build + render sanitized fixtures
 npm run verify             # build + scripts/verify-pdf.mjs
 npm run format             # prettier --write src/ test/
 npm run format:check       # prettier --check src/ test/
+npm run check:size         # fail when the npm tarball exceeds 1 MB
+npm run bench              # build + median render time and RSS report
 ```
 
 ```mermaid

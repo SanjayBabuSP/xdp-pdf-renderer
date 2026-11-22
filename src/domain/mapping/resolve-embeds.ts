@@ -60,7 +60,7 @@ export function resolveXfaEmbedsInHtml(
   return out.join('');
 }
 
-export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
+export function buildEmbedIndex(layout: LayoutModel, locale?: string): Map<string, EmbedTarget> {
   const index = new Map<string, EmbedTarget>();
 
   const put = (key: string | undefined, node: LayoutNode): void => {
@@ -71,7 +71,7 @@ export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
       'formatPicture' in node ? (node as { formatPicture?: string }).formatPicture : undefined;
     index.set(key, {
       raw: value == null ? '' : String(value),
-      formatted: value == null ? '' : formatValue(value, picture),
+      formatted: value == null ? '' : formatValue(value, picture, locale),
       hasPicture: picture != null,
       pageNumber: node.type === 'field' && node.name === 'CurrentPage',
     });
@@ -90,8 +90,8 @@ export function buildEmbedIndex(layout: LayoutModel): Map<string, EmbedTarget> {
   return index;
 }
 
-export function resolveXfaEmbeds(layout: LayoutModel): number {
-  const index = buildEmbedIndex(layout);
+export function resolveXfaEmbeds(layout: LayoutModel, locale?: string): number {
+  const index = buildEmbedIndex(layout, locale);
   if (index.size === 0) return 0;
   let substituted = 0;
 

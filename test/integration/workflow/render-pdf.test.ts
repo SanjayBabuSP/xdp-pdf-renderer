@@ -18,9 +18,9 @@ describe('render-pdf workflow (integration)', () => {
       return;
     }
 
-    expect(Buffer.isBuffer(result.data)).toBe(true);
+    expect(result.data).toBeInstanceOf(Uint8Array);
     expect(result.data.length).toBeGreaterThan(0);
-    expect(result.data.slice(0, 5).toString()).toBe('%PDF-');
+    expect(Buffer.from(result.data).subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('returns structured error when XDP is invalid', async () => {

@@ -37,7 +37,7 @@ describe('G16 — XFA namespace enforcement', () => {
   it('rejects a known-but-unsupported version in strict mode', () => {
     const result = parseXdp(xdp('http://www.xfa.org/schema/xfa-template/2.6/'), { strict: true });
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('XDP_UNSUPPORTED_XFA_VERSION');
+    if (!result.success) expect(result.error.code).toBe('XDP_1006');
   });
 
   it('enforces the maxInputSize cap', () => {

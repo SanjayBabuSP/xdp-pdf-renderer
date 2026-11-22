@@ -18,4 +18,12 @@ module.exports = {
     // tsconfig.test.json enables `isolatedModules` for transpile-only output.
     '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.test.json' }],
   },
+  coverageThreshold: {
+    global: {
+      statements: 94,
+      branches: 84,
+      functions: 95,
+      lines: 96,
+    },
+  },
 };

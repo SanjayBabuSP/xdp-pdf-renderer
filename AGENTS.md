@@ -7,8 +7,11 @@
 - [`docs/AGENTS.md`](docs/AGENTS.md) — documentation layout, naming scheme, and
   the mandatory research + plan rule.
 - [`docs/README.md`](docs/README.md) — documentation index and reading order.
+- [`docs/05-reference/API.md`](docs/05-reference/API.md) — public API reference,
+  defaults, error codes and security notes.
 
 The codebase deliberately has no explanatory inline comments. Do not add them.
+TSDoc on the exported public API is the only exception.
 
 ## Mandatory workflow for every AI agent
 

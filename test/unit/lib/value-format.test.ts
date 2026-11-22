@@ -175,3 +175,23 @@ describe('formatValue numeric coercion and padding', () => {
     expect(formatValue(5, '000')).toBe('005');
   });
 });
+
+describe('locale-aware picture formatting', () => {
+  const iso = '2024-03-05T14:30:05Z';
+
+  it('accepts XFA-style locale identifiers', () => {
+    expect(formatValue(iso, 'date{MMMM}', 'de_DE')).toBe('März');
+    expect(formatValue(iso, 'date{MMMM}', 'fr_FR')).toBe('mars');
+  });
+
+  it('localizes meridiem text in time pictures', () => {
+    expect(formatValue(iso, 'time{h:MM:SS A}', 'zh-CN')).toBe('2:30:05 下午');
+    expect(formatValue(iso, 'time{HH:MM A}')).toBe('14:30 PM');
+  });
+
+  it('localizes number separators in both directions', () => {
+    expect(formatValue(1234.5, '$#,##0.00', 'de_DE')).toBe('$1.234,50');
+    expect(formatValue('1.234,50', '$#,##0.00', 'de_DE')).toBe('$1.234,50');
+    expect(formatValue(1234.5, '$#,##0.00', 'en-US')).toBe('$1,234.50');
+  });
+});

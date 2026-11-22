@@ -2,6 +2,7 @@ import {
   FormCalcError,
   FormCalcEvaluator,
   type FieldAccessor,
+  type FormCalcEvaluatorOptions,
 } from '../../../../src/domain/scripting/formcalc';
 import { FormCalcParser } from '../../../../src/domain/scripting/formcalc/parser';
 import type { FormCalcNode } from '../../../../src/domain/scripting/formcalc/ast';
@@ -9,7 +10,7 @@ import type { FormCalcNode } from '../../../../src/domain/scripting/formcalc/ast
 function evaluateSource(
   src: string,
   fields: Record<string, unknown> = {},
-  options?: { strictIdentifiers?: boolean }
+  options?: FormCalcEvaluatorOptions
 ): unknown {
   const accessor: FieldAccessor = {
     getField: (path: string) => fields[path],
@@ -277,5 +278,40 @@ describe('FormCalcEvaluator — evaluator-level fallbacks', () => {
     const fields: Record<string, unknown> = { x: 0 };
     expect(evaluateSource('x = 1/0', fields)).toBeUndefined();
     expect(evaluateSource('-(1/0)')).toBe(0);
+  });
+});
+
+describe('FormCalcEvaluator — locale-aware pictures', () => {
+  const date = new Date(1996, 2, 15, 15, 30);
+  const fields = { d: date };
+
+  it('formats month, weekday and meridiem names with the configured locale', () => {
+    expect(evaluateSource('Format("MMMM D, YYYY", d)', fields, { locale: 'de_DE' })).toBe(
+      'März 15, 1996'
+    );
+    expect(evaluateSource('Format("EEEE", d)', fields, { locale: 'de_DE' })).toBe('Freitag');
+    expect(evaluateSource('Format("HH:MM A", 55800000)', {}, { locale: 'zh-CN' })).toBe(
+      '15:30 下午'
+    );
+    expect(evaluateSource('Format("HH:MM A", 55800000)')).toBe('15:30 PM');
+  });
+
+  it('localizes numeric picture separators', () => {
+    expect(evaluateSource('Format("num{999,999.99}", 1234.5)', {}, { locale: 'de_DE' })).toBe(
+      '1.234,50'
+    );
+    expect(evaluateSource('Format("num{999,999.99}", 1234.5)')).toBe('1,234.50');
+  });
+
+  it('parses localized names and separators back', () => {
+    expect(evaluateSource('Parse("MMMM D, YYYY", "März 15, 1996")', {}, { locale: 'de_DE' })).toBe(
+      '1996-03-15'
+    );
+    expect(evaluateSource('Parse("HH:MM A", "03:30 下午")', {}, { locale: 'zh-CN' })).toBe(
+      '15:30:00'
+    );
+    expect(evaluateSource('Parse("num{999,999.99}", "1.234,50")', {}, { locale: 'de_DE' })).toBe(
+      1234.5
+    );
   });
 });

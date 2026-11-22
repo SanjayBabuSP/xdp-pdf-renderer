@@ -28,6 +28,13 @@ import {
 } from './ast';
 import { XfaNode } from '../script-types';
 import { FormCalcParser } from './parser';
+import {
+  getMeridiem,
+  getMonthNames,
+  getNumberSeparators,
+  getWeekdayNames,
+  normalizeLocale,
+} from '../../../lib/locale-format';
 
 export const FORMCALC_ERR = {
   SYNTAX: 0x7810,
@@ -59,6 +66,11 @@ class ArithmeticSignal {}
 
 class FormCalcEnv {
   private scopes: Map<string, unknown>[] = [new Map()];
+  readonly locale?: string;
+
+  constructor(locale?: string) {
+    this.locale = normalizeLocale(locale);
+  }
 
   get(name: string): unknown {
     for (let i = this.scopes.length - 1; i >= 0; i--) {
@@ -114,6 +126,7 @@ export interface FormCalcResult {
 
 export interface FormCalcEvaluatorOptions {
   strictIdentifiers?: boolean;
+  locale?: string;
 }
 
 function toNumber(val: unknown): number {
@@ -246,6 +259,16 @@ const MONTHS_FULL = [
 const DAYS_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function monthNamesFor(locale: string | undefined, style: 'long' | 'short'): string[] {
+  if (!locale) return style === 'long' ? MONTHS_FULL : MONTHS_ABBR;
+  return getMonthNames(locale, style);
+}
+
+function weekdayNamesFor(locale: string | undefined, style: 'long' | 'short'): string[] {
+  if (!locale) return style === 'long' ? DAYS_FULL : DAYS_ABBR;
+  return getWeekdayNames(locale, style);
+}
+
 function daysSinceXfaEpoch(y: number, m1: number, d: number): number {
   return Math.round((Date.UTC(y, m1 - 1, d) - XFA_EPOCH_UTC) / 86400000);
 }
@@ -310,7 +333,7 @@ function isoWeek(d: Date): number {
   );
 }
 
-function formatWithPicture(d: Date, picture: string, ms = 0): string {
+function formatWithPicture(d: Date, picture: string, ms = 0, locale?: string): string {
   const bare = picture.replace(/'[^']*'/g, '');
   const hasDateSym = /[YDJEGW]/i.test(bare) || /D/.test(bare);
   const hasTimeSym = /[hH]/.test(bare) || /[sS]/.test(bare) || /A/.test(bare) || /z/.test(bare);
@@ -369,15 +392,15 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
         case 'M': {
           const minute = hasTimeSym && (!hasDateSym || hourSeen);
           if (minute) out += run >= 2 ? pad2(Mi) : String(Mi);
-          else if (run >= 4) out += MONTHS_FULL[mo - 1];
-          else if (run === 3) out += MONTHS_ABBR[mo - 1];
+          else if (run >= 4) out += monthNamesFor(locale, 'long')[mo - 1];
+          else if (run === 3) out += monthNamesFor(locale, 'short')[mo - 1];
           else if (run === 2) out += pad2(mo);
           else out += String(mo);
           break;
         }
         case 'E':
-          if (run >= 4) out += DAYS_FULL[dow];
-          else if (run === 3) out += DAYS_ABBR[dow];
+          if (run >= 4) out += weekdayNamesFor(locale, 'long')[dow];
+          else if (run === 3) out += weekdayNamesFor(locale, 'short')[dow];
           else out += String(dow + 1);
           break;
         case 'W':
@@ -396,7 +419,7 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
           out += String(ms).padStart(3, '0');
           break;
         case 'A':
-          out += H < 12 ? 'AM' : 'PM';
+          out += getMeridiem(locale, H >= 12);
           break;
         case 'Z':
           out += 'GMT';
@@ -414,15 +437,21 @@ function formatWithPicture(d: Date, picture: string, ms = 0): string {
   return out;
 }
 
-function dayFromName(name: string): number | null {
-  const lower = name.toLowerCase();
+function dayFromName(name: string, locale?: string): number | null {
+  const lower = name.toLocaleLowerCase(locale);
   for (let i = 0; i < 7; i++) {
-    if (DAYS_FULL[i].toLowerCase() === lower || DAYS_ABBR[i].toLowerCase() === lower) return i;
+    const full = weekdayNamesFor(locale, 'long')[i].toLocaleLowerCase(locale);
+    const abbr = weekdayNamesFor(locale, 'short')[i].toLocaleLowerCase(locale);
+    if (full === lower || abbr === lower) return i;
   }
   return null;
 }
 
-function parseDateWithPicture(input: string, picture: string): ParsedDateTime | null {
+function parseDateWithPicture(
+  input: string,
+  picture: string,
+  locale?: string
+): ParsedDateTime | null {
   const s = input;
   let si = 0;
   const res: ParsedDateTime = { y: null, mo: null, d: null, H: null, M: null, S: null, ms: 0 };
@@ -448,7 +477,7 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
   const readWord = (): string | null => {
     skipWs();
     let j = si;
-    while (j < s.length && /[A-Za-z]/.test(s[j])) j++;
+    while (j < s.length && /\p{L}/u.test(s[j])) j++;
     if (j === si) return null;
     const w = s.slice(si, j);
     si = j;
@@ -527,14 +556,15 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
             const saved = si;
             let best: number | null = null;
             let bestLen = -1;
+            const fullNames = monthNamesFor(locale, 'long');
+            const shortNames = monthNamesFor(locale, 'short');
+            const tail = s.slice(saved).toLocaleLowerCase(locale);
             for (let k = 0; k < 12; k++) {
-              for (const nm of [MONTHS_FULL[k], MONTHS_ABBR[k]]) {
-                if (
-                  nm.length > bestLen &&
-                  s.slice(saved).toLowerCase().startsWith(nm.toLowerCase())
-                ) {
+              for (const nm of [fullNames[k], shortNames[k]]) {
+                const candidate = nm.toLocaleLowerCase(locale);
+                if (candidate.length > bestLen && tail.startsWith(candidate)) {
                   best = k + 1;
-                  bestLen = nm.length;
+                  bestLen = candidate.length;
                 }
               }
             }
@@ -550,7 +580,7 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
         }
         case 'E': {
           const w = readWord();
-          if (w === null || dayFromName(w) === null) return null;
+          if (w === null || dayFromName(w, locale) === null) return null;
           break;
         }
         case 'G': {
@@ -572,10 +602,31 @@ function parseDateWithPicture(input: string, picture: string): ParsedDateTime | 
         }
         case 'A': {
           skipWs();
-          const m = s.slice(si).match(/^(a\.?m\.?|p\.?m\.?)/i);
-          if (m) {
-            meridian = m[1][0].toLowerCase() === 'p' ? 'PM' : 'AM';
-            si += m[0].length;
+          const tail = s.slice(si);
+          const lowerTail = tail.toLocaleLowerCase(locale);
+          const candidates: Array<[string, 'AM' | 'PM']> = [
+            [getMeridiem(locale, false), 'AM'],
+            [getMeridiem(locale, true), 'PM'],
+          ];
+          let matched: 'AM' | 'PM' | null = null;
+          let matchedLength = 0;
+          for (const [label, value] of candidates) {
+            const lower = label.toLocaleLowerCase(locale);
+            if (lower.length > matchedLength && lowerTail.startsWith(lower)) {
+              matched = value;
+              matchedLength = label.length;
+            }
+          }
+          if (!matched) {
+            const m = tail.match(/^(a\.?m\.?|p\.?m\.?)/i);
+            if (m) {
+              matched = m[1][0].toLowerCase() === 'p' ? 'PM' : 'AM';
+              matchedLength = m[0].length;
+            }
+          }
+          if (matched) {
+            meridian = matched;
+            si += matchedLength;
           }
           break;
         }
@@ -632,8 +683,9 @@ function parseDateHeuristic(dateStr: string): Date | null {
   return null;
 }
 
-function numericFromPicture(picture: string, str: string): number | strFallback {
-  const cleaned = str.replace(/,/g, '');
+function numericFromPicture(picture: string, str: string, locale?: string): number | strFallback {
+  const { group, decimal } = getNumberSeparators(locale);
+  const cleaned = str.split(group).join('').split(decimal).join('.');
   const m = cleaned.match(/-?\d*\.?\d+/);
   if (!m) return str;
   const n = Number(m[0]);
@@ -641,84 +693,85 @@ function numericFromPicture(picture: string, str: string): number | strFallback 
 }
 type strFallback = string;
 
-function formatNumericPicture(picture: string, value: unknown): string {
+function formatNumericPicture(picture: string, value: unknown, locale?: string): string {
   const num = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.eE+-]/g, ''));
   if (isNaN(num)) return strValue(value);
   const body = picture.replace(/^num\{/i, '').replace(/\}$/, '');
+  const { group, decimal } = getNumberSeparators(locale);
   const decMatch = body.match(/\.([9#zZ]+)/);
   const decimals = decMatch ? decMatch[1].length : 0;
   const negative = num < 0;
   let out = Math.abs(num).toFixed(decimals);
   if (body.includes(',')) {
     const [intp, frac = ''] = out.split('.');
-    const grouped = intp.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    out = frac ? `${grouped}.${frac}` : grouped;
+    const grouped = intp.replace(/\B(?=(\d{3})+(?!\d))/g, group);
+    out = frac ? `${grouped}${decimal}${frac}` : grouped;
   }
   const prefix = body.startsWith('$') ? '$' : '';
   return negative ? `-${prefix}${out}` : `${prefix}${out}`;
 }
 
-function applyPictureFormat(picture: string, value: unknown): string {
+function applyPictureFormat(picture: string, value: unknown, locale?: string): string {
   if (!picture) return strValue(value);
 
   const numMatch = picture.match(/^num\{(.+)\}$/i);
-  if (numMatch) return formatNumericPicture(numMatch[1], value);
+  if (numMatch) return formatNumericPicture(numMatch[1], value, locale);
   const dateMatch = picture.match(/^date\{(.+)\}$/i);
-  if (dateMatch) return applyDatePicture(dateMatch[1], value);
+  if (dateMatch) return applyDatePicture(dateMatch[1], value, locale);
   const timeMatch = picture.match(/^time\{(.+)\}$/i);
-  if (timeMatch) return applyTimePicture(timeMatch[1], value);
+  if (timeMatch) return applyTimePicture(timeMatch[1], value, locale);
   if (/^text\{/i.test(picture)) return strValue(value);
 
   const kinds = pictureKinds(picture);
-  if (kinds.numeric) return formatNumericPicture(picture, value);
-  if (kinds.date) return applyDatePicture(picture, value);
-  if (kinds.time) return applyTimePicture(picture, value);
+  if (kinds.numeric) return formatNumericPicture(picture, value, locale);
+  if (kinds.date) return applyDatePicture(picture, value, locale);
+  if (kinds.time) return applyTimePicture(picture, value, locale);
   return strValue(value);
 }
 
-function coerceToDate(value: unknown): Date | null {
+function coerceToDate(value: unknown, locale?: string): Date | null {
   if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
   if (typeof value === 'number' && Number.isFinite(value)) return xfaDateFromDays(value);
   const str = String(value ?? '');
   const m8 = str.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (m8) return new Date(+m8[1], +m8[2] - 1, +m8[3], 12);
-  const p = parseDateWithPicture(str, 'YYYY-MM-DD');
+  const p = parseDateWithPicture(str, 'YYYY-MM-DD', locale);
   if (p) return new Date(p.y!, p.mo! - 1, p.d!, 12);
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
 }
 
-function applyDatePicture(picture: string, value: unknown): string {
-  const d = coerceToDate(value);
+function applyDatePicture(picture: string, value: unknown, locale?: string): string {
+  const d = coerceToDate(value, locale);
   if (!d) return strValue(value);
-  return formatWithPicture(d, picture);
+  return formatWithPicture(d, picture, 0, locale);
 }
 
-function applyTimePicture(picture: string, value: unknown): string {
+function applyTimePicture(picture: string, value: unknown, locale?: string): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const ms = value;
     const h = Math.floor(ms / 3600000) % 24;
     const mi = Math.floor(ms / 60000) % 60;
     const s = Math.floor(ms / 1000) % 60;
     const base = new Date(2000, 0, 1, h, mi, s);
-    return formatWithPicture(base, picture, Math.floor(ms) % 1000);
+    return formatWithPicture(base, picture, Math.floor(ms) % 1000, locale);
   }
-  const p = parseDateWithPicture(String(value ?? ''), picture);
+  const p = parseDateWithPicture(String(value ?? ''), picture, locale);
   if (p && p.H !== null) {
     const base = new Date(2000, 0, 1, p.H, p.M ?? 0, p.S ?? 0);
-    return formatWithPicture(base, picture, p.ms);
+    return formatWithPicture(base, picture, p.ms, locale);
   }
   return strValue(value);
 }
 
-function parsePictureFormat(picture: string, str: string): unknown {
+function parsePictureFormat(picture: string, str: string, locale?: string): unknown {
   if (!picture) return str;
   const kinds = pictureKinds(picture);
   if (kinds.numeric) {
-    const n = numericFromPicture(picture, str);
+    const n = numericFromPicture(picture, str, locale);
     return typeof n === 'number' ? n : str;
   }
-  const parsed = parseDateWithPicture(str, picture);
+  const parsed = parseDateWithPicture(str, picture, locale);
   if (!parsed) return str;
   if (kinds.date && kinds.time) {
     if (parsed.y === null || parsed.mo === null || parsed.d === null) return str;
@@ -1223,7 +1276,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     return pos === -1 ? 0 : pos + 1;
   },
 
-  date: (args) => {
+  date: (args, env) => {
     if (args.length === 0) {
       const now = new Date();
       return daysSinceXfaEpoch(now.getFullYear(), now.getMonth() + 1, now.getDate());
@@ -1234,9 +1287,9 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const src = strValue(args[0]);
     let parsed: ParsedDateTime | null;
     if (args.length > 1 && args[1] != null) {
-      parsed = parseDateWithPicture(src, strValue(args[1]));
+      parsed = parseDateWithPicture(src, strValue(args[1]), env.locale);
     } else {
-      parsed = parseDateWithPicture(src, 'MMM D, YYYY');
+      parsed = parseDateWithPicture(src, 'MMM D, YYYY', env.locale);
       if (!parsed) {
         const d = parseDateHeuristic(src);
         if (d)
@@ -1465,20 +1518,20 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
   put: () => '',
   post: () => '',
 
-  num2date: (args) => {
+  num2date: (args, env) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'MMM D, YYYY';
-    return formatWithPicture(xfaDateFromDays(num), picture);
+    return formatWithPicture(xfaDateFromDays(num), picture, 0, env.locale);
   },
-  date2num: (args) => {
+  date2num: (args, env) => {
     const dateStr = strValue(args[0]);
     if (args.length > 1 && args[1] != null) {
-      const parsed = parseDateWithPicture(dateStr, strValue(args[1]));
+      const parsed = parseDateWithPicture(dateStr, strValue(args[1]), env.locale);
       if (!parsed || parsed.y === null || parsed.mo === null || parsed.d === null) return 0;
       return daysSinceXfaEpoch(parsed.y, parsed.mo, parsed.d);
     }
-    const direct = parseDateWithPicture(dateStr, 'MMM D, YYYY');
+    const direct = parseDateWithPicture(dateStr, 'MMM D, YYYY', env.locale);
     if (direct && direct.y !== null && direct.mo !== null && direct.d !== null) {
       return daysSinceXfaEpoch(direct.y, direct.mo, direct.d);
     }
@@ -1486,19 +1539,24 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     if (!d) return 0;
     return daysSinceXfaEpoch(d.getFullYear(), d.getMonth() + 1, d.getDate());
   },
-  num2time: (args) => {
+  num2time: (args, env) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
     const h = Math.floor(num / 3600000) % 24;
     const mi = Math.floor(num / 60000) % 60;
     const s = Math.floor(num / 1000) % 60;
-    return formatWithPicture(new Date(2000, 0, 1, h, mi, s), picture, Math.floor(num) % 1000);
+    return formatWithPicture(
+      new Date(2000, 0, 1, h, mi, s),
+      picture,
+      Math.floor(num) % 1000,
+      env.locale
+    );
   },
-  time2num: (args) => {
+  time2num: (args, env) => {
     const timeStr = strValue(args[0]);
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
-    const parsed = parseDateWithPicture(timeStr, picture);
+    const parsed = parseDateWithPicture(timeStr, picture, env.locale);
     if (!parsed || parsed.H === null) return 0;
     return ((parsed.H * 60 + (parsed.M ?? 0)) * 60 + (parsed.S ?? 0)) * 1000 + parsed.ms;
   },
@@ -1522,7 +1580,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
       (m[3] ? parseInt(m[3], 10) * 1000 : 0)
     );
   },
-  num2gmtime: (args) => {
+  num2gmtime: (args, env) => {
     const num = toNumber(args[0]);
     if (!Number.isFinite(num)) return NaN;
     const picture = args.length > 1 && args[1] != null ? strValue(args[1]) : 'H:MM:SS A';
@@ -1530,7 +1588,7 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const epochMs = XFA_EPOCH_UTC + total;
     const u = new Date(epochMs);
     const base = new Date(2000, 0, 1, u.getUTCHours(), u.getUTCMinutes(), u.getUTCSeconds());
-    let out = formatWithPicture(base, picture, u.getUTCMilliseconds());
+    let out = formatWithPicture(base, picture, u.getUTCMilliseconds(), env.locale);
     if (/[Zz]/.test(picture) && !/GMT/.test(out)) out += out ? ' GMT' : 'GMT';
     return out;
   },
@@ -1561,15 +1619,15 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
     const styles = ['999,999.99', '9999', '999,999.999', '999999', '999,999.99'];
     return styles[n >= 0 && n < styles.length ? n : 0];
   },
-  datetimefmt: (args) => {
+  datetimefmt: (args, env) => {
     const n = args.length && args[0] != null ? Math.trunc(toNumber(args[0])) : 0;
-    const d = BUILTIN_FUNCTIONS['datefmt']!([n], new FormCalcEnv());
-    const t = BUILTIN_FUNCTIONS['timefmt']!([n], new FormCalcEnv());
+    const d = BUILTIN_FUNCTIONS['datefmt']!([n], env);
+    const t = BUILTIN_FUNCTIONS['timefmt']!([n], env);
     return `${d} ${t}`;
   },
 
-  format: (args) => applyPictureFormat(strValue(args[0]), args[1]),
-  parse: (args) => parsePictureFormat(strValue(args[0]), strValue(args[1])),
+  format: (args, env) => applyPictureFormat(strValue(args[0]), args[1], env.locale),
+  parse: (args, env) => parsePictureFormat(strValue(args[0]), strValue(args[1]), env.locale),
 
   encode: (args) =>
     encodeString(
@@ -1683,17 +1741,18 @@ const BUILTIN_FUNCTIONS: Record<string, (args: unknown[], env: FormCalcEnv) => u
 };
 
 export class FormCalcEvaluator {
-  private env = new FormCalcEnv();
   private fieldAccessor: FieldAccessor;
   private modifiedFields: string[] = [];
   private recursionDepth = 0;
   private lastValue: unknown = undefined;
   private maxRecursionDepth = 50;
   private strictIdentifiers: boolean;
+  private env: FormCalcEnv;
 
   constructor(fieldAccessor: FieldAccessor, options?: FormCalcEvaluatorOptions) {
     this.fieldAccessor = fieldAccessor;
     this.strictIdentifiers = options?.strictIdentifiers ?? false;
+    this.env = new FormCalcEnv(options?.locale);
   }
 
   evaluate(program: Program): FormCalcResult {
@@ -2242,7 +2301,10 @@ export class FormCalcEvaluator {
       if (funcName === 'eval') {
         const src = strValue(args[0]);
         const program = new FormCalcParser(src).parse();
-        const sub = new FormCalcEvaluator(this.fieldAccessor, { strictIdentifiers: true });
+        const sub = new FormCalcEvaluator(this.fieldAccessor, {
+          strictIdentifiers: true,
+          locale: this.env.locale,
+        });
         const result = sub.evaluate(program);
         return sanitizeValue(result.value);
       }
