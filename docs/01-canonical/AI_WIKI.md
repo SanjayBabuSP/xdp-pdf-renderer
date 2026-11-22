@@ -267,6 +267,9 @@ npm run test:integration   # 17 suites
 node scripts/render-sample-forms.mjs
 ```
 
+`.gitattributes` forces LF for text files and Prettier declares
+`endOfLine: 'lf'`, so `format:check` behaves the same on Linux, macOS and Windows.
+
 Rendered fixtures live in `test/fixtures/sample-forms/results/`; Adobe reference
 PDFs in `test/fixtures/sample-forms/Adobe-generated-results/`. Compare with
 `pdftotext -layout`, PyMuPDF word/bbox extraction, or raster crops. Do not add
@@ -311,6 +314,16 @@ fixture-specific code to make a diff disappear.
 | `test/unit/lib/locale-format.test.ts` | Idempotent locale normalization property |
 
 ## 11. Change ledger (append newest first)
+
+### 2026-11-22 — Windows CI formatting and Dependabot limits
+- Added `.gitattributes` with LF enforcement and binary fixture markers, and
+  set `endOfLine: 'lf'` in `.prettierrc`. Windows checkouts no longer fail
+  `format:check` on every text file.
+- Reduced Dependabot to two grouped npm PRs and one grouped GitHub Actions PR
+  per week, ignoring major version bumps so breaking upgrades are reviewed
+  deliberately instead of auto-opened.
+- Research/plan: `docs/02-research/2026-11-22-windows-ci-dependabot.md`,
+  `docs/03-plans/2026-11-22-windows-ci-dependabot.md`.
 
 ### 2026-11-22 — library hardening and developer experience
 - Script sandbox moved behind `src/adapters/vm-sandbox.ts`. `vm` contexts now
