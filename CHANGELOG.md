@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.4.0...v0.5.0) (2026-11-22)
+
+
+### Features
+
+* add .gitattributes for LF enforcement and update Dependabot configuration to reduce PR volume ([1d39fbd](https://github.com/SanjayBabuSP/xdp-pdf-renderer/commit/1d39fbdb4dd2bcb1bef95ab0c3859d9fd8d02f25))
+* enhance PDF rendering with abort support and locale handling ([7198024](https://github.com/SanjayBabuSP/xdp-pdf-renderer/commit/7198024c6ea664439cf202016212bf0074695610))
+
 ## [0.4.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.3.0...v0.4.0) (2026-11-21)
 
 
