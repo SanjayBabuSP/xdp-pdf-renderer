@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.6.0...v0.7.0) (2026-11-24)
+
+
+### Features
+
+* **tests:** implement CI-safe optional Adobe font tests and update documentation ([02e716f](https://github.com/SanjayBabuSP/xdp-pdf-renderer/commit/02e716f709606e2e5ac47667e4179acc641923b1))
+
 ## [0.6.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.5.0...v0.6.0) (2026-11-24)
 
 
