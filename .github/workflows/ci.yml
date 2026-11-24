@@ -47,6 +47,10 @@ jobs:
         run: npm audit --omit=dev
       - name: Check package size
         run: npm run check:size
+      - name: Check package exports
+        run: npm run check:publint
+      - name: Check published types
+        run: npm run check:types
       - name: Benchmark (report only)
         run: npm run bench
         continue-on-error: true

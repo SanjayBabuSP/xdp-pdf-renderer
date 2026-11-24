@@ -259,7 +259,7 @@ describe('cli module wiring', () => {
   });
 
   it('wires the validate action to the library validate() function', async () => {
-    jest.mocked(validate).mockResolvedValue({ success: true, data: Buffer.from('%PDF-') });
+    jest.mocked(validate).mockResolvedValue({ success: true, data: undefined });
     await root.children[1].actions[0](await opts());
     expect(jest.mocked(validate)).toHaveBeenCalledWith({
       xdp: 'FILE',
@@ -268,6 +268,7 @@ describe('cli module wiring', () => {
       options: { strictValidation: true },
     });
     expect(stdoutSpy).toHaveBeenCalledWith('Validation passed.\n');
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
 
   it('reports validate failures and exits with code 1', async () => {

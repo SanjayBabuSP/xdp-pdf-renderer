@@ -14,6 +14,36 @@ export function quantizeDeviceStrokeWidth(width: number): number {
   return Math.round(steps * PDF_DEVICE_STROKE_GRID_PT * 1000) / 1000;
 }
 
+/** An edge-like source whose authored thickness may be absent. */
+export type StrokeWidthSource = { thickness?: number } | undefined;
+
+/**
+ * Resolves the stroke width that is emitted for an edge.
+ *
+ * The authored thickness is quantised to the XFA three-decimal domain and then
+ * rounded up to the 600 dpi PDF device grid. A missing edge uses the XFA
+ * specification default. Non-finite and non-positive values are passed through
+ * by the quantisers so that callers can guard at emission.
+ *
+ * @param edge - Edge carrying the authored thickness, if any.
+ * @returns The effective stroke width in points.
+ */
+export function effectiveStrokeWidth(edge?: StrokeWidthSource): number {
+  return quantizeDeviceStrokeWidth(
+    quantizeStrokeWidth(edge?.thickness ?? DEFAULT_EDGE_THICKNESS_PT)
+  );
+}
+
+/**
+ * Resolves half of the emitted stroke width for centre-line alignment.
+ *
+ * @param edge - Edge carrying the authored thickness, if any.
+ * @returns Half of the effective stroke width in points.
+ */
+export function halfStrokeWidth(edge?: StrokeWidthSource): number {
+  return effectiveStrokeWidth(edge) / 2;
+}
+
 export const DASH_PATTERNS: Readonly<Record<string, readonly number[]>> = {
   solid: [1, 0],
   dotted: [1, 2],

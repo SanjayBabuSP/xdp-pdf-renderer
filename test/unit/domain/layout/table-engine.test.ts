@@ -85,9 +85,9 @@ describe('layoutTableSubform', () => {
       { columnWidths: [200] }
     );
     const result = layoutTableSubform(table, context(), recording({ m: 10 }));
-    expect(result.height).toBeCloseTo(30.252, 3);
+    expect(result.height).toBeCloseTo(30, 3);
     const row = (result.node as SubformNode).children[0] as SubformNode;
-    expect(row.children[0].position?.h).toBeCloseTo(30.252, 3);
+    expect(row.children[0].position?.h).toBeCloseTo(30, 3);
   });
 
   it('lays out rows inside a subform set', () => {

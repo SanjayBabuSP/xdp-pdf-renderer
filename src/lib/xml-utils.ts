@@ -29,7 +29,8 @@ export function parseXml(xmlString: string, maxInputSize: number = MAX_INPUT_SIZ
     commentPropName: '__comment',
   });
 
-  const parsed = parser.parse(stripProcessingInstructions(xmlString)) as ParsedXml;
+  const source = stripProcessingInstructions(xmlString).replace(/\u00a0/g, '&#160;');
+  const parsed = parser.parse(source) as ParsedXml;
   return decodeEntitiesDeep(parsed) as ParsedXml;
 }
 

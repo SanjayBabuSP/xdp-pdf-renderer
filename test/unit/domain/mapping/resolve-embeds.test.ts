@@ -24,6 +24,21 @@ describe('xfa:embed resolution', () => {
     expect(resolveXfaEmbedsInHtml('<span xfa:embed="#unit"></span>', lookup)).toBe('KG/M3');
   });
 
+  it('keeps a sibling closing span after a self-closing embed', () => {
+    const html =
+      '<p style="font-weight:bold">Footnote:<span style="font-weight:normal">' +
+      '<span xfa:embedMode="raw" xfa:embed="#unit"/></span></p><p>Next</p>';
+    expect(resolveXfaEmbedsInHtml(html, lookup)).toBe(
+      '<p style="font-weight:bold">Footnote:<span style="font-weight:normal">' +
+        'kg/m3</span></p><p>Next</p>'
+    );
+  });
+
+  it('keeps an escaped sibling closing span after a self-closing embed', () => {
+    const html = '&lt;span xfa:embed="#unit"/&gt;&lt;/span&gt;';
+    expect(resolveXfaEmbedsInHtml(html, lookup)).toBe('KG/M3&lt;/span&gt;');
+  });
+
   it('honours embedMode', () => {
     expect(resolveXfaEmbedsInHtml('<span xfa:embedMode="raw" xfa:embed="#unit"/>', lookup)).toBe(
       'kg/m3'

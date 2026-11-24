@@ -15,6 +15,7 @@ code.
 | `docs/03-plans/` | Implementation and parity plans | Plan author |
 | `docs/04-decisions/` | Historical decisions and fix rationale | Code author |
 | `docs/05-reference/` | External/Adobe behaviour evidence | Research author |
+| `docs/06-issue-templates/` | Issue templates for the quarterly major-upgrade review | Maintainer |
 
 Filenames are lowercase kebab-case. Dated working documents use
 `YYYY-MM-DD-slug.md` (for example `2026-11-21-table-row-height.md`).

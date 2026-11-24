@@ -1,5 +1,6 @@
 import * as path from 'path';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import type { Stats } from 'fs';
 import { PDFDocument, PDFFont } from 'pdf-lib';
 import { RenderOptions, FontEquateRule } from '../types';
 import { ERROR_CODES } from '../errors/error-codes';
@@ -8,26 +9,42 @@ import { FontSubstitution } from './font-substitution';
 import {
   BASE14_FAMILIES,
   isBoldWeight,
+  isItalicPosture,
   mapToStandardPdfFont,
-  isWinAnsiSafe,
 } from './standard-fonts';
 import { resolveFontSequence } from '../adobe/font-sequences';
 import {
   FontManifest,
   FontVariant,
-  adobeFontDir,
   familyKey,
-  loadManifest,
+  loadManifestAsync,
   lookupVariants,
   normalizePosture,
   normalizeWeight,
   pickVariant,
-  scanFontDir,
+  scanFontDirAsync,
 } from './font-registry';
 
 import defaultFontsJson from '../config/default-fonts.json';
 
 const DEFAULT_FONTS: Record<string, string> = defaultFontsJson;
+
+function resolveDefaultFont(value: string): string {
+  return path.join(__dirname, '..', '..', value);
+}
+
+function defaultFontPath(family: string, weight?: string, posture?: string): string | undefined {
+  const base = DEFAULT_FONTS[family];
+  if (base === undefined) return undefined;
+  if (
+    family.trim().toLowerCase() === 'arial' &&
+    (isBoldWeight(weight) || isItalicPosture(posture))
+  ) {
+    return undefined;
+  }
+  const resolved = resolveDefaultFont(base);
+  return AVAILABLE_DEFAULT_FONTS.has(resolved) ? resolved : undefined;
+}
 
 interface CachedFontBytes {
   mtimeMs: number;
@@ -65,19 +82,82 @@ const UNICODE_FALLBACK_BOLD = path.join(
   'DejaVuSans-Bold.ttf'
 );
 
+const FONT_LOADS = new Map<string, Promise<Buffer>>();
+const AVAILABLE_DEFAULT_FONTS = new Set<string>();
+let defaultFontPreload: Promise<void> | undefined;
+
+function storeFontBytes(resolvedPath: string, mtimeMs: number, size: number, bytes: Buffer): void {
+  const cached = FONT_BYTES_CACHE.get(resolvedPath);
+  if (cached !== undefined) cachedFontBytesTotal -= cached.size;
+  if (cachedFontBytesTotal + bytes.length > FONT_BYTES_CACHE_LIMIT) {
+    FONT_BYTES_CACHE.clear();
+    cachedFontBytesTotal = 0;
+  }
+  FONT_BYTES_CACHE.set(resolvedPath, { mtimeMs, size, bytes });
+  cachedFontBytesTotal += bytes.length;
+}
+
+async function readFontBytes(resolvedPath: string): Promise<Buffer> {
+  let stats: Stats;
+  try {
+    stats = await fsp.stat(resolvedPath);
+  } catch {
+    throw new FontFileNotFoundError(resolvedPath);
+  }
+
+  const cached = FONT_BYTES_CACHE.get(resolvedPath);
+  if (cached !== undefined && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.bytes;
+  }
+
+  let pending = FONT_LOADS.get(resolvedPath);
+  if (pending === undefined) {
+    pending = fsp
+      .readFile(resolvedPath)
+      .then((bytes) => {
+        storeFontBytes(resolvedPath, stats.mtimeMs, stats.size, bytes);
+        return bytes;
+      })
+      .finally(() => {
+        FONT_LOADS.delete(resolvedPath);
+      });
+    FONT_LOADS.set(resolvedPath, pending);
+  }
+  return pending;
+}
+
+function preloadDefaultFonts(): Promise<void> {
+  if (defaultFontPreload === undefined) {
+    const configured = Object.values(DEFAULT_FONTS).map(resolveDefaultFont);
+    const configuredSet = new Set(configured);
+    const paths = new Set([...configured, UNICODE_FALLBACK_REGULAR, UNICODE_FALLBACK_BOLD]);
+    defaultFontPreload = Promise.all(
+      [...paths].map(async (resolved) => {
+        try {
+          await readFontBytes(resolved);
+          if (configuredSet.has(resolved)) AVAILABLE_DEFAULT_FONTS.add(resolved);
+        } catch {
+          return;
+        }
+      })
+    ).then(() => undefined);
+  }
+  return defaultFontPreload;
+}
+
 function fontKey(family: string | undefined, weight?: string, posture?: string): string {
   return `${family ?? ''}|${weight ?? ''}|${posture ?? ''}`;
 }
 
 export class FontManager {
   private fontCache: Map<string, PDFFont> = new Map();
-  private standardFonts: Set<PDFFont> = new Set();
   private customFonts: Record<string, string>;
   private doc: PDFDocument;
   private fontSubstitution: FontSubstitution;
   private fontDirs: string[];
-  private adobeManifest: FontManifest | null | undefined;
+  private adobeManifest: FontManifest | null = null;
   private scannedDirs: Map<string, FontManifest> = new Map();
+  private preloadPromise: Promise<void> | undefined;
 
   constructor(doc: PDFDocument, options?: RenderOptions, fontEquateRules?: FontEquateRule[]) {
     this.doc = doc;
@@ -87,7 +167,25 @@ export class FontManager {
     this.doc.registerFontkit(createPatchedFontkit());
   }
 
+  async preload(): Promise<void> {
+    if (this.preloadPromise === undefined) {
+      this.preloadPromise = (async () => {
+        const [manifest, dirs] = await Promise.all([
+          loadManifestAsync(),
+          Promise.all(
+            this.fontDirs.map(async (dir) => [dir, await scanFontDirAsync(dir)] as const)
+          ),
+          preloadDefaultFonts(),
+        ]);
+        this.adobeManifest = manifest;
+        for (const [dir, scanned] of dirs) this.scannedDirs.set(dir, scanned);
+      })();
+    }
+    return this.preloadPromise;
+  }
+
   async getFont(family?: string, weight?: string, posture?: string): Promise<PDFFont> {
+    await this.preload();
     const key = fontKey(family, weight, posture);
     const cached = this.fontCache.get(key);
     if (cached) return cached;
@@ -98,16 +196,12 @@ export class FontManager {
   }
 
   async getSafeFont(
-    text: string,
+    _text: string,
     family?: string,
     weight?: string,
     posture?: string
   ): Promise<PDFFont> {
-    const font = await this.getFont(family, weight, posture);
-    if (this.standardFonts.has(font) && !isWinAnsiSafe(text)) {
-      return this.loadUnicodeFallback(weight);
-    }
-    return font;
+    return this.getFont(family, weight, posture);
   }
 
   private async loadFont(family?: string, weight?: string, posture?: string): Promise<PDFFont> {
@@ -135,7 +229,6 @@ export class FontManager {
       );
       if (standardName) {
         const font = this.doc.embedStandardFont(standardName);
-        this.standardFonts.add(font);
         return font;
       }
     }
@@ -164,7 +257,6 @@ export class FontManager {
     const standardName = mapToStandardPdfFont(sequenced, weight, posture);
     if (standardName) {
       const font = this.doc.embedStandardFont(standardName);
-      this.standardFonts.add(font);
       return font;
     }
     return undefined;
@@ -176,13 +268,12 @@ export class FontManager {
     for (const family of Object.keys(DEFAULT_FONTS)) names.add(family);
     for (const family of BASE14_FAMILIES) names.add(family);
 
-    const manifest = this.getManifest();
-    if (manifest) for (const family of Object.keys(manifest.fonts)) names.add(family);
+    if (this.adobeManifest)
+      for (const family of Object.keys(this.adobeManifest.fonts)) names.add(family);
 
     for (const dir of this.fontDirs) {
-      const scanned = this.scannedDirs.get(dir) ?? scanFontDir(dir);
-      this.scannedDirs.set(dir, scanned);
-      for (const family of Object.keys(scanned.fonts)) names.add(family);
+      const scanned = this.scannedDirs.get(dir);
+      if (scanned) for (const family of Object.keys(scanned.fonts)) names.add(family);
     }
     return names;
   }
@@ -196,33 +287,25 @@ export class FontManager {
     const custom = this.customFonts[family];
     if (custom) return custom;
 
-    const defaultPath = DEFAULT_FONTS[family];
-    if (defaultPath && fs.existsSync(defaultPath)) return defaultPath;
+    const defaultPath = defaultFontPath(family, weight, posture);
+    if (defaultPath) return defaultPath;
 
     const variant = this.findVariant(family, weight, posture);
     return variant?.file;
   }
 
   private findVariant(family: string, weight?: string, posture?: string): FontVariant | undefined {
-    const manifest = this.getManifest();
-    if (manifest) {
-      const variants = lookupVariants(manifest, family);
+    if (this.adobeManifest) {
+      const variants = lookupVariants(this.adobeManifest, family);
       if (variants?.length) return pickVariant(variants, weight, posture);
     }
     for (const dir of this.fontDirs) {
-      const scanned = this.scannedDirs.get(dir) ?? scanFontDir(dir);
-      this.scannedDirs.set(dir, scanned);
+      const scanned = this.scannedDirs.get(dir);
+      if (!scanned) continue;
       const variants = lookupVariants(scanned, family);
       if (variants?.length) return pickVariant(variants, weight, posture);
     }
     return undefined;
-  }
-
-  private getManifest(): FontManifest | null {
-    if (this.adobeManifest === undefined) {
-      this.adobeManifest = loadManifest(adobeFontDir());
-    }
-    return this.adobeManifest;
   }
 
   private loadUnicodeFallback(weight?: string): Promise<PDFFont> {
@@ -232,30 +315,7 @@ export class FontManager {
 
   private async loadCustomFont(fontPath: string): Promise<PDFFont> {
     const resolvedPath = path.isAbsolute(fontPath) ? fontPath : path.resolve(fontPath);
-    let stats: fs.Stats;
-    try {
-      stats = fs.statSync(resolvedPath);
-    } catch {
-      throw new FontFileNotFoundError(resolvedPath);
-    }
-
-    const cached = FONT_BYTES_CACHE.get(resolvedPath);
-    if (cached !== undefined && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
-      return this.doc.embedFont(cached.bytes, { subset: true });
-    }
-
-    const fontBytes = fs.readFileSync(resolvedPath);
-    if (cached !== undefined) cachedFontBytesTotal -= cached.size;
-    if (cachedFontBytesTotal + fontBytes.length > FONT_BYTES_CACHE_LIMIT) {
-      FONT_BYTES_CACHE.clear();
-      cachedFontBytesTotal = 0;
-    }
-    FONT_BYTES_CACHE.set(resolvedPath, {
-      mtimeMs: stats.mtimeMs,
-      size: stats.size,
-      bytes: fontBytes,
-    });
-    cachedFontBytesTotal += fontBytes.length;
+    const fontBytes = await readFontBytes(resolvedPath);
     return this.doc.embedFont(fontBytes, { subset: true });
   }
 

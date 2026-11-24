@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
+import { pageText } from '../../helpers/pdf-content';
 
 const FULL_FONT = path.join(__dirname, '../../..', 'assets/fonts/DejaVuSans.ttf');
 
@@ -12,7 +13,9 @@ const XSD = `<?xml version="1.0" encoding="UTF-8"?>
   </xs:element>
 </xs:schema>`;
 
-const XDP = `<?xml version="1.0" encoding="UTF-8"?>
+function xdpWithTypeface(typeface?: string): string {
+  const font = typeface === undefined ? '' : `<font typeface="${typeface}" size="10pt"/>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
     <subform name="value" layout="tb">
@@ -24,11 +27,13 @@ const XDP = `<?xml version="1.0" encoding="UTF-8"?>
       </pageSet>
       <field name="Name" x="0" y="0" w="140pt" h="14pt">
         <ui><textEdit/></ui>
+        ${font}
         <bind match="dataRef" ref="$.Name"/>
       </field>
     </subform>
   </template>
 </xdp:xdp>`;
+}
 
 const DATA = `<?xml version="1.0" encoding="UTF-8"?><value><Name>Δelta</Name></value>`;
 
@@ -49,7 +54,7 @@ function embeddedFontBytes(doc: PDFDocument): number {
 
 describe('G10 — font subsetting', () => {
   it('embeds a subset far smaller than the full fallback font', async () => {
-    const result = await renderFormToPdf(XDP, XSD, DATA, {});
+    const result = await renderFormToPdf(xdpWithTypeface('DejaVu Sans'), XSD, DATA, {});
     expect(result.success).toBe(true);
     if (!result.success) return;
 
@@ -59,5 +64,17 @@ describe('G10 — font subsetting', () => {
 
     expect(embedded).toBeGreaterThan(0);
     expect(embedded).toBeLessThan(full / 2);
+  });
+
+  it('omits unmappable Greek instead of promoting Helvetica to the Unicode fallback', async () => {
+    const result = await renderFormToPdf(xdpWithTypeface(), XSD, DATA, {});
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    const doc = await PDFDocument.load(result.data);
+    expect(embeddedFontBytes(doc)).toBe(0);
+    const text = await pageText(result.data);
+    expect(text).toContain('elta');
+    expect(text).not.toContain('Δ');
   });
 });

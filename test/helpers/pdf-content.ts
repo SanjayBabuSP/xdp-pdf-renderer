@@ -1,4 +1,12 @@
-import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFArray,
+  PDFDict,
+  PDFName,
+  PDFRawStream,
+  PDFRef,
+  decodePDFRawStream,
+} from 'pdf-lib';
 
 function decodeStream(doc: PDFDocument, obj: unknown): Buffer {
   if (obj instanceof PDFRawStream) {
@@ -69,8 +77,98 @@ function literalToString(raw: string): string {
   return out;
 }
 
+function resolvedObject(doc: PDFDocument, obj: unknown): unknown {
+  let current = obj;
+  while (current instanceof PDFRef) current = doc.context.lookup(current);
+  return current;
+}
+
+function decodeUtf16Hex(raw: string): string {
+  const hex = raw.length % 2 === 0 ? raw : `0${raw}`;
+  const units: number[] = [];
+  for (let i = 0; i + 3 < hex.length; i += 4) {
+    units.push(parseInt(hex.slice(i, i + 4), 16));
+  }
+  return String.fromCharCode(...units);
+}
+
+function parseToUnicode(text: string): Map<number, string> {
+  const map = new Map<number, string>();
+  for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const entry of block[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      map.set(parseInt(entry[1], 16), decodeUtf16Hex(entry[2]));
+    }
+  }
+  for (const block of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    for (const entry of block[1].matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]+)>|\[([\s\S]*?)\])/g
+    )) {
+      const start = parseInt(entry[1], 16);
+      const end = parseInt(entry[2], 16);
+      if (entry[3] !== undefined) {
+        const base = parseInt(entry[3], 16);
+        for (let code = start; code <= end; code++) {
+          map.set(code, decodeUtf16Hex((base + code - start).toString(16).padStart(4, '0')));
+        }
+        continue;
+      }
+      const values = [...(entry[4] ?? '').matchAll(/<([0-9A-Fa-f]+)>/g)].map((v) =>
+        decodeUtf16Hex(v[1])
+      );
+      for (let i = 0; i < values.length && start + i <= end; i++) map.set(start + i, values[i]);
+    }
+  }
+  return map;
+}
+
+function fontMaps(
+  doc: PDFDocument,
+  page: ReturnType<PDFDocument['getPage']>
+): Map<string, Map<number, string>> {
+  const maps = new Map<string, Map<number, string>>();
+  const resources = resolvedObject(doc, page.node.Resources());
+  if (!(resources instanceof PDFDict)) return maps;
+  const fonts = resolvedObject(doc, resources.lookup(PDFName.of('Font')));
+  if (!(fonts instanceof PDFDict)) return maps;
+
+  for (const name of fonts.keys()) {
+    const descriptor = resolvedObject(doc, fonts.lookup(name));
+    if (!(descriptor instanceof PDFDict)) continue;
+    const toUnicode = resolvedObject(doc, descriptor.get(PDFName.of('ToUnicode')));
+    if (!(toUnicode instanceof PDFRawStream)) continue;
+    maps.set(name.asString(), parseToUnicode(decodeStream(doc, toUnicode).toString('latin1')));
+  }
+  return maps;
+}
+
+function decodeCidHex(hex: string, map: Map<number, string> | undefined): string {
+  if (!map) return hexToString(hex);
+  let out = '';
+  for (let i = 0; i + 3 < hex.length; i += 4) {
+    const code = parseInt(hex.slice(i, i + 4), 16);
+    out += map.get(code) ?? '';
+  }
+  return out;
+}
+
 export async function pageText(pdfBytes: Buffer, pageIndex = 0): Promise<string> {
-  return extractText(await contentStream(pdfBytes, pageIndex)).join('\n');
+  const doc = await PDFDocument.load(pdfBytes);
+  const page = doc.getPage(pageIndex);
+  const maps = fontMaps(doc, page);
+  const content = decodeStream(doc, page.node.Contents()).toString('latin1');
+  const out: string[] = [];
+  let current: Map<number, string> | undefined;
+  const re = /\/([^\s/<>]+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]+)>\s*Tj|(\((?:\\.|[^\\()])*\))\s*Tj/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(content)) !== null) {
+    if (match[1] !== undefined) {
+      current = maps.get(`/${match[1]}`);
+      continue;
+    }
+    if (match[2] !== undefined) out.push(decodeCidHex(match[2], current));
+    else out.push(literalToString(match[3] ?? ''));
+  }
+  return out.join('\n');
 }
 
 export function rotatedTextMatrices(content: string, degrees: number): string[] {

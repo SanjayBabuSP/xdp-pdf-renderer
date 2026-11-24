@@ -25,6 +25,21 @@ export interface ErrorResult {
  */
 export type Result<T> = { success: true; data: T } | { success: false; error: ErrorResult };
 
+/**
+ * A parsed XDP/XSD pair that can be rendered repeatedly with different data.
+ */
+export interface CompiledTemplate {
+  /**
+   * Renders this template with the supplied XML data.
+   *
+   * @param data - XML data as text.
+   * @param options - Optional rendering settings; these override the options
+   * passed to `compile()`.
+   * @returns A success result containing PDF bytes, or a failure result.
+   */
+  render(data: string, options?: RenderOptions): Promise<Result<Uint8Array>>;
+}
+
 export type Unit = 'in' | 'cm' | 'mm' | 'pt' | 'px';
 
 export interface Position {
@@ -37,6 +52,7 @@ export interface Position {
   maxH?: number;
   maxW?: number;
   rotate?: number;
+  anchorType?: string;
 }
 
 export type BreakValue = 'auto' | 'contentArea' | 'pageArea' | 'pageEven' | 'pageFront' | 'pageOdd';
@@ -48,6 +64,11 @@ export interface KeepSpec {
 export interface TextLineRange {
   start: number;
   end: number;
+}
+
+export interface OriginalBox {
+  topOffset: number;
+  height: number;
 }
 
 export interface FontSpec {
@@ -109,6 +130,8 @@ export interface CaptionSpec {
   text?: string;
   font?: FontSpec;
   richHtml?: string;
+  /** Caption paragraph metrics such as alignment, indents and margins. */
+  para?: ParaSpec;
 }
 
 export interface ParaSpec {
@@ -283,6 +306,8 @@ export interface FieldNode {
   keep?: KeepSpec;
   repeatIndex?: number;
   textLineRange?: TextLineRange;
+  originalBox?: OriginalBox;
+  inheritedFontSize?: number;
 }
 
 export interface DrawNode {
@@ -319,6 +344,8 @@ export interface DrawNode {
   keep?: KeepSpec;
   colSpan?: number;
   textLineRange?: TextLineRange;
+  originalBox?: OriginalBox;
+  inheritedFontSize?: number;
 }
 
 export type LayoutNode = SubformNode | FieldNode | DrawNode | ExclGroupNode;
@@ -459,10 +486,13 @@ export interface RenderOptions {
   /** Event names to skip, e.g. `['initialize', 'docReady']`. */
   skipScriptEvents?: string[];
 
-  /** Optional cancellation signal. */
+  /** Optional cancellation signal, checked between pipeline steps. */
   signal?: AbortSignal;
 
-  /** Overall render deadline in milliseconds. */
+  /**
+   * Cooperative deadline in milliseconds; it cannot interrupt synchronous work
+   * already in progress.
+   */
   timeoutMs?: number;
 
   /** Adobe-specific PDF features. */

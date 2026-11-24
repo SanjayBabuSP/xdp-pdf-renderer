@@ -14,7 +14,7 @@ import { calculatePositions } from '../../../src/domain/layout/calculate-positio
 import { applyPagination } from '../../../src/domain/layout/apply-pagination';
 import { dispatchScripts, dispatchPostLayoutScripts } from '../../../src/domain/scripting';
 import { LayoutNode, PaginatedLayout, Result } from '../../../src/types';
-import { contentStream, extractText } from '../../helpers/pdf-content';
+import { contentStream, pageText } from '../../helpers/pdf-content';
 
 interface SampleForm {
   name: string;
@@ -87,8 +87,7 @@ describe.each(manifest.forms.filter((form) => !form.knownIssue))('sample form $n
 
   it('shows bound data values', async () => {
     const pages: string[] = [];
-    for (let i = 0; i < doc.getPageCount(); i++)
-      pages.push(...extractText(await contentStream(pdf, i)));
+    for (let i = 0; i < doc.getPageCount(); i++) pages.push(await pageText(pdf, i));
     const text = pages.join('\n');
     const shown = dataValues(form).filter((v) => text.includes(v));
     expect(shown.length).toBeGreaterThanOrEqual(form.minDataValuesShown);

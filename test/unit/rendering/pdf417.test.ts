@@ -3,12 +3,13 @@ import { contentStream, pathRectCount } from '../../helpers/pdf-content';
 import {
   ecCountForLevel,
   encodePdf417,
+  loadPdf417Tables,
   modulesPerRow,
   rowToModules,
 } from '../../../src/rendering/pdf417';
 import { renderBarcode } from '../../../src/rendering/barcode-renderer';
-import pdf417Tables from '../../../src/config/pdf417-tables.json';
 
+const pdf417Tables = loadPdf417Tables();
 const bytes = (n: number) => [...Array(n)].map(() => 0);
 
 describe('PDF417 — Adobe cluster pattern tables (dumped from pdf417pmp.dll)', () => {

@@ -101,7 +101,7 @@ describe('<para> rendering', () => {
     expect(origins[1].x).toBeCloseTo(5, 1);
   });
 
-  it('applies paragraph geometry to styled rich-text runs', async () => {
+  it('ignores para lineHeight for rich text but keeps its margins and indent', async () => {
     const result = await renderFormToPdf(
       drawXdp(
         '<para vAlign="top" lineHeight="30pt" marginLeft="5pt" marginRight="5pt" textIndent="12pt"/>',
@@ -121,7 +121,7 @@ describe('<para> rendering', () => {
     expect(origins[0].x).toBeCloseTo(17, 1);
     expect(origins[3].x).toBeCloseTo(17, 1);
     expect(origins[0].y).toBeCloseTo(origins[2].y, 3);
-    expect(origins[0].y - origins[3].y).toBeCloseTo(30, 1);
+    expect(origins[0].y - origins[3].y).toBeCloseTo(12, 1);
   });
 
   it('centers a styled rich-text line between its left- and right-aligned origins', async () => {

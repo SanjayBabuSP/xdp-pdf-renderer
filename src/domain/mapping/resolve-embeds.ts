@@ -43,8 +43,11 @@ export function resolveXfaEmbedsInHtml(
     const mode = EMBED_MODE.exec(tag)?.[2] ?? 'formatted';
 
     let end = tagEnd;
-    const closing = /^\s*(?:<\/span>|&lt;\/span&gt;)/i.exec(html.slice(end));
-    if (closing) end += closing[0].length;
+    const selfClosing = /\/\s*(?:>|&gt;)\s*$/i.test(tag);
+    if (!selfClosing) {
+      const closing = /^\s*(?:<\/span>|&lt;\/span&gt;)/i.exec(html.slice(end));
+      if (closing) end += closing[0].length;
+    }
 
     if (cursor < tagStart) out.push(html.slice(cursor, tagStart));
 

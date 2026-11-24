@@ -1,13 +1,15 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { FontFileNotFoundError, FontManager } from '../../../src/rendering/font-manager';
 import { loadManifest } from '../../../src/rendering/font-registry';
+import { sanitizeTextForFont } from '../../../src/rendering/text/glyph-coverage';
 
-jest.mock('fs', () => {
-  const actual = jest.requireActual<typeof import('fs')>('fs');
-  return { ...actual, readFileSync: jest.fn(actual.readFileSync) };
+jest.mock('fs/promises', () => {
+  const actual = jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return { ...actual, readFile: jest.fn(actual.readFile) };
 });
 
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
@@ -36,21 +38,30 @@ describe('FontManager', () => {
     expect(font).toBeDefined();
   });
 
-  it('resolves Arial (XCI alias) through the base-14 Helvetica', async () => {
+  it('resolves Arial to the bundled subset instead of the base-14 Helvetica', async () => {
     const doc = await PDFDocument.create();
     const fm = new FontManager(doc);
-    const standard = await fm.getFont('Helvetica');
     const arial = await fm.getFont('Arial');
-    expect(arial).toBeDefined();
-    expect(standard).toBeDefined();
+    expect(arial.name).toBe('ArialMT');
+    expect(arial.name).not.toMatch(/DejaVu|Helvetica/);
   });
 
-  it('swaps to the Unicode fallback when standard fonts cannot encode the text', async () => {
+  it('uses metric-compatible base-14 variants for bold and italic Arial', async () => {
+    const doc = await PDFDocument.create();
+    const fm = new FontManager(doc);
+    expect((await fm.getFont('Arial')).name).toBe('ArialMT');
+    expect((await fm.getFont('Arial', 'bold')).name).toBe('Helvetica-Bold');
+    expect((await fm.getFont('Arial', 'normal', 'italic')).name).toBe('Helvetica-Oblique');
+    expect((await fm.getFont('Arial', 'bold', 'italic')).name).toBe('Helvetica-BoldOblique');
+  });
+
+  it('keeps the resolved font when text contains unmappable glyphs', async () => {
     const doc = await PDFDocument.create();
     const fm = new FontManager(doc);
     const standard = await fm.getFont('Helvetica');
     const safe = await fm.getSafeFont('Temperature Δ', 'Helvetica');
-    expect(safe).not.toBe(standard);
+    expect(safe).toBe(standard);
+    expect(sanitizeTextForFont('Temperature Δ', safe)).toBe('Temperature ');
   });
 
   it('keeps the standard font for WinAnsi-safe text', async () => {
@@ -88,16 +99,25 @@ describe('FontManager — font file handling', () => {
   });
 
   it('reuses font bytes across manager instances', async () => {
-    jest.mocked(fs.readFileSync).mockClear();
+    jest.mocked(fsp.readFile).mockClear();
     for (let i = 0; i < 2; i++) {
       const doc = await PDFDocument.create();
       const fm = new FontManager(doc, { fonts: { Cached: DEJA_VU } });
       const font = await fm.getFont('Cached');
       expect(font.name).toBe('DejaVuSans');
     }
+    const reads = jest.mocked(fsp.readFile).mock.calls.filter(([filePath]) => filePath === DEJA_VU);
+    expect(reads.length).toBeLessThanOrEqual(1);
+  });
+
+  it('shares one default font read across concurrent preloads', async () => {
+    jest.mocked(fsp.readFile).mockClear();
+    const docs = await Promise.all([PDFDocument.create(), PDFDocument.create()]);
+    const managers = docs.map((doc) => new FontManager(doc));
+    await Promise.all(managers.map((fm) => fm.preload()));
     const reads = jest
-      .mocked(fs.readFileSync)
-      .mock.calls.filter(([filePath]) => filePath === DEJA_VU);
+      .mocked(fsp.readFile)
+      .mock.calls.filter(([filePath]) => String(filePath).includes('DejaVuSans.ttf'));
     expect(reads.length).toBeLessThanOrEqual(1);
   });
 });

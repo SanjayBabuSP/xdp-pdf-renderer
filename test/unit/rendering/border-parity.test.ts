@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { halfStrokeWidth } from '../../../src/rendering/border-style';
 
 const XSD = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
@@ -91,20 +92,32 @@ describe('outer hidden + UI visible draws the widget border (no missing lines)',
   });
 });
 
-describe('tiny-gap double lines collapse to one (no 1.4pt gaps)', () => {
-  it('suppresses a subform bottom edge 0.5mm below child underlines', async () => {
+describe('parent-edge suppression requires a visible, coincident child edge', () => {
+  const bottomOnly = `
+          <edge presence="hidden"/><edge presence="hidden"/>
+          <edge thickness="0.5pt"/><edge presence="hidden"/>`;
+
+  it('suppresses a parent bottom edge when a child underline is exactly coincident', async () => {
+    const body = `
+      <subform name="row" layout="position" x="10pt" y="10pt" w="200pt" h="20pt">
+        <border>${bottomOnly}</border>
+        <field name="a" x="0pt" y="0pt" w="200pt" h="20pt">
+          <ui><textEdit><border>${bottomOnly}</border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+      </subform>`;
+    const content = await render(body);
+    expect(hLines(content)).toHaveLength(1);
+  });
+
+  it('keeps a parent edge when a child underline sits 1pt above it', async () => {
     const body = `
       <subform name="row" layout="tb" x="10pt" y="10pt" w="200pt">
         <margin topInset="1pt" bottomInset="1pt" leftInset="1pt" rightInset="1pt"/>
-        <border>
-          <edge presence="hidden"/><edge presence="hidden"/>
-          <edge thickness="0.5pt"/><edge presence="hidden"/>
-        </border>
+        <border>${bottomOnly}</border>
         <field name="f" w="198pt" h="14pt">
-          <ui><textEdit><border>
-            <edge presence="hidden"/><edge presence="hidden"/>
-            <edge thickness="0.5pt"/><edge presence="hidden"/>
-          </border></textEdit></ui>
+          <ui><textEdit><border>${bottomOnly}</border></textEdit></ui>
           <font typeface="Helvetica" size="10pt"/>
           <margin topInset="1pt" bottomInset="1pt" leftInset="1pt" rightInset="1pt"/>
           <para vAlign="top"/>
@@ -112,8 +125,35 @@ describe('tiny-gap double lines collapse to one (no 1.4pt gaps)', () => {
         </field>
       </subform>`;
     const content = await render(body);
-    const lines = hLines(content);
-    expect(lines.length).toBe(1);
+    expect(hLines(content)).toHaveLength(2);
+  });
+
+  it('keeps a parent edge when the child underline is on a different row', async () => {
+    const body = `
+      <subform name="row" layout="position" x="10pt" y="10pt" w="200pt" h="40pt">
+        <border>${bottomOnly}</border>
+        <field name="a" x="0pt" y="0pt" w="200pt" h="20pt">
+          <ui><textEdit><border>${bottomOnly}</border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+      </subform>`;
+    const content = await render(body);
+    expect(hLines(content)).toHaveLength(2);
+  });
+
+  it('does not suppress a parent edge because of an invisible child', async () => {
+    const body = `
+      <subform name="row" layout="position" x="10pt" y="10pt" w="200pt" h="20pt">
+        <border>${bottomOnly}</border>
+        <field name="a" presence="invisible" x="0pt" y="0pt" w="200pt" h="20pt">
+          <ui><textEdit><border>${bottomOnly}</border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+      </subform>`;
+    const content = await render(body);
+    expect(hLines(content)).toHaveLength(1);
   });
 
   it('keeps a full-width parent edge when a coincident child covers only part of it', async () => {
@@ -140,6 +180,58 @@ describe('tiny-gap double lines collapse to one (no 1.4pt gaps)', () => {
     const content = await render(body);
     const lines = hLines(content);
     expect(lines.some((line) => line.x2 - line.x1 > 190)).toBe(true);
+  });
+});
+
+describe('parent edges with effective stroke width', () => {
+  it('keeps a thick parent edge when an equally thick child covers only part of it', async () => {
+    const body = `
+      <subform name="row" layout="position" x="10pt" y="10pt" w="200pt" h="20pt">
+        <border>
+          <edge presence="hidden"/><edge presence="hidden"/>
+          <edge thickness="2pt"/><edge presence="hidden"/>
+        </border>
+        <field name="a" x="0pt" y="0pt" w="100pt" h="20pt">
+          <ui><textEdit><border>
+            <edge presence="hidden"/><edge presence="hidden"/>
+            <edge thickness="2pt"/><edge presence="hidden"/>
+          </border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>
+      </subform>`;
+    const content = await render(body);
+    const lines = hLines(content);
+    expect(lines.some((line) => line.x2 - line.x1 > 190)).toBe(true);
+  });
+
+  it('keeps multi-row table separators contiguous at the derived half-width pitch', async () => {
+    const table = (thickness: string): string => {
+      const cell = (name: string): string => `
+        <field name="${name}" minH="10pt" w="100pt">
+          <ui><textEdit><border>
+            <edge presence="hidden"/><edge presence="hidden"/>
+            <edge thickness="${thickness}"/><edge presence="hidden"/>
+          </border></textEdit></ui>
+          <font typeface="Helvetica" size="10pt"/>
+          <bind match="dataRef" ref="$.v"/>
+        </field>`;
+      return `
+        <subform layout="table" columnWidths="100pt">
+          <subform layout="row">${cell('a')}</subform>
+          <subform layout="row">${cell('b')}</subform>
+        </subform>`;
+    };
+    const defaultLines = hLines(await render(table('0.5pt')));
+    const thickLines = hLines(await render(table('2pt')));
+    expect(defaultLines).toHaveLength(2);
+    expect(thickLines).toHaveLength(2);
+    const defaultPitch = defaultLines[0].y - defaultLines[1].y;
+    const thickPitch = thickLines[0].y - thickLines[1].y;
+    expect(thickPitch - defaultPitch).toBeCloseTo(
+      halfStrokeWidth({ thickness: 2 }) - halfStrokeWidth({ thickness: 0.5 }),
+      3
+    );
   });
 });
 
@@ -295,5 +387,40 @@ describe('subform thick edge wins over a coincident thin child edge', () => {
     expect(content).toMatch(/36 795\.89 50 10 re/);
     expect(content).toMatch(/86 795\.89 50 10 re/);
     expect(content).not.toMatch(/100 10 re/);
+  });
+});
+
+describe('coincident borders collapse across thicknesses (first painted wins)', () => {
+  async function paintBoxes(
+    boxes: Array<{ pos: { x: number; y: number; w: number; h: number }; thickness: number }>
+  ): Promise<string> {
+    const { PDFDocument: Doc } = await import('pdf-lib');
+    const { drawBorderBox } = await import('../../../src/rendering/pdf-renderer/border-fill');
+    const { contentStream: stream } = await import('../../helpers/pdf-content');
+    const doc = await Doc.create();
+    const page = doc.addPage([595.28, 841.89]);
+    for (const box of boxes) {
+      drawBorderBox(page, { edges: [{ thickness: box.thickness }] }, box.pos, 841.89);
+    }
+    const bytes = await doc.save();
+    return stream(bytes as unknown as Buffer);
+  }
+
+  it('paints one rectangle for coincident uniform borders of different thickness', async () => {
+    const content = await paintBoxes([
+      { pos: { x: 50, y: 700, w: 100, h: 20 }, thickness: 1.6 },
+      { pos: { x: 50, y: 700, w: 100, h: 20 }, thickness: 0.5 },
+    ]);
+    expect(content.match(/\bre\b/g)?.length ?? 0).toBe(1);
+  });
+
+  it('repaints only the unseen sides of a partially coincident rectangle', async () => {
+    const content = await paintBoxes([
+      { pos: { x: 50, y: 700, w: 100, h: 20 }, thickness: 1.6 },
+      { pos: { x: 50, y: 700, w: 40, h: 20 }, thickness: 0.5 },
+    ]);
+    expect(content.match(/\bre\b/g)?.length ?? 0).toBe(1);
+    const leftEdge = /50 700 m\s+50 720 l\s+S/g;
+    expect(content.match(leftEdge)?.length ?? 0).toBe(0);
   });
 });

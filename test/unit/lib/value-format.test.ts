@@ -61,6 +61,14 @@ describe('Adobe numeric picture tokens (jfutility locale tables)', () => {
     expect(formatValue(1234.5, '$ z,zz9.99')).toBe('$ 1,234.50');
   });
 
+  it('omits all-zero optional fractional digits like Adobe', () => {
+    expect(formatValue(200, '999.zz')).toBe('200');
+    expect(formatValue(0, '999.zz').trim()).toBe('0');
+    expect(formatValue(200.5, '999.zz')).toBe('200.50');
+    expect(formatValue(200, '999.##')).toBe('200');
+    expect(formatValue(200, '999.99')).toBe('200.00');
+  });
+
   it('supports | alternates for negative values', () => {
     expect(formatValue(-1234.5, '$z,zz9.99|($z,zz9.99)')).toBe('($1,234.50)');
     expect(formatValue(1234.5, '$z,zz9.99|($z,zz9.99)')).toBe('$1,234.50');

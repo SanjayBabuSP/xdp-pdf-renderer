@@ -9,9 +9,33 @@ import {
   rotateEdgesForAngle,
   rotateCornersForAngle,
   isBottomUnderlineOnly,
+  effectiveStrokeWidth,
+  halfStrokeWidth,
 } from '../../../src/rendering/border-style';
 
 describe('border-style', () => {
+  describe('effectiveStrokeWidth / halfStrokeWidth', () => {
+    it('uses the XFA default edge when none is supplied', () => {
+      expect(effectiveStrokeWidth()).toBe(0.6);
+      expect(effectiveStrokeWidth(undefined)).toBe(0.6);
+      expect(halfStrokeWidth()).toBe(0.3);
+    });
+
+    it('quantises authored thickness once onto the 600 dpi device grid', () => {
+      expect(effectiveStrokeWidth({ thickness: 0.5 })).toBe(0.6);
+      expect(effectiveStrokeWidth({ thickness: 1.06696226 })).toBe(1.08);
+      expect(effectiveStrokeWidth({ thickness: 2 })).toBe(2.04);
+      expect(halfStrokeWidth({ thickness: 2 })).toBe(1.02);
+    });
+
+    it('passes through non-finite and non-positive thickness', () => {
+      expect(effectiveStrokeWidth({ thickness: NaN })).toBeNaN();
+      expect(effectiveStrokeWidth({ thickness: Infinity })).toBe(Infinity);
+      expect(effectiveStrokeWidth({ thickness: 0 })).toBe(0);
+      expect(halfStrokeWidth({ thickness: NaN })).toBeNaN();
+    });
+  });
+
   describe('dashArrayForStyle (adobepdf.xdc:187-191)', () => {
     it('treats solid / [1,0] as no dash', () => {
       expect(dashArrayForStyle('solid', 2)).toBeUndefined();

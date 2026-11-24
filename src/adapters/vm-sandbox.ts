@@ -91,6 +91,7 @@ function hostRealm(): HostRealm {
 }
 
 export function createSandbox<T extends object>(globals: T): Sandbox<T> {
+  Object.setPrototypeOf(globals, null);
   const target = globals as T & { __hostRealm?: HostRealm };
   target.__hostRealm = hostRealm();
   const context = vm.createContext(globals, {

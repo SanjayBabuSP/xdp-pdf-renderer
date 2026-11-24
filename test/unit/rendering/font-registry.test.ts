@@ -6,10 +6,12 @@ import {
   familyKey,
   indexVariant,
   loadManifest,
+  loadManifestAsync,
   lookupVariants,
   manifestPath,
   pickVariant,
   scanFontDir,
+  scanFontDirAsync,
 } from '../../../src/rendering/font-registry';
 
 const DEJA_VU = path.join(__dirname, '..', '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
@@ -117,6 +119,13 @@ describe('font-registry — manifest IO', () => {
     fs.writeFileSync(manifestPath(dir), '{ not json');
     expect(loadManifest(dir)).toBeNull();
   });
+
+  it('loads a manifest asynchronously', async () => {
+    const dir = tempDir();
+    fs.writeFileSync(manifestPath(dir), JSON.stringify({ fonts: {}, source: 'async' }));
+    const manifest = await loadManifestAsync(dir);
+    expect(manifest?.source).toBe('async');
+  });
 });
 
 describe('font-registry — directory scanning', () => {
@@ -134,6 +143,13 @@ describe('font-registry — directory scanning', () => {
 
   it('returns an empty manifest for a missing directory', () => {
     expect(scanFontDir(path.join(os.tmpdir(), 'xdp-definitely-missing')).fonts).toEqual({});
+  });
+
+  it('scans directories asynchronously', async () => {
+    const dir = tempDir();
+    fs.copyFileSync(DEJA_VU, path.join(dir, 'DejaVuSans.ttf'));
+    const manifest = await scanFontDirAsync(dir);
+    expect(lookupVariants(manifest, 'DejaVu Sans')).toHaveLength(1);
   });
 });
 

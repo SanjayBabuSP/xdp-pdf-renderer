@@ -83,6 +83,22 @@ describe('child position helpers', () => {
     expect(getChildX(field('f'))).toBe(0);
     expect(getChildY(field('f'))).toBe(0);
   });
+
+  it('honours anchorType when placing positioned nodes', () => {
+    expect(getChildX(field('f', { x: 12, w: 4, anchorType: 'bottomRight' }))).toBe(8);
+    expect(getChildY(field('f', { y: 10, h: 6, anchorType: 'bottomRight' }))).toBe(4);
+    expect(getChildX(field('f', { x: 12, w: 4, anchorType: 'topRight' }))).toBe(8);
+    expect(getChildY(field('f', { y: 10, h: 6, anchorType: 'topRight' }))).toBe(10);
+    expect(getChildX(field('f', { x: 12, w: 4, anchorType: 'middleCenter' }))).toBe(10);
+    expect(getChildY(field('f', { y: 10, h: 6, anchorType: 'middleCenter' }))).toBe(7);
+    expect(getChildX(field('f', { x: 12, w: 4, anchorType: 'topLeft' }))).toBe(12);
+    expect(getChildY(field('f', { y: 10, h: 6, anchorType: 'topLeft' }))).toBe(10);
+  });
+
+  it('keeps authored x and y when anchorType extents are unknown', () => {
+    expect(getChildX(field('f', { x: 12, anchorType: 'bottomRight' }))).toBe(12);
+    expect(getChildY(field('f', { y: 10, anchorType: 'bottomRight' }))).toBe(10);
+  });
 });
 
 describe('layoutPositionSubform', () => {
@@ -180,6 +196,37 @@ describe('layoutLeafField', () => {
     node.caption.placement = 'left';
     expect(layoutLeafField(node, context()).height).toBe(12);
   });
+
+  it('sizes field content from the inherited font size', () => {
+    const makeNode = (): FieldNode => {
+      const node = field('f', { w: 400 });
+      node.font = { family: 'Arial Narrow', size: 12 };
+      node.margin = {
+        topInset: 2.8346,
+        bottomInset: 2.8346,
+        leftInset: 2.8346,
+        rightInset: 2.8346,
+      };
+      node.ui = { type: 'textEdit', multiLine: true };
+      node.resolvedValue = 'Fdls ik n Proiozt Ugmmqfkjpl Rgwmqqt.';
+      return node;
+    };
+    const stamped = makeNode();
+    stamped.inheritedFontSize = 10;
+    expect(layoutLeafField(stamped, context()).height).toBeCloseTo(17.67, 1);
+
+    const unstamped = makeNode();
+    expect(layoutLeafField(unstamped, context()).height).toBeCloseTo(20.07, 1);
+  });
+
+  it('keeps a smaller own size for field content below the inherited grid', () => {
+    const node = field('f', { w: 400, h: 11.34 });
+    node.font = { family: 'Arial', size: 6.5 };
+    node.inheritedFontSize = 10;
+    node.margin = { topInset: 1.42, bottomInset: 1.42, leftInset: 1.42, rightInset: 1.42 };
+    node.resolvedValue = 'Xjbjrpvrjaphl';
+    expect(layoutLeafField(node, context()).height).toBeCloseTo(11.34, 1);
+  });
 });
 
 describe('drawValueHeight and layoutLeafDraw', () => {
@@ -196,6 +243,69 @@ describe('drawValueHeight and layoutLeafDraw', () => {
     expect(drawValueHeight(drawNode('d', { type: 'image', content: 'x' }), 100)).toBe(0);
   });
 
+  it('includes top and bottom insets in text and rich-text heights', () => {
+    const margin = { topInset: 3, bottomInset: 5 };
+    const text = drawNode('d', { type: 'text', content: 'Hello' });
+    text.margin = margin;
+    expect(drawValueHeight(text, 100)).toBe(20);
+
+    const rich = drawNode('d', { type: 'richText', content: '<p>Hello</p>' });
+    rich.margin = margin;
+    expect(drawValueHeight(rich, 100)).toBe(20);
+  });
+
+  it('ignores para lineHeight when sizing rich text', () => {
+    const node = drawNode('d', {
+      type: 'richText',
+      content: '<p>First</p><p style="line-height:22.5pt">Second</p>',
+    });
+    node.font = { size: 12 };
+    node.para = { lineHeight: 30 };
+    expect(drawValueHeight(node, 400)).toBeCloseTo(14.4 + 22.5, 6);
+  });
+
+  it('sizes a spacer-only rich paragraph using its authored line-height', () => {
+    const node = drawNode('d', {
+      type: 'richText',
+      content:
+        '<p style="font-size:8pt;line-height:7pt"><span style="xfa-spacerun:yes">\u00a0</span></p>',
+    });
+    expect(drawValueHeight(node, 100)).toBeCloseTo(7, 6);
+  });
+
+  it('sums authored rich paragraph advances and margins for the block height', () => {
+    const node = drawNode('d', {
+      type: 'richText',
+      content:
+        '<p style="font-size:10pt;line-height:18pt; margin-top:3pt; margin-bottom:4pt">First</p>' +
+        '<p style="font-size:10pt;line-height:9pt">Second</p>',
+    });
+    expect(drawValueHeight(node, 100)).toBeCloseTo(34, 6);
+  });
+
+  it('caps an authored one-line draw at its minH instead of wrapped content height', () => {
+    const node = drawNode('d', { type: 'text', content: 'www.example.com/805ee9e4' });
+    node.position = { w: 40, minH: 8.86 };
+    node.font = { size: 6.5 };
+    expect(drawValueHeight(node, 40)).toBeGreaterThan(15);
+
+    const result = layoutLeafDraw(node, context());
+    expect(result.node.position).toEqual({ w: 40, minH: 8.86, x: 0, y: 0, h: 8.86 });
+    expect(result.height).toBeCloseTo(8.86, 6);
+  });
+
+  it('still grows an authored box that fits multiple lines', () => {
+    const node = drawNode('d', {
+      type: 'text',
+      content: 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu',
+    });
+    node.position = { w: 40, minH: 40 };
+    node.font = { size: 6.5 };
+
+    const result = layoutLeafDraw(node, context());
+    expect(result.height).toBeGreaterThan(40);
+  });
+
   it('defaults an empty draw to 18 points tall', () => {
     const result = layoutLeafDraw(drawNode('d'), context());
     expect(result.node.position).toEqual({ x: 0, y: 0, w: 200, h: 18 });
@@ -209,6 +319,23 @@ describe('drawValueHeight and layoutLeafDraw', () => {
     const fixed: DrawNode = drawNode('d', { type: 'text', content: 'Hello' });
     fixed.position = { h: 30, w: 90 };
     expect(layoutLeafDraw(fixed, context()).node.position).toEqual({ h: 30, w: 90, x: 0, y: 0 });
+  });
+
+  it('lays out a rotated draw at its visual height while keeping visual width in place', () => {
+    const node = drawNode('d');
+    node.position = { w: 11.34, h: 14.83, rotate: 90 };
+    const result = layoutLeafDraw(node, context());
+    expect(result.height).toBeCloseTo(11.34, 6);
+    expect(result.node.position?.h).toBeCloseTo(14.83, 6);
+    expect(result.node.position?.w).toBeCloseTo(11.34, 6);
+  });
+
+  it('does not change flow height for unrotated draws', () => {
+    const node = drawNode('d', { type: 'text', content: 'Hello' });
+    node.position = { w: 90, h: 30 };
+    const result = layoutLeafDraw(node, context());
+    expect(result.height).toBe(30);
+    expect(result.node.position?.h).toBe(30);
   });
 });
 

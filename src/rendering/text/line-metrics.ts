@@ -12,9 +12,13 @@ export interface ParaMetrics {
   marginRight: number;
 }
 
-export function paraMetrics(para: ParaSpec | undefined, fontSize: number): ParaMetrics {
+export function paraMetrics(
+  para: ParaSpec | undefined,
+  fontSize: number,
+  inheritedFontSize: number = fontSize
+): ParaMetrics {
   return {
-    lineAdvance: para?.lineHeight ?? defaultLineAdvance(fontSize),
+    lineAdvance: para?.lineHeight ?? defaultLineAdvance(Math.min(fontSize, inheritedFontSize)),
     spaceAbove: para?.spaceAbove ?? 0,
     spaceBelow: para?.spaceBelow ?? 0,
     textIndent: para?.textIndent ?? 0,
@@ -83,6 +87,24 @@ export interface LineLayoutOptions {
   paddingBottom?: number;
 }
 
+export interface FragmentBand {
+  shift: number;
+  clipBottom: number;
+}
+
+export function alignFragmentBand(
+  firstTop: number,
+  lastBottom: number,
+  bandTop: number,
+  bandBottom: number
+): FragmentBand {
+  const rawShift = firstTop - bandTop;
+  const shift = rawShift > 1e-9 ? rawShift : 0;
+  const rawClip = Math.min(bandBottom, lastBottom - shift);
+  const clipBottom = bandBottom - rawClip < 1e-9 ? bandBottom : rawClip;
+  return { shift, clipBottom };
+}
+
 export function layoutLines(
   count: number,
   fontSize: number,
@@ -102,7 +124,9 @@ export function layoutLines(
   const boxHeight = boxTop - boxBottom;
 
   let blockTop: number;
-  if (align === 'bottom') {
+  if (blockHeight > boxHeight) {
+    blockTop = boxTop;
+  } else if (align === 'bottom') {
     blockTop = boxBottom + blockHeight;
   } else if (align === 'middle') {
     blockTop = boxBottom + (boxHeight + blockHeight) / 2;

@@ -154,11 +154,10 @@ describe('gap 1 — large lineHeight must not hide single-line text (Adobe shows
 
   it('does not clip away the glyphs when lineHeight exceeds the box', async () => {
     const pdf = await render(drawXdp(), DATA_VALUE);
-    const { contentStream, extractText } = await import('../../helpers/pdf-content');
+    const { contentStream, pageText } = await import('../../helpers/pdf-content');
     const { fontAscent } = await import('../../../src/rendering/text/line-metrics');
     const content = await contentStream(pdf);
-    const texts = extractText(content);
-    expect(texts.join(' ')).toMatch(/Single line label:/);
+    expect(await pageText(pdf)).toMatch(/Single line label:/);
     const clip = [...content.matchAll(/([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\s+W\s+n/g)].map(
       (m) => ({
         x: Number(m[1]),

@@ -1,4 +1,5 @@
 import { calculatePositions } from '../../../../src/domain/layout/calculate-positions';
+import { halfStrokeWidth } from '../../../../src/rendering/border-style';
 import {
   LayoutModel,
   LayoutNode,
@@ -195,6 +196,27 @@ describe('layout engines (dispatcher)', () => {
   it('clamps leaf field height by minH', () => {
     const out = run([field('a', { x: 0, y: 0, w: 100, minH: 40 })]);
     expect(out[0].position!.h).toBe(40);
+  });
+
+  it('applies a draw cell border half-width without requiring minH', () => {
+    const drawCell = (thickness: number): DrawNode =>
+      ({
+        type: 'draw',
+        name: 'd',
+        position: { w: 100 },
+        border: { edges: [{ thickness }] },
+        value: { type: 'text', content: 'x' },
+      }) satisfies DrawNode;
+    const plain = run([
+      subform('t1', 'table', { x: 0, y: 0 }, [subform('r', 'row', {}, [drawCell(0.5)])]),
+    ])[0] as SubformNode;
+    const thick = run([
+      subform('t2', 'table', { x: 0, y: 0 }, [subform('r', 'row', {}, [drawCell(2)])]),
+    ])[0] as SubformNode;
+    expect(thick.position!.h - plain.position!.h).toBeCloseTo(
+      halfStrokeWidth({ thickness: 2 }) - halfStrokeWidth({ thickness: 0.5 }),
+      5
+    );
   });
 
   it('subformSet rows use the shared cell height without a minimum pitch', () => {

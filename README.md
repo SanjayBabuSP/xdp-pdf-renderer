@@ -123,7 +123,7 @@ xdp-pdf inspect --xdp template.xdp --output json
 | Command | Required options | Optional options | Behaviour |
 | --- | --- | --- | --- |
 | `render` | `--xdp <file>`, `--xsd <file>`, `--data <file>` | `-o, --output <file>` (default `output.pdf`), `--lenient` | Writes the PDF, or exits `1` with code + details on failure. |
-| `validate` | `--xdp <file>`, `--xsd <file>`, `--data <file>` | `--lenient` | Runs the full pipeline and prints `Validation passed.` |
+| `validate` | `--xdp <file>`, `--xsd <file>`, `--data <file>` | `--lenient` | Parses, validates and maps the inputs without building a PDF, then prints `Validation passed.` |
 | `inspect` | `--xdp <file>` | `-o, --output <format>` (default `json`) | Prints the parsed `LayoutModel` as pretty JSON. |
 
 `--data -` reads XML from stdin in `render`. Missing files exit with code `2`.
@@ -146,9 +146,15 @@ in [`docs/05-reference/API.md`](docs/05-reference/API.md).
 | `data` | `string` | XML data instance. |
 | `options` | `RenderOptions` | Optional rendering configuration. |
 
-`validate(input)` has the same signature and runs the same pipeline without
-writing a file. `inspect(xdp)` returns `Result<LayoutModel>` for the parsed
-template.
+`validate(input)` takes the same input and returns `Result<void>`. It stops
+after parse, validation, mapping and pre-layout scripts, before layout or PDF
+generation. `inspect(xdp)` returns `Result<LayoutModel>` for the parsed template.
+
+For repeated renders of one template, `compile(xdp, xsd, options?)` parses the
+template once and returns `Result<CompiledTemplate>`. Call
+`compiled.render(data, options?)` for each data set; render-time options override
+compile-time defaults. The workflow tests confirm that compiled output matches
+`render()` for the same inputs.
 
 ### `Result<T>`
 
@@ -181,6 +187,12 @@ Always check `result.success` before reading `data` or `error`.
 | `previewMode` | `boolean` | `false` | Force invisible watermark nodes to render. |
 | `adobe` | `AdobeOptions` | — | Security, bookmarks, annotations, layers, flattening, AcroForm, metadata. |
 
+`timeoutMs` and `signal` are cooperative: cancellation is checked between
+pipeline steps and during script execution, but cannot interrupt a synchronous
+layout or drawing operation already in progress. Use a shorter `timeoutMs` and
+`skipScripts: true` for untrusted templates; neither option makes `vm` a hard
+security boundary.
+
 `locale` affects XFA picture formatting only: month/weekday names, AM/PM
 text, and number grouping/decimal separators in rendered fields, embeds and
 FormCalc/JavaScript `formatValue`. Form captions and data values remain
@@ -199,15 +211,17 @@ a `code`, `message` and `hint`; failures also carry a typed `ErrorCode`.
 ## Security
 
 XFA scripts execute in a restricted Node `vm` context. String and WASM code
-generation are disabled, and all values injected into the sandbox are rebased
-onto the sandbox realm's prototypes so `constructor.constructor` cannot reach
-the host `Function`. `vm` imports are forbidden under `src/domain/`.
+generation are disabled, the context global has a null prototype so its chain
+does not reach host `Object` or `Function`, and all injected values are rebased
+onto sandbox-realm prototypes. `vm` imports are forbidden under `src/domain/`.
 
 This is a mitigation, not a security boundary. A hostile template can still
-consume CPU or memory through ordinary loops. For untrusted templates, pass
-`skipScripts: true` and keep `timeoutMs` or `signal` set. The rationale and
-rejected alternatives are recorded in
-[`docs/04-decisions/2026-11-22-script-isolation.md`](docs/04-decisions/2026-11-22-script-isolation.md).
+consume CPU or memory through ordinary loops, and `timeoutMs` / `signal` cannot
+interrupt synchronous work. For untrusted templates, pass `skipScripts: true`
+and keep a deadline set. The rationale and rejected alternatives are recorded in
+[`docs/04-decisions/2026-11-22-script-isolation.md`](docs/04-decisions/2026-11-22-script-isolation.md)
+and
+[`docs/04-decisions/2026-11-22-null-prototype-globals.md`](docs/04-decisions/2026-11-22-null-prototype-globals.md).
 
 ---
 

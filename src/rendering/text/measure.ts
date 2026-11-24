@@ -1,4 +1,5 @@
 import type { PDFFont } from 'pdf-lib';
+import { sanitizeTextForFont } from './glyph-coverage';
 
 export interface MeasureOptions {
   charSpacing?: number;
@@ -23,15 +24,17 @@ export function measureText(
   opts: MeasureOptions = {}
 ): number {
   if (!text) return 0;
+  const safeText = font === undefined ? text : sanitizeTextForFont(text, font);
+  if (!safeText) return 0;
 
   let width: number;
   if (font && typeof font.widthOfTextAtSize === 'function') {
     try {
       if (opts.kerning === false) {
         width = 0;
-        for (const ch of text) width += quantizeAdvance(font.widthOfTextAtSize(ch, fontSize));
+        for (const ch of safeText) width += quantizeAdvance(font.widthOfTextAtSize(ch, fontSize));
       } else {
-        width = quantizeAdvance(font.widthOfTextAtSize(text, fontSize));
+        width = quantizeAdvance(font.widthOfTextAtSize(safeText, fontSize));
       }
     } catch {
       width = NaN;
@@ -41,7 +44,7 @@ export function measureText(
     width = NaN;
   }
   if (!Number.isFinite(width)) {
-    width = text.length * fontSize * APPROX_CHAR_WIDTH_FACTOR;
+    width = safeText.length * fontSize * APPROX_CHAR_WIDTH_FACTOR;
   }
 
   const hScale = opts.horizontalScale;
@@ -49,11 +52,11 @@ export function measureText(
 
   const charSpacing = opts.charSpacing ?? 0;
   if (charSpacing !== 0) {
-    width += charSpacing * Math.max([...text].length - 1, 0);
+    width += charSpacing * Math.max(Array.from(safeText).length - 1, 0);
   }
   const wordSpacing = opts.wordSpacing ?? 0;
   if (wordSpacing !== 0) {
-    const spaces = [...text].filter((ch) => ch === ' ').length;
+    const spaces = Array.from(safeText).filter((ch) => ch === ' ').length;
     width += wordSpacing * spaces;
   }
   return width;

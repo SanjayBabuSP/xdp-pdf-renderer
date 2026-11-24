@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
-const LIMIT_BYTES = 1_000_000;
+const LIMIT_BYTES = 390_000;
 const output = execFileSync('npm', ['pack', '--dry-run', '--json'], {
   encoding: 'utf8',
   shell: process.platform === 'win32',

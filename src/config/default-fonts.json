@@ -1,7 +1,7 @@
 {
-  "Calibri": "./fonts/Calibri.ttf",
-  "Arial": "./fonts/Arial.ttf",
-  "Arial Narrow": "./fonts/ArialNarrow.ttf",
-  "Times New Roman": "./fonts/TimesNewRoman.ttf",
-  "Courier New": "./fonts/CourierNew.ttf"
+  "Calibri": "assets/fonts/Calibri.ttf",
+  "Arial": "assets/fonts/Arial-Regular.ttf",
+  "Arial Narrow": "assets/fonts/ArialNarrow.ttf",
+  "Times New Roman": "assets/fonts/TimesNewRoman.ttf",
+  "Courier New": "assets/fonts/CourierNew.ttf"
 }

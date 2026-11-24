@@ -1,4 +1,12 @@
-import { Result, RenderOptions, LayoutModel, PaginatedLayout } from '../types';
+import {
+  Result,
+  RenderOptions,
+  LayoutModel,
+  PaginatedLayout,
+  SchemaModel,
+  DataObject,
+  CompiledTemplate,
+} from '../types';
 import { success, failure } from '../lib/result-type';
 import { parseXdp } from '../domain/parsing/parse-xdp';
 import { parseXsd } from '../domain/parsing/parse-xsd';
@@ -33,6 +41,11 @@ interface RenderTiming {
   deadline?: number;
 }
 
+interface PreparedTemplate {
+  layout: LayoutModel;
+  schema: SchemaModel;
+}
+
 function renderTiming(options: RenderOptions): RenderTiming {
   const signals: AbortSignal[] = [];
   if (options.signal !== undefined) signals.push(options.signal);
@@ -59,51 +72,40 @@ function remainingTimeout(timing: RenderTiming): number | undefined {
   return timing.deadline === undefined ? undefined : Math.max(1, timing.deadline - Date.now());
 }
 
-export async function renderFormToPdf(
-  xdpXml: string,
-  xsdXml: string,
-  dataXml: string,
-  options: RenderOptions = {}
-): Promise<Result<Uint8Array>> {
-  try {
-    return await renderFormToPdfInner(xdpXml, xsdXml, dataXml, options);
-  } catch (error) {
-    if (
-      error instanceof RenderAbortError ||
-      (error instanceof Error && error.name === 'AbortError')
-    ) {
-      return failure(
-        ERROR_CODES.RENDER_ABORTED.code,
-        ERROR_CODES.RENDER_ABORTED.message,
-        undefined,
-        ERROR_CODES.RENDER_ABORTED.hint
-      );
-    }
-    if (error instanceof FontFileNotFoundError) {
-      return failure(
-        ERROR_CODES.FONT_NOT_FOUND.code,
-        error.message,
-        undefined,
-        ERROR_CODES.FONT_NOT_FOUND.hint
-      );
-    }
+function failureFromError(error: unknown): Result<never> {
+  if (
+    error instanceof RenderAbortError ||
+    (error instanceof Error && error.name === 'AbortError')
+  ) {
     return failure(
-      ERROR_CODES.PDF_GENERATION_FAILED.code,
-      `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${String(error)}`,
+      ERROR_CODES.RENDER_ABORTED.code,
+      ERROR_CODES.RENDER_ABORTED.message,
       undefined,
-      ERROR_CODES.PDF_GENERATION_FAILED.hint
+      ERROR_CODES.RENDER_ABORTED.hint
     );
   }
+  if (error instanceof FontFileNotFoundError) {
+    return failure(
+      ERROR_CODES.FONT_NOT_FOUND.code,
+      error.message,
+      undefined,
+      ERROR_CODES.FONT_NOT_FOUND.hint
+    );
+  }
+  return failure(
+    ERROR_CODES.PDF_GENERATION_FAILED.code,
+    `${ERROR_CODES.PDF_GENERATION_FAILED.message}: ${String(error)}`,
+    undefined,
+    ERROR_CODES.PDF_GENERATION_FAILED.hint
+  );
 }
 
-async function renderFormToPdfInner(
+function prepareTemplate(
   xdpXml: string,
   xsdXml: string,
-  dataXml: string,
-  options: RenderOptions
-): Promise<Result<Uint8Array>> {
-  const timing = renderTiming(options);
-  checkAbort(timing);
+  options: RenderOptions,
+  timing: RenderTiming
+): Result<PreparedTemplate> {
   const parseOptions = {
     strict: options.strictValidation !== false,
     maxInputSize: options.maxInputSize,
@@ -112,53 +114,95 @@ async function renderFormToPdfInner(
   if (!layoutResult.success) return layoutResult;
   checkAbort(timing);
 
-  const locale = normalizeLocale(options.locale ?? layoutResult.data.locale);
-  const renderOptions: RenderOptions = { ...options, locale };
-
   const schemaResult = parseXsd(xsdXml, options.maxInputSize);
   if (!schemaResult.success) return schemaResult;
   checkAbort(timing);
 
-  const dataResult = parseXmlData(dataXml, schemaResult.data, options.maxInputSize);
-  if (!dataResult.success) return dataResult;
-  checkAbort(timing);
+  return success({ layout: layoutResult.data, schema: schemaResult.data });
+}
 
-  const structureValid = validateXdpStructure(layoutResult.data);
+function mapPreparedTemplate(
+  layout: LayoutModel,
+  schema: SchemaModel,
+  data: DataObject,
+  options: RenderOptions,
+  timing: RenderTiming
+): Result<LayoutModel> {
+  const structureValid = validateXdpStructure(layout);
   if (!structureValid.success) return structureValid;
 
   const warn = options.onWarning ?? (() => {});
   const strict = options.strictValidation === true;
 
-  const schemaValid = validateDataAgainstSchema(dataResult.data, schemaResult.data, { strict });
+  const schemaValid = validateDataAgainstSchema(data, schema, { strict });
   if (!schemaValid.success) {
     if (strict) return schemaValid;
     warn(`[${schemaValid.error.code}] ${schemaValid.error.message}`);
     for (const detail of schemaValid.error.details ?? []) warn(`  ${detail}`);
   }
 
-  const bindingsValid = validateBindings(layoutResult.data, schemaResult.data, { strict });
+  const bindingsValid = validateBindings(layout, schema, { strict });
   if (!bindingsValid.success) {
     if (strict) return bindingsValid;
     warn(`[${bindingsValid.error.code}] ${bindingsValid.error.message}`);
     for (const detail of bindingsValid.error.details ?? []) warn(`  ${detail}`);
   }
 
-  const resolvedResult = resolveBindings(layoutResult.data, dataResult.data);
+  const resolvedResult = resolveBindings(layout, data);
   if (!resolvedResult.success) return resolvedResult;
 
-  const expandedResult = expandRepeats(resolvedResult.data, dataResult.data);
+  const expandedResult = expandRepeats(resolvedResult.data, data);
   if (!expandedResult.success) return expandedResult;
-
   checkAbort(timing);
-  const scriptConfig = {
+  return expandedResult;
+}
+
+function scriptConfigFor(
+  options: RenderOptions,
+  locale: string | undefined,
+  timing: RenderTiming
+): {
+  skipScripts: boolean;
+  skipEvents?: string[];
+  strictMode: boolean;
+  locale?: string;
+  maxExecutionTime?: number;
+} {
+  return {
     skipScripts: options.skipScripts === true,
     skipEvents: options.skipScriptEvents,
     strictMode: options.strictValidation !== false,
     locale,
     maxExecutionTime: remainingTimeout(timing),
   };
+}
+
+async function renderPreparedTemplate(
+  prepared: PreparedTemplate,
+  dataXml: string,
+  xdpXml: string,
+  options: RenderOptions,
+  timing: RenderTiming
+): Promise<Result<Uint8Array>> {
+  const dataResult = parseXmlData(dataXml, prepared.schema, options.maxInputSize);
+  if (!dataResult.success) return dataResult;
+  checkAbort(timing);
+
+  const layout = structuredClone(prepared.layout);
+  const locale = normalizeLocale(options.locale ?? layout.locale);
+  const renderOptions: RenderOptions = { ...options, locale };
+  const mappedResult = mapPreparedTemplate(
+    layout,
+    prepared.schema,
+    dataResult.data,
+    options,
+    timing
+  );
+  if (!mappedResult.success) return mappedResult;
+
+  const scriptConfig = scriptConfigFor(options, locale, timing);
   const scriptResult = dispatchScripts(
-    expandedResult.data,
+    mappedResult.data,
     dataResult.data as Record<string, unknown>,
     scriptConfig
   );
@@ -188,7 +232,7 @@ async function renderFormToPdfInner(
   checkAbort(timing);
 
   try {
-    const fontEquateRules = layoutResult.data.config?.fontEquateRules;
+    const fontEquateRules = layout.config?.fontEquateRules;
     const { buffer: pdfBuffer, doc } = await renderPdfWithDoc(
       finalLayout,
       renderOptions,
@@ -199,7 +243,7 @@ async function renderFormToPdfInner(
       producer: options.adobe?.metadata?.producer,
       creatorTool: options.adobe?.metadata?.creatorTool,
     });
-    applyDocumentMetadata(doc, layoutResult.data.metadata, {
+    applyDocumentMetadata(doc, layout.metadata, {
       producer: options.adobe?.metadata?.producer,
       creatorTool: options.adobe?.metadata?.creatorTool,
     });
@@ -207,7 +251,7 @@ async function renderFormToPdfInner(
       setNeedsRendering(doc);
     }
 
-    const config = layoutResult.data.config;
+    const config = layout.config;
     let dirty = true;
     if (config?.pdfVersion) {
       applyPdfVersion(doc, config.pdfVersion);
@@ -237,6 +281,97 @@ async function renderFormToPdfInner(
       undefined,
       ERROR_CODES.PDF_GENERATION_FAILED.hint
     );
+  }
+}
+
+async function validatePreparedTemplate(
+  prepared: PreparedTemplate,
+  dataXml: string,
+  options: RenderOptions,
+  timing: RenderTiming
+): Promise<Result<void>> {
+  const dataResult = parseXmlData(dataXml, prepared.schema, options.maxInputSize);
+  if (!dataResult.success) return dataResult;
+  checkAbort(timing);
+
+  const layout = structuredClone(prepared.layout);
+  const locale = normalizeLocale(options.locale ?? layout.locale);
+  const mappedResult = mapPreparedTemplate(
+    layout,
+    prepared.schema,
+    dataResult.data,
+    options,
+    timing
+  );
+  if (!mappedResult.success) return mappedResult;
+
+  const scriptConfig = scriptConfigFor(options, locale, timing);
+  const scriptResult = dispatchScripts(
+    mappedResult.data,
+    dataResult.data as Record<string, unknown>,
+    scriptConfig
+  );
+  if (!scriptResult.success) return scriptResult;
+  checkAbort(timing);
+
+  return success(undefined);
+}
+
+export async function renderFormToPdf(
+  xdpXml: string,
+  xsdXml: string,
+  dataXml: string,
+  options: RenderOptions = {}
+): Promise<Result<Uint8Array>> {
+  try {
+    const timing = renderTiming(options);
+    checkAbort(timing);
+    const preparedResult = prepareTemplate(xdpXml, xsdXml, options, timing);
+    if (!preparedResult.success) return preparedResult;
+    return await renderPreparedTemplate(preparedResult.data, dataXml, xdpXml, options, timing);
+  } catch (error) {
+    return failureFromError(error);
+  }
+}
+
+export async function validateFormInputs(
+  xdpXml: string,
+  xsdXml: string,
+  dataXml: string,
+  options: RenderOptions = {}
+): Promise<Result<void>> {
+  try {
+    const timing = renderTiming(options);
+    checkAbort(timing);
+    const preparedResult = prepareTemplate(xdpXml, xsdXml, options, timing);
+    if (!preparedResult.success) return preparedResult;
+    return await validatePreparedTemplate(preparedResult.data, dataXml, options, timing);
+  } catch (error) {
+    return failureFromError(error);
+  }
+}
+
+export function compileTemplate(
+  xdpXml: string,
+  xsdXml: string,
+  options: RenderOptions = {}
+): Result<CompiledTemplate> {
+  try {
+    const preparedResult = prepareTemplate(xdpXml, xsdXml, options, renderTiming(options));
+    if (!preparedResult.success) return preparedResult;
+    const prepared = preparedResult.data;
+
+    return success({
+      async render(
+        dataXml: string,
+        renderOptions: RenderOptions = {}
+      ): Promise<Result<Uint8Array>> {
+        const merged: RenderOptions = { ...options, ...renderOptions };
+        return renderPreparedTemplate(prepared, dataXml, xdpXml, merged, renderTiming(merged));
+      },
+    });
+  } catch (error) {
+    return failureFromError(error);
   }
 }
 

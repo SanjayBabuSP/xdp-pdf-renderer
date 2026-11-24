@@ -1,4 +1,8 @@
-import { breakLines, LINE_BREAK_TOLERANCE } from '../../../src/rendering/text/line-breaker';
+import {
+  breakLines,
+  breakLinesInfo,
+  LINE_BREAK_TOLERANCE,
+} from '../../../src/rendering/text/line-breaker';
 
 const measure = (s: string): number => s.length;
 
@@ -49,5 +53,27 @@ describe('line-breaker', () => {
 
   it('returns at least one line for empty input', () => {
     expect(breakLines('', 10, measure)).toEqual(['']);
+  });
+
+  it('treats U+2028 as a forced line break even when the line fits', () => {
+    expect(breakLines('Wqxuhgiyni\u2028Bbpiy', 1000, measure)).toEqual(['Wqxuhgiyni', 'Bbpiy']);
+  });
+
+  it('marks U+2028 lines as continuations of one paragraph', () => {
+    expect(breakLinesInfo('aa\u2028bb', 1000, measure)).toEqual([
+      { text: 'aa', paragraphEnd: false },
+      { text: 'bb', paragraphEnd: true },
+    ]);
+  });
+
+  it('treats U+2029 as a paragraph break', () => {
+    expect(breakLinesInfo('aa\u2029bb', 1000, measure)).toEqual([
+      { text: 'aa', paragraphEnd: true },
+      { text: 'bb', paragraphEnd: true },
+    ]);
+  });
+
+  it('wraps U+2028-separated text that exceeds the width', () => {
+    expect(breakLines('aaaaaa\u2028bbbbbb ccc', 6, measure)).toEqual(['aaaaaa', 'bbbbbb', 'ccc']);
   });
 });

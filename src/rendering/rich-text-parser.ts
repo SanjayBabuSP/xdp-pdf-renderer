@@ -8,6 +8,10 @@ export interface TextRun {
   fontSize?: number;
   color?: RgbColor;
   fontFamily?: string;
+  lineAdvance?: number;
+  marginTop?: number;
+  marginBottom?: number;
+  spacerOnly?: boolean;
 }
 
 interface RichState {
@@ -17,19 +21,33 @@ interface RichState {
   fontSize?: number;
   color?: RgbColor;
   fontFamily?: string;
+  lineAdvance?: number;
+  marginTop?: number;
+  marginBottom?: number;
+  spacerOnly?: boolean;
 }
+
+interface StateFrame {
+  state: RichState;
+  tagName: string;
+  inSpacer: boolean;
+}
+
+const BODY_BASELINE: RichState = { bold: false, italic: false, underline: false };
 
 export function parseRichText(html: string): TextRun[] {
   if (!html || !html.trim()) return [];
 
   const runs: TextRun[] = [];
+  const spacerRuns = new Set<TextRun>();
   let remaining = decodeEntities(html);
-  let state: RichState = { bold: false, italic: false, underline: false };
-  const stateStack: RichState[] = [];
+  let state: RichState = { ...BODY_BASELINE };
+  const stateStack: StateFrame[] = [];
+  let spacerDepth = 0;
 
   const pushRun = (text: string): void => {
     if (!text) return;
-    runs.push({
+    const run: TextRun = {
       text,
       bold: state.bold || undefined,
       italic: state.italic || undefined,
@@ -37,7 +55,12 @@ export function parseRichText(html: string): TextRun[] {
       fontSize: state.fontSize,
       color: state.color,
       fontFamily: state.fontFamily,
-    });
+      lineAdvance: state.lineAdvance,
+      marginTop: state.marginTop,
+      marginBottom: state.marginBottom,
+    };
+    runs.push(run);
+    if (spacerDepth > 0 && text.includes('\u00a0')) spacerRuns.add(run);
   };
 
   while (remaining.length) {
@@ -56,12 +79,28 @@ export function parseRichText(html: string): TextRun[] {
     remaining = remaining.slice(tagMatch[0].length);
 
     if (isClosing) {
-      const prev = stateStack.pop();
-      if (prev) state = prev;
+      const matchIndex = findFrameIndex(stateStack, tagName);
+      if (matchIndex < 0) {
+        if (tagName === 'p' || tagName === 'div') state = { ...BODY_BASELINE };
+        continue;
+      }
+      const matched = stateStack[matchIndex];
+      while (stateStack.length > matchIndex) {
+        const frame = stateStack.pop();
+        if (frame?.inSpacer) spacerDepth--;
+      }
+      state = matched.state;
       continue;
     }
 
-    stateStack.push({ ...state });
+    if (tagName === 'br') {
+      pushRun('\n');
+      continue;
+    }
+
+    const inSpacer = /xfa-spacerun\s*:\s*yes/i.test(attrs);
+    stateStack.push({ state: { ...state }, tagName, inSpacer });
+    if (inSpacer) spacerDepth++;
     switch (tagName) {
       case 'b':
       case 'strong':
@@ -70,10 +109,6 @@ export function parseRichText(html: string): TextRun[] {
       case 'i':
       case 'em':
         state.italic = true;
-        break;
-      case 'br':
-        pushRun('\n');
-        stateStack.pop();
         break;
       case 'p':
       case 'div':
@@ -87,7 +122,30 @@ export function parseRichText(html: string): TextRun[] {
     }
   }
 
+  markSpacerParagraphs(runs, spacerRuns);
   return mergeAdjacentRuns(runs);
+}
+
+function findFrameIndex(frames: StateFrame[], tagName: string): number {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    if (frames[i].tagName === tagName) return i;
+  }
+  return -1;
+}
+
+function markSpacerParagraphs(runs: TextRun[], spacerRuns: ReadonlySet<TextRun>): void {
+  let start = 0;
+  for (let i = 0; i <= runs.length; i++) {
+    if (i < runs.length && runs[i].text !== '\n') continue;
+    const paragraph = runs.slice(start, i);
+    if (paragraph.length && paragraph.some((run) => spacerRuns.has(run))) {
+      const content = paragraph.map((run) => run.text).join('');
+      if (/^[\u00a0]+$/.test(content)) {
+        for (const run of paragraph) run.spacerOnly = true;
+      }
+    }
+    start = i + 1;
+  }
 }
 
 export function textRunsToPlainText(runs: TextRun[]): string {
@@ -134,11 +192,41 @@ function applyStyleFromAttrs(state: RichState, attrs: string): void {
   const fontSize = parseFontSizeFromStyle(style);
   if (fontSize) state.fontSize = fontSize;
 
+  const lineAdvance = parseLineAdvanceFromStyle(style, state.fontSize);
+  if (lineAdvance !== undefined) state.lineAdvance = lineAdvance;
+  const marginTop = parseSpacingFromStyle(style, 'top');
+  if (marginTop !== undefined) state.marginTop = marginTop;
+  const marginBottom = parseSpacingFromStyle(style, 'bottom');
+  if (marginBottom !== undefined) state.marginBottom = marginBottom;
+
   const color = parseColorFromStyle(style);
   if (color) state.color = color;
 
   const fontFamily = parseFontFamilyFromStyle(style);
   if (fontFamily) state.fontFamily = fontFamily;
+}
+
+function parseLineAdvanceFromStyle(style: string, fontSize?: number): number | undefined {
+  const match = style.match(/line-height\s*:\s*([\d.]+)(pt|px|em|%)?/i);
+  if (!match) return undefined;
+  const value = Number.parseFloat(match[1]);
+  if (!Number.isFinite(value)) return undefined;
+  const unit = match[2]?.toLowerCase();
+  if (unit === 'pt') return value;
+  if (unit === 'px') return value * 0.75;
+  if (unit === '%') return fontSize === undefined ? undefined : (value / 100) * fontSize;
+  return fontSize === undefined ? value : value * fontSize;
+}
+
+const MARGIN_TOP_RE = /(?:^|;)\s*margin-top\s*:\s*(-?[\d.]+)(pt|px)?/i;
+const MARGIN_BOTTOM_RE = /(?:^|;)\s*margin-bottom\s*:\s*(-?[\d.]+)(pt|px)?/i;
+
+function parseSpacingFromStyle(style: string, property: 'top' | 'bottom'): number | undefined {
+  const match = style.match(property === 'top' ? MARGIN_TOP_RE : MARGIN_BOTTOM_RE);
+  if (!match) return undefined;
+  const value = Number.parseFloat(match[1]);
+  if (!Number.isFinite(value)) return undefined;
+  return match[2]?.toLowerCase() === 'px' ? value * 0.75 : value;
 }
 
 function parseFontFamilyFromStyle(style: string): string | undefined {
@@ -201,6 +289,10 @@ function mergeAdjacentRuns(runs: TextRun[]): TextRun[] {
       prev.underline === curr.underline &&
       prev.fontSize === curr.fontSize &&
       prev.fontFamily === curr.fontFamily &&
+      prev.lineAdvance === curr.lineAdvance &&
+      prev.marginTop === curr.marginTop &&
+      prev.marginBottom === curr.marginBottom &&
+      prev.spacerOnly === curr.spacerOnly &&
       colorsEqual(prev.color, curr.color)
     ) {
       prev.text += curr.text;

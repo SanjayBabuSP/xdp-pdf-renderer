@@ -276,10 +276,14 @@ function renderNumberTemplate(
   const decimals = fracTemplate.length;
   const rounded = abs.toFixed(decimals);
   const [intDigits, fracDigits = ''] = rounded.split('.');
+  const hasMandatoryFraction = /[09]/.test(fracTemplate);
+  const showFraction =
+    decimals > 0 && (hasMandatoryFraction || [...fracDigits].some((digit) => digit !== '0'));
 
   const intOut = renderIntegerTemplate(intTemplate, intDigits, addSign, separators.group);
-  const fracOut =
-    decimals > 0 ? `${separators.decimal}${fillPlaceholders(fracTemplate, fracDigits)}` : '';
+  const fracOut = showFraction
+    ? `${separators.decimal}${fillPlaceholders(fracTemplate, fracDigits)}`
+    : '';
   return `${intOut}${fracOut}${suffix}`;
 }
 

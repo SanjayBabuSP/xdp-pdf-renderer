@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import fontkit from '@pdf-lib/fontkit';
 
@@ -30,24 +31,36 @@ export function familyKey(family: string): string {
     .replace(/[\s_]+/g, '');
 }
 
-export function loadManifest(dir: string = adobeFontDir()): FontManifest | null {
-  const file = manifestPath(dir);
-  if (!fs.existsSync(file)) return null;
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-      fonts?: Record<string, Array<Omit<FontVariant, 'file'> & { file: string }>>;
-      source?: string;
-    };
-    const fonts: Record<string, FontVariant[]> = {};
-    for (const [key, variants] of Object.entries(raw.fonts ?? {})) {
-      const norm = familyKey(key);
-      const list = (fonts[norm] ??= []);
-      for (const variant of variants ?? []) {
-        const file = path.isAbsolute(variant.file) ? variant.file : path.join(dir, variant.file);
-        if (!list.some((v) => v.file === file)) list.push({ ...variant, file });
-      }
+function parseManifest(raw: string, dir: string): FontManifest {
+  const parsed = JSON.parse(raw) as {
+    fonts?: Record<string, Array<Omit<FontVariant, 'file'> & { file: string }>>;
+    source?: string;
+  };
+  const fonts: Record<string, FontVariant[]> = {};
+  for (const [key, variants] of Object.entries(parsed.fonts ?? {})) {
+    const norm = familyKey(key);
+    const list = (fonts[norm] ??= []);
+    for (const variant of variants ?? []) {
+      const file = path.isAbsolute(variant.file) ? variant.file : path.join(dir, variant.file);
+      if (!list.some((v) => v.file === file)) list.push({ ...variant, file });
     }
-    return { fonts, source: raw.source ?? dir };
+  }
+  return { fonts, source: parsed.source ?? dir };
+}
+
+export function loadManifest(dir: string = adobeFontDir()): FontManifest | null {
+  try {
+    return parseManifest(fs.readFileSync(manifestPath(dir), 'utf8'), dir);
+  } catch {
+    return null;
+  }
+}
+
+export async function loadManifestAsync(
+  dir: string = adobeFontDir()
+): Promise<FontManifest | null> {
+  try {
+    return parseManifest(await fsp.readFile(manifestPath(dir), 'utf8'), dir);
   } catch {
     return null;
   }
@@ -156,27 +169,62 @@ function guessWeight(subfamily?: string): number {
 
 const FONT_EXTENSIONS = new Set(['.otf', '.ttf', '.otc', '.ttc']);
 
+function indexFontFile(
+  manifest: FontManifest,
+  entryName: string,
+  file: string,
+  buffer: Buffer
+): void {
+  const ext = path.extname(entryName).toLowerCase();
+  const meta = describeFont(buffer, path.basename(entryName, ext));
+  indexVariant(manifest, meta.family, {
+    file,
+    weight: meta.weight,
+    posture: meta.posture,
+    weightClass: meta.weightClass,
+    psName: meta.psName,
+  });
+}
+
 export function scanFontDir(dir: string): FontManifest {
   const manifest: FontManifest = { fonts: {}, source: dir };
-  if (!fs.existsSync(dir)) return manifest;
-  const entries = fs
-    .readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return manifest;
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const ext = path.extname(entry.name).toLowerCase();
-    if (!FONT_EXTENSIONS.has(ext)) continue;
+    if (!entry.isFile() || !FONT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+    try {
+      indexFontFile(
+        manifest,
+        entry.name,
+        path.join(dir, entry.name),
+        fs.readFileSync(path.join(dir, entry.name))
+      );
+    } catch {
+      continue;
+    }
+  }
+  return manifest;
+}
+
+export async function scanFontDirAsync(dir: string): Promise<FontManifest> {
+  const manifest: FontManifest = { fonts: {}, source: dir };
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return manifest;
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    if (!entry.isFile() || !FONT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
     const file = path.join(dir, entry.name);
     try {
-      const buffer = fs.readFileSync(file);
-      const meta = describeFont(buffer, path.basename(entry.name, ext));
-      indexVariant(manifest, meta.family, {
-        file,
-        weight: meta.weight,
-        posture: meta.posture,
-        weightClass: meta.weightClass,
-        psName: meta.psName,
-      });
+      indexFontFile(manifest, entry.name, file, await fsp.readFile(file));
     } catch {
       continue;
     }

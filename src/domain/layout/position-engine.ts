@@ -1,16 +1,48 @@
-import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode } from '../../types';
+import type { PDFFont } from 'pdf-lib';
+import { LayoutNode, SubformNode, FieldNode, DrawNode, ExclGroupNode, FontSpec } from '../../types';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 import { paraMetrics } from '../../rendering/text/line-metrics';
 import { breakLinesInfo } from '../../rendering/text/line-breaker';
 import { resolveChoiceText } from '../../rendering/ui-values';
-import { parseRichText, textRunsToPlainText } from '../../rendering/rich-text-parser';
+import { parseRichText, type TextRun } from '../../rendering/rich-text-parser';
+import { layoutRunLines, runBlockHeight, type StyledRun } from '../../rendering/text/run-flow';
 import { formatValue } from '../../lib/value-format';
 import { measureLayoutText } from './text-measure';
 import { normalizeRotation } from '../../rendering/text/rotation';
 
 const LINE_ADVANCE = 1.2;
 const DEFAULT_FONT_SIZE = 10;
+const LAYOUT_FONT = {} as PDFFont;
+
+export function effectiveRichFontSize(
+  font: FontSpec | undefined,
+  runs: readonly TextRun[]
+): number {
+  let largest = 0;
+  for (const run of runs) {
+    if (run.fontSize != null && Number.isFinite(run.fontSize) && run.fontSize > largest) {
+      largest = run.fontSize;
+    }
+  }
+  return largest > 0 ? largest : (font?.size ?? DEFAULT_FONT_SIZE);
+}
+
+function anchorOrigin(node: LayoutNode): { dx: number; dy: number } {
+  const position =
+    node.type === 'subform' ||
+    node.type === 'field' ||
+    node.type === 'draw' ||
+    node.type === 'exclGroup'
+      ? node.position
+      : undefined;
+  const anchor = (position?.anchorType ?? '').toLowerCase();
+  const w = position?.w ?? position?.minW ?? 0;
+  const h = position?.h ?? position?.minH ?? 0;
+  const dx = anchor.endsWith('right') ? -w : anchor.endsWith('center') ? -w / 2 : 0;
+  const dy = anchor.startsWith('bottom') ? -h : anchor.startsWith('middle') ? -h / 2 : 0;
+  return { dx, dy };
+}
 
 function getChildX(node: LayoutNode): number {
   if (
@@ -19,7 +51,7 @@ function getChildX(node: LayoutNode): number {
     node.type === 'draw' ||
     node.type === 'exclGroup'
   ) {
-    return node.position?.x ?? 0;
+    return (node.position?.x ?? 0) + anchorOrigin(node).dx;
   }
   return 0;
 }
@@ -31,7 +63,7 @@ function getChildY(node: LayoutNode): number {
     node.type === 'draw' ||
     node.type === 'exclGroup'
   ) {
-    const y = node.position?.y ?? 0;
+    const y = (node.position?.y ?? 0) + anchorOrigin(node).dy;
     if (normalizeRotation(node.position?.rotate ?? 0) === 90) return y - (node.position?.w ?? 0);
     return y;
   }
@@ -140,7 +172,7 @@ function captionHeight(node: FieldNode): number {
 }
 
 function valueLineHeight(node: FieldNode): number {
-  const pm = paraMetrics(node.para, node.font?.size ?? DEFAULT_FONT_SIZE);
+  const pm = paraMetrics(node.para, node.font?.size ?? DEFAULT_FONT_SIZE, node.inheritedFontSize);
   return pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
@@ -203,7 +235,7 @@ function nodeValueHeight(node: FieldNode, width: number, locale?: string): numbe
   const right = node.margin?.rightInset ?? 0;
   const reserve = node.caption?.reserve ?? 0;
   const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
-  const pm = paraMetrics(node.para, fontSize);
+  const pm = paraMetrics(node.para, fontSize, node.inheritedFontSize);
 
   const value =
     node.ui?.type === 'choiceList'
@@ -225,6 +257,18 @@ function nodeValueHeight(node: FieldNode, width: number, locale?: string): numbe
   return top + bottom + lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
 }
 
+function drawTwoLineHeight(node: DrawNode): number {
+  const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
+  const pm = paraMetrics(node.para, fontSize);
+  return (
+    2 * pm.lineAdvance +
+    pm.spaceAbove +
+    pm.spaceBelow +
+    (node.margin?.topInset ?? 0) +
+    (node.margin?.bottomInset ?? 0)
+  );
+}
+
 export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult {
   const contentExtent =
     ctx.widthFromContent && node.position?.w == null
@@ -235,13 +279,24 @@ export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult
     'width',
     contentExtent
   );
+  const rotation = normalizeRotation(node.position?.rotate ?? 0);
+  const vertical = rotation === 90 || rotation === 270;
   const contentHeight = drawValueHeight(node, width);
-  const height = resolveExtent(node.position, 'height', contentHeight > 0 ? contentHeight : 18);
+  const authoredHeight = vertical
+    ? (node.position?.w ?? node.position?.minW)
+    : (node.position?.h ?? node.position?.minH);
+  const oneLineBox =
+    authoredHeight != null &&
+    node.value?.type === 'text' &&
+    authoredHeight < drawTwoLineHeight(node);
+  const grownHeight = oneLineBox ? Math.min(contentHeight, authoredHeight) : contentHeight;
+  const laidHeight = resolveExtent(node.position, 'height', grownHeight > 0 ? grownHeight : 18);
+  const height = vertical && authoredHeight != null ? authoredHeight : laidHeight;
 
   return {
     node: {
       ...node,
-      position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: height },
+      position: { ...node.position, x: ctx.x, y: ctx.y, w: width, h: laidHeight },
     } as DrawNode,
     height,
   };
@@ -250,14 +305,43 @@ export function layoutLeafDraw(node: DrawNode, ctx: LayoutContext): LayoutResult
 export function drawValueHeight(node: DrawNode, width: number): number {
   const value = node.value;
   if (!value) return 0;
-  let text: string;
+  const top = node.margin?.topInset ?? 0;
+  const bottom = node.margin?.bottomInset ?? 0;
+
   if (value.type === 'richText') {
-    text = textRunsToPlainText(parseRichText(value.content ?? ''));
-  } else if (value.type === 'text') {
-    text = value.content ?? '';
-  } else {
-    return 0;
+    const runs = parseRichText(value.content ?? '');
+    if (!runs.length) return 0;
+    const fontSize = effectiveRichFontSize(node.font, runs);
+    const pm = paraMetrics(node.para, fontSize);
+    const styled: StyledRun[] = runs.map((run) => ({
+      text: run.text,
+      size: run.fontSize ?? fontSize,
+      font: LAYOUT_FONT,
+      lineAdvance: run.lineAdvance,
+      marginTop: run.marginTop,
+      marginBottom: run.marginBottom,
+      spacerOnly: run.spacerOnly,
+    }));
+    const lines = layoutRunLines(styled, {
+      maxWidth: width,
+      baseSize: fontSize,
+      measure: (text, run) =>
+        measureLayoutText(
+          text,
+          styled[run].size,
+          runs[run].fontFamily ? { ...node.font, family: runs[run].fontFamily } : node.font
+        ),
+      paragraph: {
+        marginLeft: pm.marginLeft,
+        marginRight: pm.marginRight,
+        firstLineIndent: pm.textIndent,
+      },
+    });
+    return runBlockHeight(lines) + pm.spaceAbove + pm.spaceBelow + top + bottom;
   }
+
+  if (value.type !== 'text') return 0;
+  const text = value.content ?? '';
   if (!text) return 0;
 
   const fontSize = node.font?.size ?? DEFAULT_FONT_SIZE;
@@ -268,7 +352,7 @@ export function drawValueHeight(node: DrawNode, width: number): number {
   const lines = breakLinesInfo(text, innerWidth, (s) => measureLayoutText(s, fontSize, node.font), {
     firstLineIndent: pm.textIndent,
   });
-  return lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow;
+  return lines.length * pm.lineAdvance + pm.spaceAbove + pm.spaceBelow + top + bottom;
 }
 
 export function layoutExclGroup(

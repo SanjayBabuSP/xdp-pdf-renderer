@@ -9,11 +9,33 @@ interface Pdf417Tables {
   clusters: Record<Cluster, string[]>;
 }
 
+interface CompactPdf417Tables {
+  rs: Record<string, number[]>;
+  clusters: Record<Cluster, string>;
+}
+
 let tables: Pdf417Tables | undefined;
 
-function pdf417Data(): Pdf417Tables {
+function decodeCluster(encoded: string): string[] {
+  const bytes = Buffer.from(encoded, 'base64');
+  const patterns: string[] = [];
+  for (let i = 0; i < bytes.length; i += 4) {
+    patterns.push(`${bytes[i]}${bytes[i + 1]}${bytes[i + 2]}${bytes[i + 3]}`);
+  }
+  return patterns;
+}
+
+export function loadPdf417Tables(): Pdf417Tables {
   if (tables === undefined) {
-    tables = requireJson('../config/pdf417-tables.json') as Pdf417Tables;
+    const compact = requireJson('../config/pdf417-tables.compact.json') as CompactPdf417Tables;
+    tables = {
+      rs: compact.rs,
+      clusters: {
+        cluster0: decodeCluster(compact.clusters.cluster0),
+        cluster3: decodeCluster(compact.clusters.cluster3),
+        cluster6: decodeCluster(compact.clusters.cluster6),
+      },
+    };
   }
   return tables;
 }
@@ -210,7 +232,7 @@ export function ecCountForLevel(level: number): number {
 }
 
 function rsGenerator(level: number): number[] {
-  const coefficients = pdf417Data().rs[String(level)];
+  const coefficients = loadPdf417Tables().rs[String(level)];
   if (!coefficients) throw new Error(`PDF417 EC level ${level} has no Adobe coefficients`);
   return coefficients;
 }
@@ -291,7 +313,7 @@ function clusterFor(row: number): Cluster {
 }
 
 function patternFor(row: number, codeword: number): string {
-  const table = pdf417Data().clusters[clusterFor(row)];
+  const table = loadPdf417Tables().clusters[clusterFor(row)];
   const pattern = table[codeword];
   if (!pattern) throw new Error(`PDF417 codeword ${codeword} has no pattern in cluster ${row % 3}`);
   return pattern;

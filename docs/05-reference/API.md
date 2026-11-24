@@ -17,12 +17,15 @@ from the package root; `package.json` exports the root entry and
 
 ```typescript
 render(input: RenderInput): Promise<Result<Uint8Array>>
-validate(input: RenderInput): Promise<Result<Uint8Array>>
+validate(input: RenderInput): Promise<Result<void>>
+compile(xdp: string, xsd: string, options?: RenderOptions): Result<CompiledTemplate>
 inspect(xdp: string): Result<LayoutModel>
 ```
 
 - `render` runs the complete pipeline and returns PDF bytes.
-- `validate` runs the same pipeline without writing a file to disk.
+- `validate` stops after parse, validation, mapping and pre-layout scripts.
+- `compile` parses the template once; `CompiledTemplate.render(data, options?)`
+  renders it with later data sets.
 - `inspect` parses an XDP template into the layout model.
 - None of these throw on bad input; they return `Result<T>`.
 
@@ -52,6 +55,11 @@ inspect(xdp: string): Result<LayoutModel>
 | `signal` | none | `AbortSignal` for cancellation |
 | `timeoutMs` | none | Overall render deadline |
 | `adobe` | none | Adobe PDF feature options |
+
+`signal` and `timeoutMs` are cooperative. They are checked between pipeline
+steps and during script execution; they cannot interrupt synchronous layout or
+drawing work already in progress. They do not turn `vm` into a hard security
+boundary.
 
 ### Error codes
 
@@ -106,14 +114,29 @@ const layout = inspect(xdp);
 if (layout.success) console.log(layout.data.rootSubformName);
 ```
 
+```typescript
+import { compile } from '@sanjay-sde/xdp-pdf-renderer';
+
+const template = compile(xdp, xsd);
+if (template.success) {
+  for (const [index, data] of dataSets.entries()) {
+    const result = await template.data.render(data);
+    if (result.success) await writeFile(`form-${index}.pdf`, result.data);
+  }
+}
+```
+
 ### Security
 
 Scripts run in a restricted Node `vm` context: string and WASM code generation
-are disabled, and injected values are rebased onto sandbox-realm prototypes.
-This is a mitigation, not a security boundary. For untrusted templates, set
-`skipScripts: true`; the library cannot protect against CPU or memory use by
-ordinary script loops. See
-[`docs/04-decisions/2026-11-22-script-isolation.md`](../04-decisions/2026-11-22-script-isolation.md).
+are disabled, the context global has a null prototype, and injected values are
+rebased onto sandbox-realm prototypes. This is a mitigation, not a security
+boundary. For untrusted templates, set `skipScripts: true` and a deadline; the
+library cannot protect against CPU or memory use by ordinary script loops, and
+timeouts cannot interrupt synchronous work. See
+[`docs/04-decisions/2026-11-22-script-isolation.md`](../04-decisions/2026-11-22-script-isolation.md)
+and
+[`docs/04-decisions/2026-11-22-null-prototype-globals.md`](../04-decisions/2026-11-22-null-prototype-globals.md).
 
 ## Applicable rules
 
@@ -123,8 +146,9 @@ ordinary script loops. See
 
 ## Limitations
 
-- `validate` currently runs the full render pipeline before reporting success.
-- The API has no compile-once template cache.
+- `validate` stops before layout and PDF generation; it does not prove that a
+  full render will succeed.
+- `compile` caches parsed template data, not font bytes or rendered pages.
 - Locale support covers XFA picture formatting, not message translation.
 
 ## Related documents

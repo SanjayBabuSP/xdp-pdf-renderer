@@ -1,7 +1,12 @@
 import type { PDFFont } from 'pdf-lib';
 import type { RgbColor } from '../../types';
 import { defaultAscent, defaultLineAdvance, fontAscent, type VerticalAlign } from './line-metrics';
-import { LINE_BREAK_TOLERANCE, NO_BREAK_AFTER, NO_BREAK_BEFORE } from './line-breaker';
+import {
+  BREAK_OPPORTUNITY,
+  LINE_BREAK_TOLERANCE,
+  NO_BREAK_AFTER,
+  NO_BREAK_BEFORE,
+} from './line-breaker';
 import { JUST_H, type JustHCode } from './justifier';
 
 export interface StyledRun {
@@ -11,6 +16,10 @@ export interface StyledRun {
   color?: RgbColor;
   underline?: boolean;
   scale?: number;
+  lineAdvance?: number;
+  marginTop?: number;
+  marginBottom?: number;
+  spacerOnly?: boolean;
 }
 
 export interface RunSegment {
@@ -168,7 +177,7 @@ export function layoutRunBaselines(
 
   const baselines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    baselines.push(i === 0 ? blockTop - lines[0].ascent : baselines[i - 1] - lines[i - 1].advance);
+    baselines.push(i === 0 ? blockTop - lines[0].ascent : baselines[i - 1] - lines[i].advance);
   }
   return baselines;
 }
@@ -290,12 +299,20 @@ function buildLine(
     }
   }
 
+  const advance = resolveAdvance(
+    segments,
+    runs,
+    opts,
+    segments.length ? maxSize : opts.baseSize,
+    paragraphStart,
+    paragraphEnd
+  );
   if (segments.length === 0) {
     return {
       segments,
       width: 0,
       indent,
-      advance: opts.paragraph?.lineAdvance ?? defaultLineAdvance(opts.baseSize),
+      advance,
       ascent: defaultAscent(opts.baseSize),
       paragraphEnd,
     };
@@ -304,10 +321,34 @@ function buildLine(
     segments,
     width: x,
     indent,
-    advance: opts.paragraph?.lineAdvance ?? defaultLineAdvance(maxSize),
+    advance,
     ascent,
     paragraphEnd,
   };
+}
+
+function resolveAdvance(
+  segments: RunSegment[],
+  runs: StyledRun[],
+  opts: RunLineOptions,
+  fallbackSize: number,
+  paragraphStart: boolean,
+  paragraphEnd: boolean
+): number {
+  let authored: number | undefined;
+  for (const segment of segments) {
+    const value = runs[segment.run].lineAdvance;
+    if (value !== undefined) {
+      authored = value;
+      break;
+    }
+  }
+  const firstRun = segments.length ? runs[segments[0].run] : undefined;
+  const top = paragraphStart ? (firstRun?.marginTop ?? 0) : 0;
+  const bottom = paragraphEnd ? (firstRun?.marginBottom ?? 0) : 0;
+  return (
+    (authored ?? opts.paragraph?.lineAdvance ?? defaultLineAdvance(fallbackSize)) + top + bottom
+  );
 }
 
 interface Chunk {
@@ -343,7 +384,14 @@ function hardSplit(
           width += chWidth;
           continue;
         }
-        flush();
+        const split = splitAtOpportunity(pieces, measure);
+        if (split) {
+          chunks.push({ pieces: split.head, width: split.headWidth });
+          pieces = split.tail;
+          width = split.tailWidth;
+        } else {
+          flush();
+        }
       }
       appendCharTo(pieces, ch, piece.run);
       width += chWidth;
@@ -351,6 +399,41 @@ function hardSplit(
   }
   flush();
   return chunks.length ? chunks : [{ pieces: token.pieces, width: token.width }];
+}
+
+interface OpportunitySplit {
+  head: Piece[];
+  tail: Piece[];
+  headWidth: number;
+  tailWidth: number;
+}
+
+function splitAtOpportunity(
+  pieces: Piece[],
+  measure: (text: string, run: number) => number
+): OpportunitySplit | undefined {
+  for (let p = pieces.length - 1; p >= 0; p--) {
+    const piece = pieces[p];
+    for (let c = piece.text.length - 1; c >= 0; c--) {
+      const ch = piece.text[c];
+      if (!BREAK_OPPORTUNITY.has(ch)) continue;
+      if (ch === '/' && piece.text[c + 1] === '/') continue;
+      const head: Piece[] = pieces.slice(0, p);
+      const headText = piece.text.slice(0, c + 1);
+      const tailText = piece.text.slice(c + 1);
+      if (headText) head.push({ text: headText, run: piece.run });
+      const tail: Piece[] = [];
+      if (tailText) tail.push({ text: tailText, run: piece.run });
+      for (let q = p + 1; q < pieces.length; q++) tail.push({ ...pieces[q] });
+      if (!head.length || !tail.length) continue;
+      let headWidth = 0;
+      for (const hp of head) headWidth += measure(hp.text, hp.run);
+      let tailWidth = 0;
+      for (const tp of tail) tailWidth += measure(tp.text, tp.run);
+      return { head, tail, headWidth, tailWidth };
+    }
+  }
+  return undefined;
 }
 
 function appendCharTo(bucket: Piece[], ch: string, run: number): void {

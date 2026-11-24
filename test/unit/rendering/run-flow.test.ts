@@ -228,6 +228,19 @@ describe('run-flow — vertical stacking', () => {
   it('sums per-line advances for the overflow-clip test', () => {
     expect(runBlockHeight(lines)).toBeCloseTo(defaultLineAdvance(10) * 2, 6);
   });
+
+  it('gaps each line by its own advance, not the previous one', () => {
+    const runs: StyledRun[] = [
+      { text: 'aa\n', size: 10, font: fakeFont },
+      { text: 'bb', size: 10, font: fakeFont, lineAdvance: 22.5 },
+    ];
+    const mixed = layoutRunLines(runs, { maxWidth: 1000, baseSize: 10, measure });
+    expect(mixed).toHaveLength(2);
+    expect(mixed[1].advance).toBeCloseTo(22.5, 6);
+    expect(runBlockHeight(mixed)).toBeCloseTo(defaultLineAdvance(10) + 22.5, 6);
+    const baselines = layoutRunBaselines(mixed, { top: 100, bottom: 0 }, 'top');
+    expect(baselines[1]).toBeCloseTo(baselines[0] - 22.5, 6);
+  });
 });
 
 describe('run-flow — rich text round trip', () => {
@@ -256,5 +269,49 @@ describe('run-flow — rich text round trip', () => {
     }));
     const lines = layoutRunLines(styledRuns, { maxWidth: 1000, baseSize: 10, measure });
     expect(lines.map(lineText)).toEqual(['first', 'second']);
+  });
+});
+
+describe('run-flow — rich paragraph vertical metrics', () => {
+  const toStyled = (text: string): StyledRun[] =>
+    parseRichText(text).map((run) => ({
+      text: run.text,
+      size: run.fontSize ?? 10,
+      font: fakeFont,
+      lineAdvance: run.lineAdvance,
+      marginTop: run.marginTop,
+      marginBottom: run.marginBottom,
+      spacerOnly: run.spacerOnly,
+    }));
+
+  it('uses each paragraph’s authored CSS line-height', () => {
+    const styled = toStyled(
+      '<p style="font-size:10pt;line-height:22pt">First</p>' +
+        '<p style="font-size:10pt;line-height:8pt">Second</p>'
+    );
+    const lines = layoutRunLines(styled, { maxWidth: 1000, baseSize: 10, measure });
+    expect(lines.map((line) => line.advance)).toEqual([22, 8]);
+    expect(runBlockHeight(lines)).toBe(30);
+  });
+
+  it('resolves a unitless line-height against the authored font size', () => {
+    const runs = parseRichText('<p style="font-size:6.5pt;line-height:1.5">Text</p>');
+    expect(runs[0].lineAdvance).toBeCloseTo(9.75, 6);
+  });
+
+  it('gives a spacer-only paragraph its authored advance', () => {
+    const styled = toStyled(
+      '<p style="font-size:8pt;line-height:7pt">' +
+        '<span style="xfa-spacerun:yes">\u00a0</span></p><p>Next</p>'
+    );
+    expect(styled[0].spacerOnly).toBe(true);
+    const lines = layoutRunLines(styled, { maxWidth: 1000, baseSize: 10, measure });
+    expect(lines.map((line) => line.advance)).toEqual([7, 12]);
+    expect(runBlockHeight(lines)).toBe(19);
+  });
+
+  it('does not mark ordinary NBSP text as spacer-only', () => {
+    const runs = parseRichText('<p>A\u00a0B</p>');
+    expect(runs.some((run) => run.spacerOnly)).toBe(false);
   });
 });

@@ -1,4 +1,8 @@
 import { parseRichText, textRunsToPlainText } from '../../../src/rendering/rich-text-parser';
+import { resolveXfaEmbedsInHtml } from '../../../src/domain/mapping/resolve-embeds';
+
+const embedLookup = (id: string) =>
+  id === 'unit' ? { raw: 'kg/m3', formatted: 'KG/M3' } : undefined;
 
 describe('RichTextParser', () => {
   describe('parseRichText', () => {
@@ -61,6 +65,18 @@ describe('RichTextParser', () => {
       const sizedRun = runs.find((r) => r.fontSize === 12);
       expect(sizedRun).toBeDefined();
       expect(sizedRun!.text).toContain('Big text');
+    });
+
+    it('carries a body-level CSS font-size onto every run when XDP has no size', () => {
+      const runs = parseRichText('<body style="font-size:12pt"><p>First</p><p>Second</p></body>');
+      expect(runs.length).toBeGreaterThan(0);
+      expect(runs.every((r) => r.fontSize === 12)).toBe(true);
+    });
+
+    it('leaves fontSize unset when no CSS font-size is declared', () => {
+      const runs = parseRichText('<p>Plain</p>');
+      expect(runs.length).toBeGreaterThan(0);
+      expect(runs.every((r) => r.fontSize === undefined)).toBe(true);
     });
 
     it('parses span with color style (rgb)', () => {
@@ -132,6 +148,40 @@ describe('RichTextParser', () => {
       expect(runs.find((r) => r.text === 'A')?.bold).toBe(true);
       expect(runs.find((r) => r.text === 'B')?.bold).toBeUndefined();
       expect(runs.find((r) => r.text === 'C')?.bold).toBe(true);
+    });
+
+    it('does not leak embed-wrapper bold into the following paragraph', () => {
+      const html =
+        '<p style="font-weight:bold">Footnote:<span style="font-weight:normal">' +
+        '<span xfa:embedMode="raw" xfa:embed="#unit"/></span></p>' +
+        '<p style="letter-spacing:0in">Next paragraph</p>';
+      const runs = parseRichText(resolveXfaEmbedsInHtml(html, embedLookup));
+      expect(runs.find((r) => r.text === 'kg/m3')?.bold).toBeUndefined();
+      expect(runs.find((r) => r.text === 'Next paragraph')?.bold).toBeUndefined();
+    });
+
+    it('pops unclosed nested spans when the matching block closes', () => {
+      const runs = parseRichText(
+        '<p style="font-weight:bold">A<span style="font-weight:normal">B</p><p>C</p>'
+      );
+      expect(runs.find((r) => r.text === 'B')?.bold).toBeUndefined();
+      expect(runs.find((r) => r.text === 'C')?.bold).toBeUndefined();
+    });
+
+    it('does not pop span state for an unmatched closing p', () => {
+      const runs = parseRichText(
+        '<span style="color:rgb(255,0,0)"><span style="font-weight:bold">A</p>B</span>C</span>'
+      );
+      expect(runs.find((r) => r.text === 'B')?.color).toBeUndefined();
+      expect(runs.find((r) => r.text === 'B')?.bold).toBeUndefined();
+      expect(runs.find((r) => r.text === 'C')?.color).toEqual({ r: 255, g: 0, b: 0 });
+    });
+
+    it('ignores closing tags with no matching open', () => {
+      const runs = parseRichText(
+        '<span style="font-size:12pt">A</b><span style="font-weight:bold">B</span>C</span>'
+      );
+      expect(runs.find((r) => r.text === 'C')?.fontSize).toBe(12);
     });
   });
 

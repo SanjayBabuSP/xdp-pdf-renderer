@@ -1,4 +1,5 @@
 import { LayoutNode, SubformNode } from '../../types';
+import { halfStrokeWidth } from '../../rendering/border-style';
 import { LayoutContext, LayoutResult, ChildLayouter } from './engine-types';
 import { resolveExtent, resolveSubformHeight } from './sizing';
 import { calculateTableLayout } from './calculate-table-layout';
@@ -89,14 +90,34 @@ function layoutRow(
   };
 }
 
+function cellHalfBorder(cell: LayoutNode): number {
+  const border = cell.border ?? (cell.type === 'draw' ? cell.value?.shapeBorder : undefined);
+  if (
+    !border ||
+    border.presence === 'hidden' ||
+    border.presence === 'invisible' ||
+    border.presence === 'inactive'
+  )
+    return 0;
+  const edges = border.edges;
+  if (!edges || edges.length === 0) return 0;
+  const edge = edges.length === 1 ? edges[0] : (edges[2] ?? edges[0]);
+  if (!edge || edge.presence === 'hidden' || edge.presence === 'invisible' || edge.style === 'none')
+    return 0;
+  const half = halfStrokeWidth(edge);
+  return Number.isFinite(half) && half > 0 ? half : 0;
+}
+
 function tableCellRowHeight(cell: LayoutNode, resultHeight: number): number {
-  if (cell.type !== 'field') return resultHeight;
   const pos = cell.position;
-  if (!pos || (pos.h != null && pos.h !== 0) || pos.minH == null) return resultHeight;
-  const edges = cell.margin ?? {};
-  const verticalMargins = (edges.topInset ?? 0) + (edges.bottomInset ?? 0);
-  const halfBorder = (0.1778 * 72) / 25.4 / 2;
-  return Math.max(pos.minH + halfBorder, resultHeight - verticalMargins);
+  if (!pos || (pos.h != null && pos.h !== 0)) return resultHeight;
+  const halfBorder = cellHalfBorder(cell);
+  if (halfBorder === 0 && pos.minH == null) return resultHeight;
+  const margins = cell.margin ?? {};
+  const verticalMargins = (margins.topInset ?? 0) + (margins.bottomInset ?? 0);
+  const contentHeight = resultHeight - verticalMargins;
+  const base = pos.minH != null ? Math.max(pos.minH, contentHeight) : contentHeight;
+  return base + halfBorder;
 }
 
 function rowCellHasContent(cell: LayoutNode): boolean {

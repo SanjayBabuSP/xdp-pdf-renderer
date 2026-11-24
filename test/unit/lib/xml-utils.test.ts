@@ -18,6 +18,11 @@ describe('xml-utils robustness (ADS parity)', () => {
     expect(firstChild(draw, 'value')).toEqual({ text: 'A' });
   });
 
+  it('preserves literal non-breaking spaces in text nodes', () => {
+    const doc = parseXml('<text>AKJSZ MGYAWXDT:\u00a0\u00a0+</text>');
+    expect(textContent(doc.text)).toBe('AKJSZ MGYAWXDT:\u00a0\u00a0+');
+  });
+
   it('extracts caption text from rich-text exData', () => {
     const doc = parseXml(
       `<caption><value><exData contentType="text/html">` +

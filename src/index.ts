@@ -1,5 +1,5 @@
-import { Result, RenderOptions, LayoutModel } from './types';
-import { renderFormToPdf } from './workflows/render-pdf';
+import { Result, RenderOptions, LayoutModel, CompiledTemplate } from './types';
+import { renderFormToPdf, validateFormInputs, compileTemplate } from './workflows/render-pdf';
 import { parseXdp } from './domain/parsing/parse-xdp';
 
 /**
@@ -44,11 +44,11 @@ export async function render({
 }
 
 /**
- * Runs the full render pipeline without writing a PDF to disk.
+ * Parses, validates and maps the inputs without building a PDF.
  *
  * @param input - Template, schema, data and optional rendering settings.
- * @returns A success result when the inputs pass validation and render, or a
- * failure result with a machine-readable error code.
+ * @returns A success result when the inputs pass validation, or a failure
+ * result with a machine-readable error code.
  *
  * @example
  * ```typescript
@@ -58,8 +58,35 @@ export async function render({
  * if (!result.success) console.error(result.error.code, result.error.hint);
  * ```
  */
-export async function validate(input: RenderInput): Promise<Result<Uint8Array>> {
-  return render(input);
+export async function validate(input: RenderInput): Promise<Result<void>> {
+  const { xdp, xsd, data, options } = input;
+  return validateFormInputs(xdp, xsd, data, options ?? {});
+}
+
+/**
+ * Parses an XDP template and XSD schema once for reuse with multiple data sets.
+ *
+ * @param xdp - XDP template as text.
+ * @param xsd - XSD schema as text.
+ * @param options - Optional rendering settings used as defaults for each render.
+ * @returns A success result with a reusable template, or a failure result.
+ *
+ * @example
+ * ```typescript
+ * import { compile } from '@sanjay-sde/xdp-pdf-renderer';
+ *
+ * const result = compile(xdp, xsd);
+ * if (result.success) {
+ *   const pdf = await result.data.render(data);
+ * }
+ * ```
+ */
+export function compile(
+  xdp: string,
+  xsd: string,
+  options?: RenderOptions
+): Result<CompiledTemplate> {
+  return compileTemplate(xdp, xsd, options);
 }
 
 /**
@@ -80,6 +107,13 @@ export function inspect(xdp: string): Result<LayoutModel> {
   return parseXdp(xdp);
 }
 
-export type { AdobeOptions, ErrorResult, LayoutModel, Result, RenderOptions } from './types';
+export type {
+  AdobeOptions,
+  CompiledTemplate,
+  ErrorResult,
+  LayoutModel,
+  Result,
+  RenderOptions,
+} from './types';
 export type { ErrorCode, ErrorCodeKey } from './errors/error-codes';
 export { ERROR_CODES } from './errors/error-codes';

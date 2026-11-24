@@ -1,0 +1,15 @@
+Arial font subsets
+==================
+
+Files: Arial-Regular.ttf, Arial-Bold.ttf, Arial-Italic.ttf
+
+These files are Latin-1/common-punctuation subsets of the Arial, Arial Bold and
+Arial Italic font programs embedded in the Adobe-generated oracle PDFs under
+test/fixtures/sample-forms/Adobe-generated-results/. They were produced with
+fontTools; hinting was removed and the character set was limited to Latin-1 and
+common punctuation (no Greek glyphs). They exist solely to reproduce the
+metric-compatible Arial faces requested by XFA templates.
+
+Arial is a trademark of Monotype Imaging Inc. The font software remains subject
+to its applicable font licence. This repository grants no additional rights to
+the font programs; redistribute these subsets only as permitted by that licence.

@@ -8,6 +8,7 @@ describe('public barrels expose their runtime exports', () => {
   it('src/index.ts exposes the public API', () => {
     expect(typeof root.render).toBe('function');
     expect(typeof root.validate).toBe('function');
+    expect(typeof root.compile).toBe('function');
     expect(typeof root.inspect).toBe('function');
     expect(typeof root.ERROR_CODES).toBe('object');
     expect(root.ERROR_CODES.PDF_GENERATION_FAILED.code).toBe('REN_5003');

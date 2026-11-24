@@ -1,8 +1,11 @@
+import { PDFDocument } from 'pdf-lib';
 import {
   DEFAULT_EDGE_THICKNESS_PT,
   quantizeDeviceStrokeWidth,
   quantizeStrokeWidth,
 } from '../../../src/rendering/border-style';
+import { drawBorderBox, drawEdge } from '../../../src/rendering/pdf-renderer/border-fill';
+import type { BorderSpec } from '../../../src/types';
 import { renderFormToPdf } from '../../../src/workflows/render-pdf';
 import { contentStream } from '../../helpers/pdf-content';
 
@@ -128,7 +131,121 @@ describe('rendered stroke widths', () => {
     }
   });
 
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['zero', 0],
+  ])('skips a non-finite or non-positive thickness (%s) at emission', async (_label, thickness) => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, { thickness }, 10, 10, 100, 10);
+    const content = await contentStream(Buffer.from(await doc.save()));
+    expect(content).not.toMatch(/(?:^|\n)[\d.]+ w(?:\n|$)/);
+    expect(content).not.toContain('Infinity');
+    expect(content).not.toContain('NaN');
+  });
+
   it('keeps the default edge thickness at the 0.5pt specification value', () => {
     expect(DEFAULT_EDGE_THICKNESS_PT).toBe(0.5);
+  });
+});
+
+describe('per-page coincident edge de-duplication', () => {
+  const edge = { thickness: 0.5, color: { r: 0, g: 0, b: 0 } };
+
+  function strokeCount(content: string): number {
+    return (content.match(/(?:^|\n)S(?:\n|$)/g) ?? []).length;
+  }
+
+  async function contentOf(doc: PDFDocument): Promise<string> {
+    return contentStream(Buffer.from(await doc.save()));
+  }
+
+  it('emits one stroke for exactly coincident edges on the same page', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, edge, 10, 10, 100, 10);
+    drawEdge(page, edge, 10, 10, 100, 10);
+    expect(strokeCount(await contentOf(doc))).toBe(1);
+  });
+
+  it('treats reversed endpoints as the same coincident edge', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, edge, 10, 10, 100, 10);
+    drawEdge(page, edge, 100, 10, 10, 10);
+    expect(strokeCount(await contentOf(doc))).toBe(1);
+  });
+
+  it('emits distinct edges separately', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, edge, 10, 10, 100, 10);
+    drawEdge(page, edge, 10, 20, 100, 20);
+    drawEdge(page, edge, 10, 10, 100, 11);
+    expect(strokeCount(await contentOf(doc))).toBe(3);
+  });
+
+  it('keeps coincident overprints with different colour, dash pattern or opacity', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, edge, 10, 10, 100, 10);
+    drawEdge(page, { ...edge, color: { r: 255, g: 0, b: 0 } }, 10, 10, 100, 10);
+    drawEdge(page, { ...edge, style: 'dashed' }, 10, 10, 100, 10);
+    drawEdge(page, { ...edge, opacity: 0.5 }, 10, 10, 100, 10);
+    expect(strokeCount(await contentOf(doc))).toBe(4);
+  });
+
+  it('normalises endpoints to 0.01pt before comparing', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawEdge(page, edge, 10.001, 20.002, 100.001, 20.002);
+    drawEdge(page, edge, 10.004, 20.003, 100.004, 20.003);
+    drawEdge(page, edge, 10.03, 20.002, 100.001, 20.002);
+    expect(strokeCount(await contentOf(doc))).toBe(2);
+  });
+
+  it('deduplicates per PDFPage, not across pages', async () => {
+    const doc = await PDFDocument.create();
+    drawEdge(doc.addPage([200, 200]), edge, 10, 10, 100, 10);
+    drawEdge(doc.addPage([200, 200]), edge, 10, 10, 100, 10);
+    const bytes = Buffer.from(await doc.save());
+    expect(strokeCount(await contentStream(bytes, 0))).toBe(1);
+    expect(strokeCount(await contentStream(bytes, 1))).toBe(1);
+  });
+
+  const box: BorderSpec = { edges: [edge] };
+  const boxPos = { x: 10, y: 10, w: 100, h: 50 };
+
+  function drawBox(page: PDFPage, border: BorderSpec = box, pos = boxPos): void {
+    drawBorderBox(page, border, pos, 200);
+  }
+
+  it('emits one single re/S path for two identical uniform boxes on one page', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawBox(page);
+    drawBox(page);
+    const content = await contentOf(doc);
+    expect(strokeCount(content)).toBe(1);
+    expect(content.match(/ re\n/g) ?? []).toHaveLength(1);
+  });
+
+  it('deduplicates uniform boxes per PDFPage, not across pages', async () => {
+    const doc = await PDFDocument.create();
+    drawBox(doc.addPage([200, 200]));
+    drawBox(doc.addPage([200, 200]));
+    const bytes = Buffer.from(await doc.save());
+    expect(strokeCount(await contentStream(bytes, 0))).toBe(1);
+    expect(strokeCount(await contentStream(bytes, 1))).toBe(1);
+  });
+
+  it('keeps uniform boxes with different geometry or style separate', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([200, 200]);
+    drawBox(page);
+    drawBox(page, box, { ...boxPos, y: 11 });
+    drawBox(page, { edges: [{ ...edge, color: { r: 255, g: 0, b: 0 } }] });
+    expect(strokeCount(await contentOf(doc))).toBe(3);
   });
 });
