@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.5.0...v0.6.0) (2026-11-24)
+
+
+### Features
+
+* **tests:** enhance rendering tests for URL break opportunities and rich text metrics ([5fffac8](https://github.com/SanjayBabuSP/xdp-pdf-renderer/commit/5fffac86f3f0827cae209a7a64716eaa04adf8b7))
+
 ## [0.5.0](https://github.com/SanjayBabuSP/xdp-pdf-renderer/compare/v0.4.0...v0.5.0) (2026-11-22)
 
 
