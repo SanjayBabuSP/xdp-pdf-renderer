@@ -21,7 +21,7 @@ describe('G16 — FontManager font-sequence fallback', () => {
     expect(helvetica.name).toContain('Helvetica');
   });
 
-  itWithImportedFaces(['SimSun-ExtB', 'SimSun'])(
+  itWithImportedFaces(['AdobeSongStd-Light'])(
     'resolves SimSun-ExtB through its sequence to an embedded CJK face',
     async () => {
       const doc = await PDFDocument.create();
@@ -33,8 +33,10 @@ describe('G16 — FontManager font-sequence fallback', () => {
     }
   );
 
-  it('renders CJK text with the sequenced face without failing', async () => {
-    const xdp = `<?xml version="1.0" encoding="UTF-8"?>
+  itWithImportedFaces(['AdobeSongStd-Light'])(
+    'renders CJK text with the sequenced face without failing',
+    async () => {
+      const xdp = `<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
   <template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
     <subform name="value" layout="tb">
@@ -50,18 +52,19 @@ describe('G16 — FontManager font-sequence fallback', () => {
     </subform>
   </template>
 </xdp:xdp>`;
-    const xsd = `<?xml version="1.0" encoding="UTF-8"?>
+      const xsd = `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
            xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="value"><xs:complexType><xs:sequence>
     <xs:element type="xs:string" name="v" minOccurs="0"/>
   </xs:sequence></xs:complexType></xs:element>
 </xs:schema>`;
-    const data = `<?xml version="1.0" encoding="UTF-8"?><value><v>日本語テスト</v></value>`;
-    const result = await renderFormToPdf(xdp, xsd, data, {});
-    expect(result.success).toBe(true);
-    if (!result.success) throw new Error(result.error.message);
-    const facts = await contentStream(result.data);
-    expect(facts.length).toBeGreaterThan(0);
-  });
+      const data = `<?xml version="1.0" encoding="UTF-8"?><value><v>日本語テスト</v></value>`;
+      const result = await renderFormToPdf(xdp, xsd, data, {});
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error(result.error.message);
+      const facts = await contentStream(result.data);
+      expect(facts.length).toBeGreaterThan(0);
+    }
+  );
 });

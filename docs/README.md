@@ -60,6 +60,8 @@ This is the entry point for humans and AI agents. Read in this order.
   — Root causes for the paragraph spacing and table render defects.
 - [`02-research/2026-11-23-table-double-shift.md`](02-research/2026-11-23-table-double-shift.md)
   — Root causes for the straddling-table double shift and leaf split.
+- [`02-research/2026-11-24-ci-optional-font-tests.md`](02-research/2026-11-24-ci-optional-font-tests.md)
+  — Optional Adobe font tests that fail on clean CI checkouts.
 - [`02-research/_TEMPLATE.md`](02-research/_TEMPLATE.md) — template for new
   research notes.
 
@@ -103,6 +105,8 @@ This is the entry point for humans and AI agents. Read in this order.
   — Paragraph spacing and table render parity plan.
 - [`03-plans/2026-11-23-table-double-shift.md`](03-plans/2026-11-23-table-double-shift.md)
   — Straddling-table double-shift and leaf-split fix plan.
+- [`03-plans/2026-11-24-ci-optional-font-tests.md`](03-plans/2026-11-24-ci-optional-font-tests.md)
+  — Guard optional Adobe font tests for clean CI checkouts.
 - [`03-plans/_TEMPLATE.md`](03-plans/_TEMPLATE.md) — template for new plans.
 
 ## 5. Decisions

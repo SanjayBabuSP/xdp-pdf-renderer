@@ -458,6 +458,7 @@ fixture-specific code to make a diff disappear.
 | `test/unit/domain/layout/position-engine.test.ts`                                              | Rotated visual-height flow contribution; `anchorType` shifts positioned children to the top-left corner; rich text sizes from CSS/default advances, ignoring `<para>` lineHeight |
 | `test/unit/rendering/text-parity.test.ts`                                                      | Protruding rich fragments re-anchor to the band top; rich-text line advance uses the font default when `<para>` lineHeight is authored                                           |
 | `test/unit/rendering/glyph-coverage.test.ts`                                                   | Blank separators missing from a known charset become spaces; covered NBSP kept; tabs/newlines preserved                                                                          |
+| `test/unit/rendering/glyph-coverage.test.ts`, `font-sequence-fallback.test.ts`                 | Optional Adobe Song face tests skip on clean checkouts and run when the imported face is present; SimSun alias-guard bug covered                                                      |
 | `test/unit/rendering/border-parity.test.ts`                                                    | Coincident different-thickness borders paint once; partial overlaps repaint unseen sides                                                                                         |
 | `test/integration/workflow/para-rendering.test.ts`                                             | Rich-text pitch ignores `<para>` lineHeight but keeps its margins and indent                                                                                                     |
 | `test/unit/rendering/line-breaker.test.ts`                                                     | Slash-preferred wrapping; U+2028 line break and U+2029 paragraph break                                                                                                            |
@@ -469,6 +470,24 @@ fixture-specific code to make a diff disappear.
 | `test/unit/rendering/field-caption-baseline.test.ts`                                           | Caption and value share one baseline in a fixed-height field                                                                                                                       |
 
 ## 11. Change ledger (append newest first)
+
+### 2026-11-24 — CI-safe optional Adobe font tests
+
+- `test/unit/rendering/glyph-coverage.test.ts` and
+  `font-sequence-fallback.test.ts`: the optional Adobe Song assertions now use
+  `itWithImportedFaces(['AdobeSongStd-Light'])`. Reason: clean checkouts do not
+  contain the gitignored `assets/fonts/adobe` set; glyph coverage threw `ENOENT`
+  on `AdobeSongStd-Light.otf`, and the CJK render test produced zero text facts
+  when the sequence fell back to DejaVu without CJK coverage.
+- The adjacent SimSun resolution test was guarded with alias names
+  (`SimSun-ExtB`, `SimSun`), which the manifest does not contain; it skipped
+  even when the face was installed. It now checks the target face, so it runs
+  locally and skips only when the face is absent.
+- Verification: simulated clean checkout gives 123 unit suites pass with 7
+  skipped, coverage 94.4/84.94/95.61/96.54, and 140 full suites pass with 8
+  skipped. Local fonts present gives 1602 unit tests pass with 0 skips.
+- Research/plan: `docs/02-research/2026-11-24-ci-optional-font-tests.md`,
+  `docs/03-plans/2026-11-24-ci-optional-font-tests.md`.
 
 ### 2026-11-23 — straddling table double-shift and leaf-split
 

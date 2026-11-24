@@ -3,6 +3,7 @@ import * as path from 'path';
 import { PDFDocument, type PDFFont } from 'pdf-lib';
 import { createPatchedFontkit } from '../../../src/rendering/cff-subset-patch';
 import { hasGlyph, sanitizeTextForFont } from '../../../src/rendering/text/glyph-coverage';
+import { itWithImportedFaces } from '../../helpers/adobe-fonts';
 
 const FONT_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'fonts');
 
@@ -63,11 +64,14 @@ describe('sanitizeTextForFont', () => {
     expect(sanitizeTextForFont(once, font)).toBe(once);
   });
 
-  it('preserves Chinese text supported by an embedded AdobeSongStd face', async () => {
-    const font = await embedFont('adobe/AdobeSongStd-Light.otf');
+  itWithImportedFaces(['AdobeSongStd-Light'])(
+    'preserves Chinese text supported by an embedded AdobeSongStd face',
+    async () => {
+      const font = await embedFont('adobe/AdobeSongStd-Light.otf');
 
-    expect(sanitizeTextForFont('中文测试', font)).toBe('中文测试');
-  });
+      expect(sanitizeTextForFont('中文测试', font)).toBe('中文测试');
+    }
+  );
 
   it('leaves text unchanged when the font exposes no character set', () => {
     const fontLike = { widthOfTextAtSize: () => 1 } as unknown as PDFFont;
